@@ -104,6 +104,36 @@ final class ReservationRoaming
             && $evseTime->lte($location->source_updated_at);
     }
 
+    /** A Location refresh alone does not prove that its selected EVSE became free. */
+    private function hasPostClosureConnectorEvidence(OcpiRecord $location, array $target, CarbonImmutable $cutoff): bool
+    {
+        $evses = $location->payload['evses'] ?? null;
+        if (! is_array($evses) || ! array_is_list($evses)) {
+            return false;
+        }
+        $matches = array_values(array_filter($evses, fn ($evse) => is_array($evse) && ($evse['uid'] ?? null) === $target['evse_uid']));
+        if (count($matches) !== 1 || ($matches[0]['status'] ?? null) !== 'AVAILABLE') {
+            return false;
+        }
+        $evse = $matches[0];
+        $connectors = $evse['connectors'] ?? null;
+        if (! is_array($connectors) || ! array_is_list($connectors)) {
+            return false;
+        }
+        $selected = array_values(array_filter($connectors, fn ($connector) => is_array($connector) && ($connector['id'] ?? null) === $target['connector_id']));
+        if (count($selected) !== 1) {
+            return false;
+        }
+        $evseTime = $this->sourceUtcInstant($evse['last_updated'] ?? null);
+        $connectorTime = $this->sourceUtcInstant($selected[0]['last_updated'] ?? null);
+
+        return $evseTime !== null && $connectorTime !== null
+            && $connectorTime->gt($cutoff) && $evseTime->gt($cutoff)
+            && $connectorTime->gte(now()->subMinutes(5))
+            && $connectorTime->lte($evseTime)
+            && $evseTime->lte($location->source_updated_at);
+    }
+
     public function sessions(object $order): Collection
     {
         $rows = OcpiRecord::where('ocpi_provider_id', $order->provider_id)->where('module', 'sessions')->where('id', '>', $order->source_record_floor)->orderByDesc('id')->limit(1001)->get();
@@ -153,7 +183,7 @@ final class ReservationRoaming
 
                 return false;
             }
-            abort_unless($row->active_target_key !== null, 409);
+            abort_unless($row->active_target_key !== null && $row->reservation_cancelled_at === null, 409);
             abort_if($this->pending($row->id), 409);
             abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409, 'Reconcile the owned charging session and use its stop workflow. Reservation cancellation is not a charging stop.');
             if ($row->token_revoked_at === null) {
@@ -167,6 +197,51 @@ final class ReservationRoaming
         }
         app(RoamingDispatch::class)->revokeToken(DB::table('ocpi_roaming_orders')->find($order->id), $actor);
         $this->send($actor, $order, 'CANCEL_RESERVATION', $key);
+    }
+
+    private function sameClaim(object $row, object $command, object $order, string $action): bool
+    {
+        return (int) $row->order_id === (int) $order->id
+            && (int) $row->actor_id === (int) $order->user_id
+            && $row->action === $action
+            && $row->request_key === $command->request_key
+            && $row->callback_key === $command->callback_key
+            && hash_equals($row->intent_hash, $command->intent_hash)
+            && hash_equals($row->payload_ciphertext, $command->payload_ciphertext);
+    }
+
+    private function payload(object $row, string $action, string $callback, array $local, SandboxRoaming $service): array
+    {
+        $payload = ['response_url' => substr($local['url'], 0, -strlen('versions')).'2.2.1/commands/'.$callback,
+            'reservation_id' => $row->reservation_id];
+        if ($action === 'RESERVE_NOW') {
+            $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            $payload += ['token' => $service->token($row), 'expiry_date' => CarbonImmutable::parse($row->reservation_expires_at, 'UTC')->toISOString(),
+                'location_id' => $target['location_id'], 'evse_uid' => $target['evse_uid'], 'authorization_reference' => $row->authorization_reference];
+        }
+
+        return $payload;
+    }
+
+    private function receiptPayload(object $row, object $claim, string $action, array $expected): bool
+    {
+        try {
+            $payload = json_decode(Crypt::decryptString($claim->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            if ($action === 'TOKEN_REVOKE') {
+                // The deactivation retains its original immutable wire clock.
+                $expected['last_updated'] = $payload['last_updated'] ?? null;
+                if (! is_string($expected['last_updated'])
+                    || ! hash_equals($row->token_digest, hash('sha256', $expected['uid']))) {
+                    return false;
+                }
+            }
+
+            return (int) $claim->order_id === (int) $row->id && (int) $claim->actor_id === (int) $row->user_id
+                && $claim->action === $action && $payload === $expected
+                && hash_equals($claim->intent_hash, hash('sha256', json_encode([$row->id, $action, $payload], JSON_THROW_ON_ERROR)));
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function send(User $actor, object $order, string $action, string $requestKey): void
@@ -192,14 +267,14 @@ final class ReservationRoaming
                 abort_if($this->pending($row->id), 409, 'Unknown cancellation outcome requires source reconciliation.');
             }
             $callback = (string) Str::uuid();
-            $payload = ['response_url' => substr($local['url'], 0, -strlen('versions')).'2.2.1/commands/'.$callback, 'reservation_id' => $row->reservation_id];
-            if ($action === 'RESERVE_NOW') {
-                $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-                $payload += ['token' => $service->token($row), 'expiry_date' => CarbonImmutable::parse($row->reservation_expires_at, 'UTC')->toISOString(), 'location_id' => $target['location_id'], 'evse_uid' => $target['evse_uid'], 'authorization_reference' => $row->authorization_reference];
-            }
-            $id = DB::table('ocpi_roaming_commands')->insertGetId(['order_id' => $row->id, 'actor_id' => $actor->id, 'request_key' => $requestKey, 'intent_hash' => hash('sha256', json_encode([$row->id, $action, $payload], JSON_THROW_ON_ERROR)), 'action' => $action, 'callback_key' => $callback, 'payload_ciphertext' => Crypt::encryptString(json_encode($payload, JSON_THROW_ON_ERROR)), 'state' => 'prepared', 'created_at' => now(), 'updated_at' => now()]);
+            $payload = $this->payload($row, $action, $callback, $local, $service);
+            $expected = ['order_id' => $row->id, 'actor_id' => $actor->id, 'request_key' => $requestKey,
+                'intent_hash' => hash('sha256', json_encode([$row->id, $action, $payload], JSON_THROW_ON_ERROR)),
+                'action' => $action, 'callback_key' => $callback, 'payload_ciphertext' => Crypt::encryptString(json_encode($payload, JSON_THROW_ON_ERROR)),
+                'state' => 'prepared'];
+            $id = DB::table('ocpi_roaming_commands')->insertGetId($expected + ['created_at' => now(), 'updated_at' => now()]);
 
-            return DB::table('ocpi_roaming_commands')->find($id);
+            return (object) ($expected + ['id' => $id]);
         }, 3);
         if (! $command) {
             return;
@@ -207,13 +282,20 @@ final class ReservationRoaming
         $entered = false;
         try {
             $payload = json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-            abort_unless(hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, $action, $payload], JSON_THROW_ON_ERROR))), 409);
-            $p = DB::transaction(function () use ($actor, $order, $command, $service, $action) {
+            abort_unless(is_array($payload) && hash_equals($command->intent_hash, hash('sha256', json_encode([$order->id, $action, $payload], JSON_THROW_ON_ERROR))), 409);
+            $p = DB::transaction(function () use ($actor, $order, $command, $service, $action, $payload) {
                 app(ChargingActorConsent::class)->capture($actor);
                 $p = OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
                 $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
-                $service->current($row, $action === 'RESERVE_NOW');
+                [, , $local] = $service->current($row, $action === 'RESERVE_NOW');
                 abort_unless($row->user_id === $actor->id && $row->active_target_key !== null, 409);
+                $expected = $this->payload($row, $action, $command->callback_key, $local, $service);
+                if ($action === 'RESERVE_NOW') {
+                    $expected['token']['last_updated'] = $payload['token']['last_updated'] ?? null;
+                    abort_unless($expected['token']['valid'] === true && is_string($expected['token']['last_updated'])
+                        && hash_equals($row->token_digest, hash('sha256', $expected['token']['uid'])), 409);
+                }
+                abort_unless($payload === $expected, 409, 'Reservation intent changed before dispatch.');
                 if ($action === 'RESERVE_NOW') {
                     $this->policy($p);
                     $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
@@ -222,10 +304,11 @@ final class ReservationRoaming
                     abort_unless($this->reservableEvse(OcpiRecord::findOrFail($row->location_record_id), $target['evse_uid'], $target['connector_id']), 409,
                         'Partner EVSE no longer advertises reservation capability.');
                 } else {
+                    abort_unless($row->reservation_cancelled_at === null, 409);
                     abort_if($this->sessions($row)->contains(fn ($s) => in_array($s->normalized['status'], ['ACTIVE', 'COMPLETED'], true)), 409);
                 }
                 $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
-                abort_unless($claim->state === 'prepared' && $claim->attempted_at === null && $claim->transport_result === null && $claim->callback_hash === null && $claim->callback_result === null && $claim->callback_at === null, 409);
+                abort_unless($this->sameClaim($claim, $command, $row, $action) && $claim->state === 'prepared' && $claim->attempted_at === null && $claim->transport_result === null && $claim->callback_hash === null && $claim->callback_result === null && $claim->callback_at === null, 409);
                 DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['state' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()]);
                 if (! in_array($row->state, ['source_reserved', 'source_active', 'source_completed'], true)) {
                     DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => $action === 'RESERVE_NOW' ? 'reservation_dispatching' : 'reservation_cancelling', 'updated_at' => now()] + ($action === 'RESERVE_NOW' ? ['token_state' => 'command_preauthorized'] : []));
@@ -240,22 +323,55 @@ final class ReservationRoaming
             DB::transaction(function () use ($order, $command, $result, $action) {
                 OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
                 $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
-                DB::table('ocpi_roaming_commands')->where('id', $command->id)->whereNull('transport_result')->update(['state' => $result === 'ACCEPTED' ? 'transport_accepted' : 'partner_rejected', 'transport_result' => $result, 'updated_at' => now()]);
+                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
+                abort_unless($this->sameClaim($claim, $command, $row, $action) && $claim->attempted_at !== null, 409);
+                if ($claim->transport_result !== null) {
+                    abort_unless($claim->transport_result === $result, 409);
+
+                    return;
+                }
+                $conflicting = $result !== 'ACCEPTED' && ($claim->callback_hash !== null
+                    || $claim->callback_result !== null || $claim->callback_at !== null
+                    || ($action === 'RESERVE_NOW' && ($row->authorized_at !== null
+                        || $row->reservation_cancelled_at !== null
+                        || in_array($row->state, ['source_reserved', 'source_active', 'source_completed'], true))));
+                $state = $conflicting ? 'outcome_unknown' : ($result === 'ACCEPTED' ? 'transport_accepted' : 'partner_rejected');
+                DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update(['state' => $state, 'transport_result' => $result, 'updated_at' => now()]);
                 if ($action === 'RESERVE_NOW' && ! in_array($row->state, ['source_reserved', 'source_active', 'source_completed'], true)) {
-                    DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => $result === 'ACCEPTED' ? 'reservation_accepted' : 'reservation_rejected', 'token_state' => $row->token_revoked_at !== null ? $row->token_state : ($result === 'ACCEPTED' ? 'command_preauthorized' : 'command_rejected'), 'updated_at' => now()]);
+                    DB::table('ocpi_roaming_orders')->where('id', $row->id)->update([
+                        'state' => $conflicting ? 'reservation_outcome_unknown' : ($result === 'ACCEPTED' ? 'reservation_accepted' : 'reservation_rejected'),
+                        'token_state' => $row->token_revoked_at !== null ? $row->token_state : ($conflicting ? 'preauthorization_unknown' : ($result === 'ACCEPTED' ? 'command_preauthorized' : 'command_rejected')),
+                        'updated_at' => now(),
+                    ]);
                 }
             }, 3);
         } catch (Throwable) {
             DB::transaction(function () use ($order, $command, $entered, $action) {
                 OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
                 $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
-                $values = ['state' => $entered ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()];
-                if (! $entered) {
-                    $values['attempted_at'] = null;
+                $claim = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->first();
+                $known = $claim !== null && $this->sameClaim($claim, $command, $row, $action);
+                $hasEvidence = $claim !== null && ($claim->attempted_at !== null || $claim->transport_result !== null
+                    || $claim->callback_hash !== null || $claim->callback_result !== null || $claim->callback_at !== null);
+                $uncertain = $entered || ! $known || $hasEvidence
+                    || ($claim !== null && $claim->state !== 'prepared')
+                    || $row->authorized_at !== null || $row->reservation_cancelled_at !== null;
+                if ($claim && (int) $claim->order_id === (int) $row->id && $claim->action === $action
+                    && $claim->transport_result === null && $claim->callback_hash === null
+                    && $claim->callback_result === null && $claim->callback_at === null
+                    && in_array($claim->state, ['prepared', 'dispatching'], true)) {
+                    DB::table('ocpi_roaming_commands')->where('id', $claim->id)->update([
+                        'state' => $uncertain ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now(),
+                    ]);
                 }
-                $changed = DB::table('ocpi_roaming_commands')->where('id', $command->id)->whereNull('transport_result')->whereNull('callback_hash')->whereNull('callback_result')->whereNull('callback_at')->update($values);
-                if ($changed && $action === 'RESERVE_NOW' && ! in_array($row->state, ['source_reserved', 'source_active', 'source_completed'], true)) {
-                    DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => $entered ? 'reservation_outcome_unknown' : 'reservation_not_dispatched', 'token_state' => $row->token_revoked_at !== null ? $row->token_state : ($entered ? 'preauthorization_unknown' : 'not_sent'), 'active_target_key' => $entered ? $row->active_target_key : null, 'updated_at' => now()]);
+                // A failed final claim check must never erase an earlier attempt
+                // or release capacity on the assumption that nothing was sent.
+                if ($action === 'RESERVE_NOW' && ! in_array($row->state, ['source_reserved', 'source_active', 'source_completed', 'reservation_closed'], true)) {
+                    DB::table('ocpi_roaming_orders')->where('id', $row->id)->update([
+                        'state' => $uncertain ? 'reservation_outcome_unknown' : 'reservation_not_dispatched',
+                        'token_state' => $row->token_revoked_at !== null ? $row->token_state : ($uncertain ? 'preauthorization_unknown' : 'not_sent'),
+                        'active_target_key' => $uncertain ? $row->active_target_key : null, 'updated_at' => now(),
+                    ]);
                 }
             }, 3);
         }
@@ -270,19 +386,45 @@ final class ReservationRoaming
         return DB::transaction(function () use ($order) {
             OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
-            app(SandboxRoaming::class)->current($row);
+            $service = app(SandboxRoaming::class);
+            [, , $local] = $service->current($row);
             if ($row->active_target_key === null || $row->token_revoked_at === null) {
                 return $row;
             }
-            $cancel = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', 'CANCEL_RESERVATION')->whereNotNull('attempted_at')->where('callback_result', 'ACCEPTED')->orderByDesc('id')->first();
+            $cancel = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)
+                ->where('actor_id', $row->user_id)->where('action', 'CANCEL_RESERVATION')
+                ->whereNotNull('attempted_at')->whereNotNull('callback_hash')->whereNotNull('callback_at')
+                ->where('callback_result', 'ACCEPTED')->orderByDesc('callback_at')->orderByDesc('id')->first();
+            // A callback must not turn a contradictory synchronous rejection
+            // into an independently proven cancellation.
+            if ($cancel && ($cancel->transport_result !== 'ACCEPTED' && $cancel->transport_result !== null
+                || ! in_array($cancel->state, ['dispatching', 'transport_accepted', 'outcome_unknown'], true)
+                || CarbonImmutable::parse($cancel->callback_at, 'UTC')->lt(CarbonImmutable::parse($cancel->attempted_at, 'UTC'))
+                || ! $this->receiptPayload($row, $cancel, 'CANCEL_RESERVATION', $this->payload($row, 'CANCEL_RESERVATION', $cancel->callback_key, $local, $service)))) {
+                $cancel = null;
+            }
             $expired = CarbonImmutable::parse($row->reservation_expires_at, 'UTC')->lte(now());
             if (! $cancel && ! $expired && $row->reservation_cancelled_at === null) {
                 return $row;
             }
-            if (! DB::table('ocpi_roaming_commands')->where('order_id', $row->id)->where('action', 'TOKEN_REVOKE')->where('transport_result', 'ACCEPTED')->exists()) {
+            $deactivation = DB::table('ocpi_roaming_commands')->where('order_id', $row->id)
+                ->where('actor_id', $row->user_id)->where('action', 'TOKEN_REVOKE')
+                ->where('state', 'transport_accepted')->whereNotNull('attempted_at')
+                ->where('transport_result', 'ACCEPTED')->first();
+            if (! $deactivation || $row->token_state !== 'partner_revoked'
+                || ! $this->receiptPayload($row, $deactivation, 'TOKEN_REVOKE', $service->token($row, false))
+                || CarbonImmutable::parse($deactivation->updated_at, 'UTC')->lt(CarbonImmutable::parse($deactivation->attempted_at, 'UTC'))) {
                 return $row;
             }
-            $cutoff = $cancel ? CarbonImmutable::parse($cancel->callback_at, 'UTC') : CarbonImmutable::parse($row->reservation_cancelled_at ?? $row->reservation_expires_at, 'UTC');
+            $cutoff = CarbonImmutable::parse($cancel?->callback_at ?? $row->reservation_cancelled_at ?? $row->reservation_expires_at, 'UTC');
+            // Source availability must follow both the final cancellation
+            // evidence and acknowledged token deactivation. Never release
+            // capacity using an earlier snapshot while authority still existed.
+            foreach ([$row->reservation_cancelled_at, $row->token_revoked_at, $deactivation->updated_at] as $boundary) {
+                if ($boundary !== null) {
+                    $cutoff = $cutoff->max(CarbonImmutable::parse($boundary, 'UTC'));
+                }
+            }
             $sessions = $this->sessions($row);
             if ($sessions->count() > 1) {
                 return $row;
@@ -291,12 +433,15 @@ final class ReservationRoaming
                 return $row;
             }
             $location = OcpiRecord::findOrFail($row->location_record_id);
+            if (! app(StoredSourceIntegrity::class)->consistent($location) || $location->received_at->gt(now())) {
+                return $row;
+            }
             $target = json_decode(Crypt::decryptString($row->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
             if ($location->ocpi_provider_id !== $row->provider_id || $location->module !== 'locations' || $location->country_code !== $target['country_code'] || $location->party_id !== $target['party_id'] || $location->external_id !== $target['location_id'] || ($location->normalized['publish'] ?? false) !== true) {
                 return $row;
             }
             $evses = array_values(array_filter($location->normalized['evses'] ?? [], fn ($e) => ($e['uid'] ?? null) === $target['evse_uid']));
-            if (! $location->received_at->gt($cutoff) || ! $location->source_updated_at->gt($cutoff) || $location->source_updated_at->gt(now()) || $location->source_updated_at->lt(now()->subMinutes(5)) || ($expired && ! $cancel && $location->source_updated_at->lte(CarbonImmutable::parse($row->reservation_expires_at, 'UTC'))) || hash_equals($target['location_hash'], $location->content_hash) || count($evses) !== 1 || ($evses[0]['reported_status'] ?? null) !== 'AVAILABLE') {
+            if (! $location->received_at->gt($cutoff) || ! $location->source_updated_at->gt($cutoff) || $location->source_updated_at->gt(now()) || $location->source_updated_at->lt(now()->subMinutes(5)) || ($expired && ! $cancel && $location->source_updated_at->lte(CarbonImmutable::parse($row->reservation_expires_at, 'UTC'))) || hash_equals($target['location_hash'], $location->content_hash) || count($evses) !== 1 || ($evses[0]['reported_status'] ?? null) !== 'AVAILABLE' || ! $this->hasPostClosureConnectorEvidence($location, $target, $cutoff)) {
                 return $row;
             }
             DB::table('ocpi_roaming_orders')->where('id', $row->id)->update(['state' => 'reservation_closed', 'active_target_key' => null, 'reservation_closed_at' => $location->received_at, 'updated_at' => now()]);

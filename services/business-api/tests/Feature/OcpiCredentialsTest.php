@@ -136,6 +136,129 @@ class OcpiCredentialsTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_operations', 1);
     }
 
+    public function test_changed_peer_origin_after_versions_cannot_receive_the_original_bootstrap_token(): void
+    {
+        [, $admin, , $url] = $this->fixture();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) {
+            $this->assertSame('GET', $request->method());
+            $this->assertSame('https://partner.example/ocpi/versions', $request->url());
+            config(['ocpi.connections.managed.origin' => 'https://replacement.example']);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://replacement.example/ocpi/2.2.1']]));
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+    }
+
+    public function test_changed_managed_token_after_versions_stops_rotation_discovery(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($link) {
+            $this->assertSame('GET', $request->method());
+            $this->assertSame('https://partner.example/ocpi/versions', $request->url());
+            DB::table('ocpi_credential_links')->where('id', $link->id)->update([
+                'remote_token_ciphertext' => Crypt::encryptString('REPLACEMENT-REMOTE-SYNTHETIC'),
+            ]);
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+        });
+        $this->postJson($url, $this->intent('rotate', 'new-rotation'))->assertConflict();
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertSame($link->generation, DB::table('ocpi_credential_links')->where('id', $link->id)->value('generation'));
+    }
+
+    public function test_bootstrap_configuration_change_during_discovery_requires_fresh_approval(): void
+    {
+        [, $admin, , $url] = $this->fixture();
+        $this->source(duringDiscovery: function () {
+            config(['ocpi.connections.managed.authorization_token' => base64_encode('BOOTSTRAP-B-SYNTHETIC')]);
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertConflict();
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->source();
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame('Token '.base64_encode('BOOTSTRAP-B-SYNTHETIC'), $this->writes[0]['authorization']);
+    }
+
+    public function test_rotation_does_not_replace_a_same_generation_changed_token_discovered_with_old_authority(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        $this->source(duringDiscovery: function () use ($link) {
+            DB::table('ocpi_credential_links')->where('id', $link->id)->update([
+                'remote_token_ciphertext' => Crypt::encryptString('CHANGED-SAME-GENERATION'),
+            ]);
+        });
+        $this->postJson($url, $this->intent('rotate', 'rotate-changed'))->assertConflict();
+        $this->assertCount(1, $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertSame('active', DB::table('ocpi_credential_links')->where('id', $link->id)->value('state'));
+        $this->assertSame($link->generation, DB::table('ocpi_credential_links')->where('id', $link->id)->value('generation'));
+    }
+
+    public function test_changed_claim_identity_cannot_dispatch_or_be_replayed(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $armed = true;
+        DB::listen(function ($query) use (&$armed, $provider) {
+            if ($armed && str_contains($query->sql, 'insert into "ocpi_credential_operations"')) {
+                $armed = false;
+                DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->update([
+                    'action' => 'rotate',
+                ]);
+            }
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertFalse($armed);
+        $this->assertSame([], $this->writes);
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+    }
+
+    public function test_valid_partner_envelope_cannot_activate_a_changed_dispatch_claim(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($provider) {
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+            }
+            if (str_ends_with($request->url(), '/ocpi/2.2.1')) {
+                return Http::response($this->envelope(['version' => '2.2.1', 'endpoints' => [['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials']]]));
+            }
+            $this->assertSame('POST', $request->method());
+            DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update([
+                'local_token_digest' => hash('sha256', 'CHANGED-CLAIM'),
+            ]);
+
+            return Http::response($this->envelope($this->peer('REMOTE-VALID-SYNTHETIC')));
+        });
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        $this->assertSame('outcome_unknown', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('state'));
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $this->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown');
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+    }
+
     public function test_incoming_preparation_cannot_borrow_a_new_admin_epoch_from_a_stale_request(): void
     {
         [$provider, $admin] = $this->fixture();
@@ -195,6 +318,31 @@ class OcpiCredentialsTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_active_protocol_receipt_never_discloses_a_mismatched_encrypted_token(): void
+    {
+        [$p, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'acknowledged');
+        $token = $this->writes[0]['body']['token'];
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id);
+        $original = $link->value('local_token_ciphertext');
+        $replacement = 'DIFFERENT-PRIVATE-SYNTHETIC';
+        foreach ([null, 'invalid-ciphertext', Crypt::encryptString($replacement)] as $ciphertext) {
+            $link->update(['local_token_ciphertext' => $ciphertext]);
+            $this->getJson('/api/roaming-protocol/2.2.1/credentials', $this->protocol($token))
+                ->assertUnauthorized()->assertJsonPath('data', null)->assertDontSee($replacement);
+            $this->getJson('/api/roaming-protocol/versions', $this->protocol($token))->assertUnauthorized();
+            $this->putJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('UNPROVEN-PEER'), $this->protocol($token))
+                ->assertUnauthorized()->assertJsonPath('data', null);
+        }
+        $link->update(['local_token_ciphertext' => $original]);
+        $this->getJson('/api/roaming-protocol/2.2.1/credentials', $this->protocol($token))
+            ->assertOk()->assertJsonPath('data.token', $token);
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+        $this->assertCount(1, $this->writes);
+    }
+
     public function test_rotation_replaces_both_tokens_and_unregister_prevents_fallback(): void
     {
         [$p, $admin, , $url] = $this->fixture();
@@ -225,7 +373,11 @@ class OcpiCredentialsTest extends TestCase
         $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
         $old = $this->writes[0]['body']['token'];
         $body = $this->peer('PEER-ROTATED-C');
+        $this->source();
         $reply = $this->putJson('/api/roaming-protocol/2.2.1/credentials', $body, $this->protocol($old))->assertOk();
+        Http::assertSentCount(2);
+        Http::assertNotSent(fn ($request) => $request->method() !== 'GET'
+            || ! $request->hasHeader('Authorization', 'Token '.base64_encode('PEER-ROTATED-C')));
         $new = $reply->json('data.token');
         $this->assertNotSame($old, $new);
         $this->getJson('/api/roaming-protocol/versions', $this->protocol($old))->assertUnauthorized();
@@ -234,6 +386,132 @@ class OcpiCredentialsTest extends TestCase
         $this->getJson('/api/roaming-protocol/versions', $this->protocol($new))->assertUnauthorized();
         $this->assertFalse($p->fresh()->authorized);
         $this->assertDatabaseHas('ocpi_credential_operations', ['action' => 'peer_revoke', 'actor_id' => null, 'state' => 'acknowledged']);
+    }
+
+    public function test_failed_peer_rotation_proof_keeps_current_credentials_and_history(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
+        $old = $this->writes[0]['body']['token'];
+        $revision = $provider->fresh()->authorization_revision;
+        $before = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(['https://partner.example/ocpi/versions' => Http::response(['secret' => 'PROOF-PRIVATE'], 403)]);
+
+        $response = $this->putJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('UNPROVEN-ROTATION'), $this->protocol($old))->assertStatus(400)
+            ->assertJsonPath('status_code', 2000)->assertJsonPath('data', null);
+        $this->assertStringNotContainsString('PROOF-PRIVATE', $response->getContent());
+        Http::assertSentCount(1);
+        $this->assertEquals($before, DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first());
+        $this->assertSame($revision, $provider->fresh()->authorization_revision);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_rotate']);
+        $this->getJson('/api/roaming-protocol/2.2.1/credentials', $this->protocol($old))
+            ->assertOk()->assertJsonPath('data.token', $old);
+    }
+
+    public function test_vendor_suspended_during_peer_rotation_proof_cannot_activate_the_update(): void
+    {
+        [$provider, $admin, $owner, $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
+        $old = $this->writes[0]['body']['token'];
+        $this->source(duringDiscovery: fn () => $owner->forceFill(['account_status' => 'suspended'])->save());
+
+        $this->putJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('REVOKED-OWNER-ROTATION'), $this->protocol($old))->assertUnauthorized();
+        Http::assertSentCount(2);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_rotate']);
+        $this->assertDatabaseHas('ocpi_credential_links', [
+            'provider_id' => $provider->id, 'generation' => 1, 'state' => 'active',
+            'local_token_digest' => hash('sha256', $old),
+        ]);
+        $this->putJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('SUSPENDED-OWNER-ROTATION'), $this->protocol($old))->assertUnauthorized();
+        Http::assertSentCount(2);
+        $this->deleteJson('/api/roaming-protocol/2.2.1/credentials', [], $this->protocol($old))->assertOk();
+        Http::assertSentCount(2);
+        $this->assertFalse($provider->fresh()->authorized);
+    }
+
+    #[TestWith(['versions'])]
+    #[TestWith(['details'])]
+    public function test_peer_rotation_cannot_replace_same_generation_changed_link_evidence(string $phase): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
+        $old = $this->writes[0]['body']['token'];
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $replacement = Crypt::encryptString('INDEPENDENT-SYNTHETIC-REMOTE');
+        $revision = $provider->fresh()->authorization_revision;
+        $change = fn () => $link->update(['remote_token_ciphertext' => $replacement]);
+        if ($phase === 'versions') {
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Http::fake(['https://partner.example/ocpi/versions' => function () use ($change) {
+                $change();
+
+                return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+            }]);
+        } else {
+            $this->source(duringDiscovery: $change);
+        }
+
+        $this->putJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('STALE-ROTATION-RECEIPT'), $this->protocol($old))->assertUnauthorized();
+        Http::assertSentCount($phase === 'versions' ? 1 : 2);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_rotate']);
+        $this->assertDatabaseHas('ocpi_credential_links', [
+            'provider_id' => $provider->id, 'state' => 'active', 'generation' => 1,
+            'local_token_digest' => hash('sha256', $old), 'remote_token_ciphertext' => $replacement,
+        ]);
+        $this->assertSame($revision, $provider->fresh()->authorization_revision);
+        $this->assertCount(1, $this->writes);
+    }
+
+    public function test_incoming_enrollment_cannot_consume_changed_bootstrap_evidence_after_peer_proof(): void
+    {
+        [$provider, $admin, , $url] = $this->incomingFixture();
+        $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $replacement = hash('sha256', 'INDEPENDENT-SYNTHETIC-BOOTSTRAP');
+        $revision = $provider->fresh()->authorization_revision;
+        $this->source(duringDiscovery: fn () => $link->update(['bootstrap_hash' => $replacement]));
+
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('STALE-INCOMING-PEER'),
+            $this->protocol('INCOMING-A-SYNTHETIC'))->assertUnauthorized();
+        Http::assertSentCount(2);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_register']);
+        $this->assertDatabaseHas('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'prepare_incoming', 'state' => 'awaiting_peer']);
+        $this->assertDatabaseHas('ocpi_credential_links', [
+            'provider_id' => $provider->id, 'state' => 'awaiting_registration', 'generation' => 1,
+            'bootstrap_hash' => $replacement, 'remote_token_ciphertext' => null,
+        ]);
+        $this->assertSame($revision, $provider->fresh()->authorization_revision);
+        $this->assertSame([], $this->writes);
+    }
+
+    public function test_owner_revocation_between_peer_proof_reads_stops_the_remaining_request(): void
+    {
+        [$provider, $admin, $owner, $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
+        $old = $this->writes[0]['body']['token'];
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(['https://partner.example/ocpi/versions' => function () use ($owner) {
+            $owner->forceFill(['account_status' => 'suspended'])->save();
+
+            return Http::response($this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+        }]);
+
+        $this->putJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('REVOKED-BEFORE-DETAILS'), $this->protocol($old))->assertUnauthorized();
+        Http::assertSentCount(1);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_rotate']);
     }
 
     public function test_unknown_delivery_retains_exact_capsule_and_never_resends_or_falls_back(): void
@@ -325,6 +603,20 @@ class OcpiCredentialsTest extends TestCase
         $this->patchJson('/api/ocpi/providers/'.$p->id.'/authorization', ['authorized' => false])->assertOk();
         $this->patchJson('/api/ocpi/providers/'.$p->id.'/authorization', ['authorized' => true])->assertOk();
         $this->postJson($url, $this->intent('prepare_incoming', 'cannot-reuse'))->assertConflict();
+    }
+
+    public function test_suspended_vendor_cannot_start_incoming_enrollment_proof(): void
+    {
+        [$provider, $admin, $owner, $url] = $this->incomingFixture();
+        $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
+        $owner->forceFill(['account_status' => 'suspended'])->save();
+        $this->source();
+
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials',
+            $this->peer('SUSPENDED-ENROLLMENT'), $this->protocol('INCOMING-A-SYNTHETIC'))->assertUnauthorized();
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['provider_id' => $provider->id, 'action' => 'peer_register']);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'awaiting_registration']);
     }
 
     public function test_incoming_bootstrap_expires_and_replacement_requires_fresh_server_authority(): void

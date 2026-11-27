@@ -43,6 +43,23 @@ class RecordSynchronizer
                     ->where('account_status', 'active')->exists()) {
                 throw new OcpiException('Inactive operator owner cannot publish catalog source records.');
             }
+            // A bilateral managed connection approves one peer identity.
+            // Apply the same party boundary to pulls and pushes, regardless
+            // of which application entry point supplies the normalized batch.
+            $connection = config('ocpi.connections.'.$locked->connection_key);
+            if (is_array($connection) && ($connection['managed_credentials'] ?? false) === true) {
+                $country = $connection['party_country'] ?? null;
+                $party = $connection['party_id'] ?? null;
+                if (! is_string($country) || ! preg_match('/^[A-Z]{2}$/D', $country)
+                    || ! is_string($party) || ! preg_match('/^[A-Z0-9]{3}$/D', $party)) {
+                    throw new OcpiException('Approved managed operator identity is unavailable.');
+                }
+                foreach ($validated as [, $normalized]) {
+                    if ($normalized['country_code'] !== $country || $normalized['party_id'] !== $party) {
+                        throw new OcpiException('Source record is outside the approved managed operator identity.');
+                    }
+                }
+            }
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];
             foreach ($validated as [$raw,$n,$hash]) {
                 $identity = ['ocpi_provider_id' => $locked->id, 'module' => $module, 'country_code' => $n['country_code'], 'party_id' => $n['party_id'], 'external_id' => $n['id']];
@@ -58,6 +75,10 @@ class RecordSynchronizer
                     }
                 }
                 if ($existing) {
+                    if (($connection['managed_credentials'] ?? false) === true
+                        && ! app(StoredSourceIntegrity::class)->consistent($existing)) {
+                        throw new OcpiException('Stored managed operator record requires integrity review before synchronization.');
+                    }
                     if (hash_equals($existing->content_hash, $hash)) {
                         $counts['duplicate']++;
 

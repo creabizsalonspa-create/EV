@@ -4,6 +4,8 @@ namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -142,10 +144,20 @@ class CredentialExchange
         }
     }
 
-    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null): array
+    private function wire(OcpiProvider $p, string $url, string $encodedToken, string $method = 'GET', ?array $body = null, ?object $peerLink = null): array
     {
         $current = OcpiProvider::findOrFail($p->id);
         abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision, 409, 'Partner authority changed before transport.');
+        if ($peerLink) {
+            $currentLink = DB::table('ocpi_credential_links')->where('id', $peerLink->id)->first();
+            abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
+                && $currentLink && $currentLink->owner_id === $p->owner_id
+                && $this->sameLink($peerLink, $currentLink)
+                && ($currentLink->state === 'active' || ($currentLink->state === 'awaiting_registration'
+                    && $currentLink->bootstrap_expires_at && CarbonImmutable::parse($currentLink->bootstrap_expires_at)->isFuture()))
+                && hash_equals($peerLink->configuration_hash, $currentLink->configuration_hash)
+                && hash_equals($peerLink->configuration_hash, $this->configurationHash($current)), 401);
+        }
         $url = app(PartnerClient::class)->guardedUrl($p, $url);
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
@@ -155,7 +167,9 @@ class CredentialExchange
             $text = '';
             try {
                 while (! $stream->eof() && strlen($text) <= 65536) {
-                    $text .= $stream->read(min(8192, 65537 - strlen($text)));
+                    $chunk = $stream->read(min(8192, 65537 - strlen($text)));
+                    abort_if(! $stream->eof() && strlen($chunk) === 0, 503);
+                    $text .= $chunk;
                 }
             } finally {
                 $stream->close();
@@ -171,19 +185,54 @@ class CredentialExchange
         }
     }
 
-    public function endpoint(OcpiProvider $p, string $token): string
+    public function endpoint(OcpiProvider $p, string $token, ?object $peerLink = null, ?Closure $guard = null): string
     {
         [$c] = $this->configuration($p);
-        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token)['data'];
+        if ($guard !== null) {
+            $guard();
+        }
+        $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token, peerLink: $peerLink)['data'];
+        if ($guard !== null) {
+            $guard();
+        }
         abort_unless(is_array($versions) && array_is_list($versions) && count($versions) <= 20, 409, 'Invalid peer versions.');
         $v = array_values(array_filter($versions, fn ($x) => is_array($x) && ($x['version'] ?? null) === '2.2.1'));
         abort_unless(count($v) === 1 && is_string($v[0]['url'] ?? null), 409, 'A unique OCPI2.2.1 advertisement is required.');
-        $details = $this->wire($p, $v[0]['url'], $token)['data'];
+        $details = $this->wire($p, $v[0]['url'], $token, peerLink: $peerLink)['data'];
+        if ($guard !== null) {
+            $guard();
+        }
         abort_unless(is_array($details) && ($details['version'] ?? null) === '2.2.1' && is_array($details['endpoints'] ?? null) && count($details['endpoints']) <= 30, 409);
         $endpoints = array_values(array_filter($details['endpoints'], fn ($e) => is_array($e) && ($e['identifier'] ?? null) === 'credentials' && ($e['role'] ?? null) === 'RECEIVER'));
         abort_unless(count($endpoints) === 1 && is_string($endpoints[0]['url'] ?? null), 409, 'Unique peer credentials receiver is required.');
 
         return app(PartnerClient::class)->guardedUrl($p, $endpoints[0]['url']);
+    }
+
+    /** Compare the source generation and all credential authority bytes, never only its state label. */
+    public function sameLink(?object $expected, ?object $current): bool
+    {
+        if ($expected === null || $current === null) {
+            return $expected === $current;
+        }
+        foreach (['id', 'provider_id', 'owner_id', 'generation', 'state', 'configuration_hash',
+            'bootstrap_hash', 'bootstrap_expires_at', 'local_token_digest', 'local_token_ciphertext', 'remote_token_ciphertext'] as $field) {
+            if ($expected->$field !== $current->$field) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function assertClaim(object $row, array $expected, bool $operation = false): void
+    {
+        foreach ($expected as $field => $value) {
+            abort_unless($value === $row->$field, 409, 'Credential claim changed; manual source reconciliation is required.');
+        }
+        if ($operation) {
+            abort_unless($row->attempted_at !== null && $row->completed_at === null, 409);
+        }
     }
 
     public function exchange(OcpiProvider $p, int $actor, array $v, ?User $requestActor = null): array
@@ -199,6 +248,7 @@ class CredentialExchange
             return $this->operation($old);
         }
         [$c] = $this->configuration($p);
+        $configuration = $this->configurationHash($p);
         $client = app(PartnerClient::class);
         abort_unless($p->authorized && ($v['action'] === 'unregister' || $p->authorization_revision < PHP_INT_MAX) && User::whereKey($p->owner_id)->where('role', 'vendor')->when($v['action'] !== 'unregister', fn ($q) => $q->where('account_status', 'active'))->exists(), 409);
         $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
@@ -216,34 +266,60 @@ class CredentialExchange
             abort_unless($link && $link->state === 'active', 409, 'Current active managed credentials are required.');
             $token = $client->connection($p)['authorization_token'];
         }
-        // Discovery is read-only; the atomic claim below fences any changes it observes.
-        $endpoint = $this->endpoint($p, $token);
+        // Read-only discovery also transmits a credential. Do not issue a
+        // second request after a changed approval, peer or source generation.
+        $guard = function () use ($p, $approval, $configuration, $link, $v) {
+            app(AdminCredentialApproval::class)->current($approval);
+            $current = OcpiProvider::findOrFail($p->id);
+            $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+            $latest = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
+            abort_unless($this->sameLink($link, $latest), 409, 'Credential state changed during discovery.');
+        };
+        $endpoint = $this->endpoint($p, $token, guard: $guard);
         $localToken = bin2hex(random_bytes(32));
         $payload = $v['action'] === 'unregister' ? null : $this->localPayload($localToken, $p);
-        $configuration = $this->configurationHash($p);
         $version = $v['action'] === 'unregister' && ($link->generation ?? 0) === 2147483647 ? 2147483647 : (int) ($link->generation ?? 0) + 1;
         abort_unless($version <= 2147483647, 409, 'Credential generation exhausted.');
-        $opId = DB::transaction(function () use ($p, $v, $hash, $actor, $endpoint, $payload, $configuration, $version, $link, $bootstrap, $localToken, $approval) {
+        $capsule = json_encode(['endpoint' => $endpoint, 'method' => ['register' => 'POST', 'rotate' => 'PUT', 'unregister' => 'DELETE'][$v['action']], 'body' => $payload], JSON_THROW_ON_ERROR);
+        $expectedOperation = [
+            'provider_id' => $p->id, 'actor_id' => $actor, 'generation' => $version,
+            'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash,
+            'reason' => Crypt::encryptString($v['reason']), 'source_payload_ciphertext' => Crypt::encryptString($capsule),
+            'source_payload_hash' => hash('sha256', $capsule), 'state' => 'dispatching',
+        ];
+        $expectedLink = [
+            'provider_id' => $p->id, 'owner_id' => $p->owner_id, 'generation' => $version,
+            'state' => 'dispatching', 'configuration_hash' => $configuration,
+            'bootstrap_hash' => $v['action'] === 'register' ? hash('sha256', $bootstrap) : $link->bootstrap_hash,
+            'local_token_digest' => $payload ? hash('sha256', $localToken) : null,
+            'local_token_ciphertext' => Crypt::encryptString($localToken),
+            'remote_token_ciphertext' => $link->remote_token_ciphertext ?? null,
+        ];
+        $opId = DB::transaction(function () use ($p, $v, $configuration, $link, $expectedOperation, $expectedLink, $approval) {
             app(AdminCredentialApproval::class)->current($approval, true);
             $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
             $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
             $existing = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->first();
-            abort_unless(($existing->generation ?? null) === ($link->generation ?? null) && ($existing->state ?? null) === ($link->state ?? null), 409, 'Credential state changed before dispatch.');
+            abort_unless($this->sameLink($link, $existing), 409, 'Credential state changed before dispatch.');
             abort_if(DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->exists(), 409);
-            $capsule = json_encode(['endpoint' => $endpoint, 'method' => ['register' => 'POST', 'rotate' => 'PUT', 'unregister' => 'DELETE'][$v['action']], 'body' => $payload], JSON_THROW_ON_ERROR);
-            $id = DB::table('ocpi_credential_operations')->insertGetId(['provider_id' => $p->id, 'actor_id' => $actor, 'generation' => $version, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'source_payload_ciphertext' => Crypt::encryptString($capsule), 'source_payload_hash' => hash('sha256', $capsule), 'state' => 'dispatching', 'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
-            DB::table('ocpi_credential_links')->updateOrInsert(['provider_id' => $p->id], ['owner_id' => $p->owner_id, 'generation' => $version, 'state' => 'dispatching', 'configuration_hash' => $configuration, 'bootstrap_hash' => $v['action'] === 'register' ? hash('sha256', $bootstrap) : $link->bootstrap_hash, 'local_token_digest' => $payload ? hash('sha256', $localToken) : null, 'local_token_ciphertext' => Crypt::encryptString($localToken), 'remote_token_ciphertext' => $link->remote_token_ciphertext ?? null, 'created_at' => $link->created_at ?? now(), 'updated_at' => now()]);
+            $id = DB::table('ocpi_credential_operations')->insertGetId($expectedOperation + [
+                'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('ocpi_credential_links')->updateOrInsert(['provider_id' => $p->id], $expectedLink + [
+                'created_at' => $link->created_at ?? now(), 'updated_at' => now(),
+            ]);
 
             return $id;
         }, 3);
         try {
-            DB::transaction(function () use ($p, $configuration, $opId, $version, $token, $endpoint, $payload, $v, $localToken, $approval) {
+            DB::transaction(function () use ($p, $configuration, $opId, $token, $endpoint, $payload, $v, $localToken, $approval, $expectedOperation, $expectedLink) {
                 app(AdminCredentialApproval::class)->current($approval, true);
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
                 $op = DB::table('ocpi_credential_operations')->where('id', $opId)->lockForUpdate()->firstOrFail();
                 $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->firstOrFail();
-                abort_unless($op->state === 'dispatching' && $link->state === 'dispatching' && $link->generation === $version, 409);
+                $this->assertClaim($op, $expectedOperation, true);
+                $this->assertClaim($link, $expectedLink);
                 // bounded one-shot transport under the provider authority lock;
                 // no transaction retry can replay a device/partner mutation.
                 $serialized = Crypt::decryptString($op->source_payload_ciphertext);
@@ -252,6 +328,15 @@ class CredentialExchange
                 abort_unless($owned === ['endpoint' => $endpoint, 'method' => ['register' => 'POST', 'rotate' => 'PUT', 'unregister' => 'DELETE'][$v['action']], 'body' => $payload], 409);
                 $reply = $this->wire($p, $owned['endpoint'], $token, $owned['method'], $owned['body']);
                 $peer = $v['action'] === 'unregister' ? null : $this->validatePeer($p, is_array($reply['data'] ?? null) ? $reply['data'] : []);
+                // No acknowledged receipt can activate a changed claim, even
+                // when a syntactically valid partner response has arrived.
+                app(AdminCredentialApproval::class)->current($approval, true);
+                $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
+                $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+                $op = DB::table('ocpi_credential_operations')->where('id', $opId)->lockForUpdate()->firstOrFail();
+                $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->firstOrFail();
+                $this->assertClaim($op, $expectedOperation, true);
+                $this->assertClaim($link, $expectedLink);
                 DB::table('ocpi_credential_links')->where('id', $link->id)->update(['state' => $peer ? 'active' : 'unregistered', 'local_token_digest' => $peer ? hash('sha256', $localToken) : null, 'local_token_ciphertext' => $peer ? Crypt::encryptString($localToken) : null, 'remote_token_ciphertext' => $peer ? Crypt::encryptString($peer['token']) : null, 'exchanged_at' => now(), 'updated_at' => now()]);
                 $current->update(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $current->authorization_revision < PHP_INT_MAX ? $current->authorization_revision + 1 : PHP_INT_MAX]);
                 DB::table('ocpi_credential_operations')->where('id', $opId)->update(['state' => 'acknowledged', 'completed_at' => now(), 'updated_at' => now()]);
@@ -260,7 +345,7 @@ class CredentialExchange
         } catch (Throwable) {
             DB::transaction(function () use ($opId, $p, $version) {
                 OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
-                DB::table('ocpi_credential_operations')->where('id', $opId)->where('state', 'dispatching')->update(['state' => 'outcome_unknown', 'updated_at' => now()]);
+                DB::table('ocpi_credential_operations')->where('id', $opId)->where('provider_id', $p->id)->where('state', 'dispatching')->update(['state' => 'outcome_unknown', 'updated_at' => now()]);
                 DB::table('ocpi_credential_links')->where('provider_id', $p->id)->where('generation', $version)->where('state', 'dispatching')->update(['state' => 'outcome_unknown', 'local_token_digest' => null, 'updated_at' => now()]);
             });
         }

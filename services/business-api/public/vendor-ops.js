@@ -793,6 +793,48 @@ window.createVendorWorkspace = ({
                     button(row, "Open chargers", () =>
                         chargers(company, site, row, operational, epoch),
                     );
+                    // The station-wide policy belongs to the actual station
+                    // owner, not an invited staff member or an Admin reviewer.
+                    // Display it from the linked station ID only; never infer
+                    // a station from site coordinates or charger identifiers.
+                    if (
+                        caps.owner === true &&
+                        Number.isSafeInteger(site.station_id) &&
+                        site.station_id > 0
+                    ) {
+                        button(row, "Manage station availability blocks", () => {
+                            if (
+                                !current() ||
+                                !row.isConnected ||
+                                actor()?.role !== "vendor" ||
+                                actor()?.id !== company.owner_id
+                            ) return;
+                            row.querySelector("[data-station-block-editor]")?.remove();
+                            const shell = document.createElement("section");
+                            shell.dataset.stationBlockEditor = "";
+                            const editor = document.createElement("div");
+                            button(shell, "Close station availability blocks", () => {
+                                shell.remove();
+                            });
+                            shell.append(editor);
+                            row.append(shell);
+                            if (typeof window.EvStationBlocks?.mount !== "function") {
+                                editor.append(ui("p", "Station blocks unavailable"));
+                                return;
+                            }
+                            window.EvStationBlocks.mount(editor, {
+                                stationId: site.station_id,
+                                api: (path, method, body) =>
+                                    api(path, method || "GET", body, controller?.signal),
+                                current: () =>
+                                    current() &&
+                                    !document.hidden &&
+                                    shell.isConnected &&
+                                    actor()?.role === "vendor" &&
+                                    actor()?.id === company.owner_id,
+                            });
+                        });
+                    }
                     p.append(row);
                 },
                 1,
@@ -995,6 +1037,10 @@ window.createVendorWorkspace = ({
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
+                if (charger.source === "direct_unverified")
+                    button(row, "Diagnostic files", () =>
+                        diagnosticFiles(company, charger, row, epoch),
+                    );
                 button(row, "Device operating settings", () =>
                     configurationReads(company, charger, row, epoch),
                 );
@@ -1707,6 +1753,8 @@ window.createVendorWorkspace = ({
             request;
         const metrics = {
             mapped_evses: "Mapped EVSEs",
+            mapped_connectors: "Mapped connectors",
+            possible_connector_seconds: "Current mapped connector window seconds",
             source_started: "Source starts",
             source_completed: "Completed source sessions",
             pending_source: "Awaiting source start at snapshot",
@@ -1716,6 +1764,9 @@ window.createVendorWorkspace = ({
             status_known_seconds: "Fresh status evidence seconds",
             status_unknown_seconds: "Unknown connector seconds",
             reported_fault_seconds: "Reported fault seconds",
+            reported_non_fault_unavailable_seconds: "Reported unavailable seconds without a fault",
+            reported_downtime_seconds: "Reported fault or unavailable seconds",
+            other_known_status_seconds: "Other known status seconds (not verified uptime)",
             maximum_session_interval_average_w:
                 "Maximum observed session interval average (W)",
             maximum_observed_site_interval_average_w:
@@ -1749,9 +1800,19 @@ window.createVendorWorkspace = ({
                     data.physical_uptime_verified !== false ||
                     data.physical_site_demand_verified !== false ||
                     data.billing_authority !== false ||
-                    typeof data.financial_visible !== "boolean"
+                    typeof data.financial_visible !== "boolean" ||
+                    data.from !== filters.from || data.to !== filters.to ||
+                    !Number.isSafeInteger(data.window_seconds) ||
+                    data.window_seconds < 1 || data.window_seconds > 31 * 86400 ||
+                    !Array.isArray(data.sites) || data.sites.length > 500 ||
+                    !Array.isArray(data.invoice_facts)
                 )
                     throw Error("Unexpected analytics authority.");
+                const expectedSite = filters.site_id === undefined ? null : Number(filters.site_id);
+                if (expectedSite !== null &&
+                    (!Number.isSafeInteger(expectedSite) || expectedSite < 1 || data.sites.length !== 1))
+                    throw Error("Unexpected analytics authority.");
+                const siteIds = new Set();
                 content.replaceChildren(
                     raw("p", data.from + " — " + data.to + " UTC"),
                     raw("p", data.as_of),
@@ -1807,12 +1868,39 @@ window.createVendorWorkspace = ({
                 }
                 content.append(links);
                 for (const row of data.sites) {
+                    if (!row || typeof row.name !== "string" ||
+                        !Number.isSafeInteger(row.site_id) || row.site_id < 1 ||
+                        siteIds.has(row.site_id) || (expectedSite !== null && row.site_id !== expectedSite))
+                        throw Error("Unexpected analytics authority.");
+                    siteIds.add(row.site_id);
+                    if (!Number.isSafeInteger(row.mapped_connectors) || row.mapped_connectors < 0 || row.mapped_connectors > 1000 ||
+                        !Number.isSafeInteger(row.mapped_evses) || row.mapped_evses < 0 || row.mapped_evses > 500 ||
+                        row.possible_connector_seconds !== row.mapped_connectors * data.window_seconds ||
+                        row.possible_evse_seconds !== row.mapped_evses * data.window_seconds ||
+                        row.observed_busy_seconds > row.possible_evse_seconds ||
+                        row.demand_observed_seconds > data.window_seconds ||
+                        (row.maximum_observed_site_interval_average_w === null && row.demand_observed_seconds !== 0))
+                        throw Error("Inconsistent source coverage.");
+                    if (row.reported_downtime_seconds !== row.reported_fault_seconds + row.reported_non_fault_unavailable_seconds ||
+                        row.other_known_status_seconds + row.reported_downtime_seconds !== row.status_known_seconds ||
+                        row.status_known_seconds + row.status_unknown_seconds !== row.possible_connector_seconds)
+                        throw Error("Inconsistent source coverage.");
+                    if (Object.hasOwn(row, "reported_non_fault_unavailable_seconds") &&
+                        (!Number.isSafeInteger(row.status_known_seconds) ||
+                            !Number.isSafeInteger(row.reported_fault_seconds) ||
+                            !Number.isSafeInteger(row.reported_non_fault_unavailable_seconds) ||
+                            row.reported_non_fault_unavailable_seconds < 0 ||
+                            row.reported_non_fault_unavailable_seconds >
+                                row.status_known_seconds - row.reported_fault_seconds))
+                        throw Error("Inconsistent source coverage.");
                     const card = document.createElement("article");
                     card.append(raw("h4", row.name + " · #" + row.site_id));
                     for (const [key, title] of Object.entries(metrics)) {
                         const unknown =
-                            key === "maximum_observed_site_interval_average_w" &&
-                            row[key] === null;
+                            (key === "maximum_observed_site_interval_average_w" &&
+                                row[key] === null) ||
+                            (key === "reported_non_fault_unavailable_seconds" &&
+                                !Object.hasOwn(row, key));
                         if (!unknown && (!Number.isSafeInteger(row[key]) || row[key] < 0))
                             throw Error("Inexact source metric.");
                         card.append(
@@ -2144,11 +2232,21 @@ window.createVendorWorkspace = ({
             if (
                 typeof result.can_request !== "boolean" ||
                 typeof result.can_manage !== "boolean" ||
-                result.evidence !== "SIMULATED_SOURCE" ||
+                !["SIMULATED_SOURCE", "AUTHENTICATED_SOURCE"].includes(
+                    result.evidence,
+                ) ||
                 result.maximum_file_bytes !== 524288 ||
                 result.charging_capacity_changed !== false
             )
                 throw Error("Unexpected diagnostic capability.");
+            history.append(
+                ui(
+                    "p",
+                    result.evidence === "AUTHENTICATED_SOURCE"
+                        ? "Registered diagnostic source"
+                        : "Simulated diagnostic source",
+                ),
+            );
             if (pending) {
                 history.append(
                     ui(
@@ -2229,7 +2327,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of result.data) {
                 if (
-                    row.evidence !== "SIMULATED_SOURCE" ||
+                    row.evidence !== result.evidence ||
                     row.physical_device_verified !== false ||
                     typeof row.can_download !== "boolean"
                 )
@@ -2579,6 +2677,100 @@ window.createVendorWorkspace = ({
         button(pane, "Refresh", () =>
             diagnostics(company, charger, parent, epoch),
         );
+        // Explicit GET only: no poll, charger command or implied physical
+        // availability. Private results belong to the captured actor.
+        const liveViewer = actor();
+        button(pane, "Read live connector source", async () => {
+            if (!valid(epoch) || actor() !== liveViewer ||
+                document.hidden || !pane.isConnected) return;
+            pane.querySelector("[data-live-connector-snapshot]")?.remove();
+            const live = document.createElement("section");
+            live.dataset.liveConnectorSnapshot = "";
+            pane.append(live);
+            live.append(ui("p", "Checking authenticated local connector source…"));
+            const current = () => valid(epoch) && actor() === liveViewer &&
+                !document.hidden && live.isConnected;
+            // A former live observation is not a persisted permission or
+            // current state when the browser leaves the foreground.
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden && live.isConnected)
+                    live.replaceChildren();
+            }, { signal: controller?.signal });
+            try {
+                const result = await api(
+                    base + `companies/${company.id}/chargers/${charger.id}/live-connectors`,
+                    "GET", undefined, controller?.signal,
+                );
+                if (!current()) return;
+                const statuses = [
+                    "Available", "Occupied", "Preparing", "Charging",
+                    "SuspendedEV", "SuspendedEVSE", "Finishing",
+                    "Reserved", "Unavailable", "Faulted",
+                ];
+                if (!result || result.company_id !== company.id ||
+                    result.charger_id !== charger.id ||
+                    result.protocol !== charger.ocpp_protocol ||
+                    result.evidence !== "SIMULATED_CSMS_SOURCE" ||
+                    result.physical_availability_verified !== false ||
+                    result.remote_control_authorized !== false ||
+                    result.commands_sent !== false ||
+                    result.source_identity_rechecked !== true ||
+                    typeof result.source_topology_matches_local !== "boolean" ||
+                    !Array.isArray(result.connectors) ||
+                    result.connectors.length < 1 || result.connectors.length > 100) {
+                    throw Error("Unexpected live connector source contract.");
+                }
+                for (const row of result.connectors) {
+                    if (!row || !Number.isSafeInteger(row.mapping_id) ||
+                        row.mapping_id <= 0 ||
+                        !Number.isSafeInteger(row.source_evse_number) ||
+                        !Number.isSafeInteger(row.source_connector_number) ||
+                        row.source_connector_number <= 0 ||
+                        typeof row.operator_maintenance_blocked !== "boolean" ||
+                        !["recent", "stale", "unknown"].includes(row.state) ||
+                        (row.state === "recent"
+                            ? (!statuses.includes(row.reported_status) ||
+                                result.source_topology_matches_local !== true ||
+                                result.source_online !== true ||
+                                typeof row.source_event_at !== "string")
+                            : row.reported_status !== null) ||
+                        (row.error_code !== null &&
+                            (typeof row.error_code !== "string" ||
+                                row.error_code.length > 80 ||
+                                (!["", "NoError"].includes(row.error_code) &&
+                                    row.reported_status !== "Faulted"))) ||
+                        row.physical_available !== false ||
+                        row.remote_control_authorized !== false) {
+                        throw Error("Unexpected source connector shape.");
+                    }
+                }
+                live.replaceChildren(
+                    ui("h4", "Local CSMS connector source snapshot"),
+                    ui("p", "No physical connector availability or command authorization is verified."),
+                    ui("p", result.source_topology_matches_local
+                        ? "Source connector targets match the local inventory"
+                        : "Source connector topology requires review"),
+                );
+                for (const row of result.connectors) {
+                    const card = document.createElement("article");
+                    card.append(raw("h5", `#${row.mapping_id} · ${row.source_evse_number}/${row.source_connector_number}`));
+                    card.append(ui("p", row.state === "recent"
+                        ? "Recent source status: {status}"
+                        : row.state === "stale"
+                            ? "Stale source; live status unknown"
+                            : "Source connector status unknown", {
+                        status: row.reported_status ?? "",
+                    }));
+                    if (row.operator_maintenance_blocked)
+                        card.append(ui("p", "Operator maintenance block active"));
+                    live.append(card);
+                }
+            } catch (_) {
+                if (current()) live.replaceChildren(
+                    ui("p", "Local connector source unavailable; no control is authorized."),
+                );
+            }
+        });
         button(pane, "Repair work orders", () =>
             repairOrders(company, charger, pane, epoch),
         );

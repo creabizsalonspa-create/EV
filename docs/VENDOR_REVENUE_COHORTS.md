@@ -145,3 +145,7 @@ The additive API event implementation should be integrated **once**
 by Agent 5 when the independent native PRs are merged, retaining
 each domain's three native listeners. This is still TEST financial
 source and has no real bank/PSP collection or payout authority.
+
+## Browser revenue cohort source parity
+
+The existing browser dashboard verifies the same exact vendor, currency, UTC period, evidence, precision, daily dates, bounded source amounts, row net arithmetic and reconciled aggregate totals before rendering any report. Integer arithmetic uses BigInt to avoid intermediate browser rounding; optional server UTC cutoff is displayed without inventing one for older responses. All eleven source metrics are visible in the period totals and expandable daily breakdown. The existing private CSV endpoint rechecks the selected period on download; the UI does not imply byte identity with an earlier snapshot. A detached or hidden report cannot dispatch a new read or CSV action. The existing financial-analytics browser suite runs the exact parser against valid and malformed synthetic source rows before its connected tests. No new revenue recognition, settlement eligibility, money movement or production acceptance is introduced.

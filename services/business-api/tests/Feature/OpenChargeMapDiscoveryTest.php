@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Services\Discovery\LicensedCoverageAudit;
 use App\Services\Discovery\LicensedSourceCache;
+use App\Services\Discovery\LicensedSourceQuality;
 use App\Services\Discovery\LookupFailure;
 use App\Services\Discovery\OpenChargeMapAdapter;
 use App\Services\Discovery\OpenChargeMapProjection;
@@ -56,6 +58,155 @@ class OpenChargeMapDiscoveryTest extends TestCase
     private function input(): array
     {
         return ['consent' => true, 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10];
+    }
+
+    public function test_optional_operator_quality_counts_cold_fetches_only_without_request_metadata(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        $this->travelTo(Carbon::parse('2026-11-24T06:15:00Z'));
+        $fresh = $this->point();
+        $fresh['DateLastStatusUpdate'] = now()->subMinute()->utc()->format('Y-m-d\\TH:i:s\\Z');
+        $old = $this->point();
+        $old['ID'] = 12346;
+        $old['DateLastStatusUpdate'] = now()->subDays(2)->utc()->format('Y-m-d\\TH:i:s\\Z');
+        $unknown = $this->point();
+        $unknown['ID'] = 12347;
+        unset($unknown['StatusType']);
+        Http::fake(['api.openchargemap.io/*' => Http::response([$fresh, $old, $unknown], 200, ['Content-Type' => 'application/json'])]);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input() + ['max_source_age_hours' => 1])->assertOk()->assertJsonPath('count', 1);
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())->assertOk()->assertJsonPath('count', 3);
+        $report = app(LicensedSourceQuality::class)->report();
+        $this->assertSame(1, $report['observed_hours']);
+        $sample = $report['samples'][0];
+        $this->assertSame(1, $sample['successful_fetches']);
+        $this->assertSame(3, $sample['returned_record_observations']);
+        $this->assertSame(1, $sample['unknown_time_observations']);
+        $this->assertSame(1, $sample['older_than_24h_observations']);
+        $this->assertSame(1, $sample['unknown_operating_observations']);
+        $this->assertFalse($report['complete_geographic_coverage']);
+        $this->assertFalse($report['live_status_verified']);
+        $encoded = json_encode($report, JSON_THROW_ON_ERROR);
+        foreach (['25.2', '55.3', 'synthetic-private-ocm-key', '12345', 'Fixture street'] as $private) {
+            $this->assertStringNotContainsString($private, $encoded);
+        }
+        $this->artisan('discovery:licensed-quality')->expectsOutput($encoded)->assertSuccessful();
+        Http::assertSentCount(1);
+        $this->travel(24)->hours();
+        $this->assertSame([], app(LicensedSourceQuality::class)->report()['samples']);
+    }
+
+    public function test_quality_monitor_distinguishes_upstream_busy_from_local_cooldown_and_is_opt_in(): void
+    {
+        $quality = app(LicensedSourceQuality::class);
+        config(['discovery.ocm_quality_enabled' => true]);
+        Http::fake(['api.openchargemap.io/*' => Http::response('', 429, ['Retry-After' => '60'])]);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertStatus(503)->assertJsonPath('reason', 'provider_busy');
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())->assertStatus(503)->assertJsonPath('reason', 'provider_busy');
+        Http::assertSentCount(1);
+        $this->assertSame(1, $quality->report()['samples'][0]['busy_responses']);
+        $this->assertSame(0, $quality->report()['samples'][0]['successful_fetches']);
+        config(['discovery.ocm_quality_enabled' => false]);
+        $this->assertFalse($quality->report()['enabled']);
+        $this->assertSame([], $quality->report()['samples']);
+    }
+
+    public function test_offline_benchmark_coverage_distinguishes_missing_empty_and_observed_samples(): void
+    {
+        $areas = [
+            ['label' => 'public-sample-a', 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10, 'country' => 'AE'],
+            ['label' => 'public-sample-b', 'latitude' => 25.5, 'longitude' => 55.5, 'radius_km' => 10, 'country' => 'AE'],
+            ['label' => 'public-sample-c', 'latitude' => 26.0, 'longitude' => 56.0, 'radius_km' => 10, 'country' => 'AE'],
+        ];
+        config(['discovery.ocm_coverage_enabled' => true, 'discovery.ocm_coverage_areas' => $areas]);
+        $audit = app(LicensedCoverageAudit::class);
+        $report = $audit->report();
+        $this->assertSame(0, $report['observed_areas']);
+        Http::assertNothingSent();
+        Http::fake(fn () => Http::response([$this->point()], 200, ['Content-Type' => 'application/json']));
+        foreach (array_slice($areas, 0, 2) as $area) {
+            unset($area['label']);
+            $this->postJson('/api/discovery/open-charge-map/search', ['consent' => true] + $area)->assertOk();
+        }
+        $report = $audit->report();
+        $this->assertSame(3, $report['configured_areas']);
+        $this->assertSame(2, $report['observed_areas']);
+        $this->assertSame(1, $report['areas_with_reports']);
+        $this->assertSame(['observed_reports', 'observed_empty', 'unobserved'], array_column($report['areas'], 'state'));
+        $this->assertSame(1, $report['areas'][0]['quality_sample']['returned_count']);
+        $this->assertSame(0, $report['areas'][1]['quality_sample']['returned_count']);
+        $this->assertNull($report['areas'][2]['quality_sample']);
+        $this->assertFalse($report['complete_geographic_coverage']);
+        $encoded = json_encode($report, JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('55.3', $encoded);
+        $this->assertStringNotContainsString('12345', $encoded);
+        $this->assertStringNotContainsString('synthetic-private-ocm-key', $encoded);
+        $this->artisan('discovery:licensed-coverage')->expectsOutput($encoded)->assertSuccessful();
+        Http::assertSentCount(2);
+        $this->travel(6)->minutes();
+        $this->assertSame(0, $audit->report()['observed_areas']);
+        config(['discovery.ocm_coverage_areas' => [$areas[0], array_replace($areas[0], ['label' => 'duplicate-area'])]]);
+        $this->assertSame('invalid_benchmarks', $audit->report()['reason']);
+        $this->artisan('discovery:licensed-coverage')->assertFailed();
+        Http::assertSentCount(2);
+    }
+
+    public function test_cached_source_must_still_match_the_original_geographic_query(): void
+    {
+        $area = ['label' => 'public-sample', 'latitude' => 25.2, 'longitude' => 55.3, 'radius_km' => 10, 'country' => 'AE'];
+        config(['discovery.ocm_coverage_enabled' => true, 'discovery.ocm_coverage_areas' => [$area]]);
+        $input = $this->input() + ['country' => 'AE'];
+        Http::fake(fn () => Http::response([$this->point()], 200, ['Content-Type' => 'application/json']));
+        $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk();
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, 'AE', 'synthetic-private-ocm-key');
+        $cached = Cache::get($key);
+        foreach ([
+            ['longitude' => 56.0],
+            ['country' => 'US'],
+            ['distance_km' => 1.0],
+        ] as $difference) {
+            $corrupt = $cached;
+            $corrupt['results'][0] = array_replace($corrupt['results'][0], $difference);
+            Cache::put($key, $corrupt, 300);
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+                ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+                ->assertJsonMissingPath('results');
+        }
+        $report = app(LicensedCoverageAudit::class)->report();
+        $this->assertSame(0, $report['observed_areas']);
+        $this->assertSame('unverified_cache', $report['areas'][0]['state']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_non_array_cached_source_returns_private_unavailable_without_provider_io(): void
+    {
+        $input = $this->input() + ['country' => 'AE'];
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, 'AE', 'synthetic-private-ocm-key');
+        Cache::put($key, 'synthetic-corrupt-cache', 300);
+
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+            ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('results');
+        Http::assertNothingSent();
+    }
+
+    public function test_malformed_cache_envelope_is_rejected_without_refetch_or_private_error(): void
+    {
+        config(['discovery.ocm_quality_enabled' => true]);
+        Http::fake(fn () => Http::response([$this->point()], 200, ['Content-Type' => 'application/json']));
+        $input = $this->input();
+        $this->postJson('/api/discovery/open-charge-map/search', $input)->assertOk();
+        $key = 'ocm-discovery:'.LicensedSourceCache::identity(25.2, 55.3, 10, null, 'synthetic-private-ocm-key');
+        foreach (['synthetic-private-malformed-value', 42, true, [], [['private' => 'synthetic-private-malformed-value']]] as $invalid) {
+            Cache::put($key, $invalid, 300);
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $input)
+                ->assertStatus(503)->assertJsonPath('reason', 'invalid_response')
+                ->assertHeader('Cache-Control', 'no-store, private')
+                ->assertDontSee('synthetic-private-malformed-value');
+        }
+        Http::assertSentCount(1);
+        $report = app(LicensedSourceQuality::class)->report();
+        $this->assertSame(1, $report['samples'][0]['successful_fetches']);
     }
 
     public function test_disabled_source_is_invisible_to_network_and_never_exposes_key(): void

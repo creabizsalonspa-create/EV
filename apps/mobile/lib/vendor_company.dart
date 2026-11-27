@@ -363,7 +363,44 @@ class VendorRecordsView extends StatefulWidget {
   State<VendorRecordsView> createState() => _VendorRecordsState();
 }
 
-class _VendorRecordsState extends State<VendorRecordsView> {
+Set<String>? staffPermissionSet(dynamic raw) {
+  if (raw is! List || raw.isEmpty || raw.any((p) => p is! String || !vendorPermissions.contains(p))) return null;
+  final values = raw.cast<String>().toSet();
+  return values.length == raw.length ? values : null;
+}
+
+bool staffPermissionChangeReceipt(Map<String,dynamic> original, Set<String> desired, dynamic receipt) {
+  if (receipt is! Map || original['invitation_version'] is! int ||
+      receipt['id'] is! int || receipt['id'] != original['id'] ||
+      receipt['invitation_version'] is! int ||
+      receipt['invitation_version'] != original['invitation_version'] + 1 ||
+      receipt['status'] != 'invited' || receipt['requires_acceptance'] != true) return false;
+  final scopes = staffPermissionSet(receipt['permissions']);
+  return scopes != null && setEquals(scopes,desired);
+}
+
+bool staffAcceptanceReceipt(Map<String,dynamic> original,dynamic receipt) {
+  if (receipt is! Map || receipt['id'] != original['id'] ||
+      receipt['company_id'] != original['company_id'] ||
+      receipt['user_id'] != original['user_id'] ||
+      receipt['invitation_version'] != original['invitation_version'] ||
+      receipt['status'] != 'active' || receipt['admin_revoked_at'] != null) return false;
+  final expected = staffPermissionSet(original['permissions']);
+  final actual = staffPermissionSet(receipt['permissions']);
+  return expected != null && actual != null && setEquals(expected,actual);
+}
+
+class _VendorRecordsState extends State<VendorRecordsView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool foreground = true, retired = false, confirming = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && generation == epoch;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    rows = null; currentCompany = null; error = null;
+    notice = null; busy = false; uncertain = false; confirming = false;
+  }
   ApiPage<Map<String, dynamic>>? rows;
   Map<String, dynamic>? currentCompany;
   Object? error;
@@ -377,62 +414,119 @@ class _VendorRecordsState extends State<VendorRecordsView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(api,widget.api) && !authorized()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorRecordsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api,widget.api) || oldWidget.kind != widget.kind ||
+        oldWidget.company?['id'] != widget.company?['id']) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() { foreground = next; generation++; redact(); });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     super.dispose();
+  }
+
+  void handleFailure(Object e, int epoch) {
+    if (current(epoch)) { fail(e); }
+    else if (mounted && foreground && epoch == generation &&
+        e is ApiException && e.endsCurrentSession) {
+      widget.onExpired();
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    }
   }
 
   void fail(Object e) {
     setState(() {
       rows = null;
+      currentCompany = null;
       error = e;
     });
     if (e is ApiException && [401, 419].contains(e.status)) {
       widget.onExpired();
-      Navigator.of(context).popUntil((r) => r.isFirst);
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
     }
   }
 
   Future<void> load() async {
-    final epoch = ++generation;
+    if (!active) return;
+    final epoch = ++generation, api = widget.api;
     setState(() {
       busy = true;
       rows = null;
       currentCompany = null;
       error = null;
+      confirming = false;
     });
     try {
       final company = widget.kind == 'invitations'
           ? null
           : Map<String, dynamic>.from(
-              await widget.api.request(
+              await api.request(
                     'vendor-ops/companies/${widget.company!['id']}',
                   )
                   as Map,
             );
+      if (!current(epoch)) return;
+      if (company != null && company['id'] != widget.company!['id'])
+        throw const FormatException('Wrong company source.');
       final r = ApiPage.fromJson(
-        await widget.api.request(base, query: {'page': '$page'}),
+        await api.request(base, query: {'page': '$page'}),
         (r) => r,
       );
-      if (mounted && epoch == generation)
+      if (!current(epoch)) return;
+      final seen = <int>{};
+      if (r.current != page || r.last < 1 || r.total < 0 || r.items.length > 25 ||
+          r.items.any((row) => row['id'] is! int || row['id'] <= 0 ||
+              !seen.add(row['id'] as int))) {
+        throw const FormatException('Wrong private record page.');
+      }
+      if (current(epoch))
         setState(() {
           rows = r;
           currentCompany = company;
           uncertain = false;
         });
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      handleFailure(e,epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> action(Map<String, dynamic> row) async {
-    if (!await vendorConfirm(
+    if (!active || !top || busy || confirming || !(rows?.items.contains(row) ?? false) ||
+        (widget.kind != 'invitations' && currentCompany?['capabilities']?['owner'] != true)) return;
+    final reviewed = generation, api = widget.api;
+    setState(() => confirming = true);
+    bool accepted = false;
+    try {
+      accepted = await vendorConfirm(
           context,
           widget.kind == 'invitations' ? 'acceptConsent' : 'revokeConsent',
           details: widget.kind == 'invitations'
@@ -441,13 +535,15 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                   for (final p in row['permissions'] as List) t('$p'),
                 ]
               : const [],
-        ) ||
-        !mounted)
-      return;
+        );
+    } finally {
+      if (current(reviewed)) setState(() => confirming = false);
+    }
+    if (!accepted || !current(reviewed) || !top || busy) return;
     final epoch = ++generation;
     setState(() => busy = true);
     try {
-      await widget.api.request(
+      final receipt = await api.request(
         widget.kind == 'invitations'
             ? 'vendor-ops/staff-invitations/${row['id']}/accept'
             : '$base/${row['id']}',
@@ -456,21 +552,90 @@ class _VendorRecordsState extends State<VendorRecordsView> {
             ? {'expected_version': row['invitation_version']}
             : null,
       );
-      if (mounted && epoch == generation) await load();
+      if (!current(epoch)) return;
+      if (widget.kind == 'invitations' && !staffAcceptanceReceipt(row,receipt))
+        throw const FormatException('Unconfirmed invitation acceptance.');
+      await load();
     } catch (e) {
-      if (mounted && epoch == generation) {
-        fail(e);
-        setState(() => uncertain = true);
-      }
+      if (current(epoch)) uncertain = true;
+      handleFailure(e,epoch);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
+    }
+  }
+
+  bool canEdit(Map<String,dynamic> row) =>
+      widget.kind == 'staff' && currentCompany?['capabilities']?['owner'] == true &&
+      row['company_id'] == widget.company?['id'] &&
+      ['invited','active'].contains(row['status']) &&
+      row['admin_revoked_at'] == null && row['invitation_version'] is int &&
+      row['invitation_version'] > 0 && staffPermissionSet(row['permissions']) != null;
+
+  Future<void> editPermissions(Map<String,dynamic> row) async {
+    if (!active || !top || busy || confirming || !canEdit(row) ||
+        !(rows?.items.contains(row) ?? false)) return;
+    final original = staffPermissionSet(row['permissions'])!;
+    final desired = {...original};
+    final reviewed = generation, api = widget.api, path = '$base/${row['id']}/permissions';
+    setState(() => confirming = true);
+    Set<String>? decision;
+    try {
+      decision = await showDialog<Set<String>>(
+        context:context,
+        builder:(dialog) => StatefulBuilder(builder:(dialog,update) => AlertDialog(
+          title:Text(t('editPermissions')),
+          content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,
+            children:[
+              Text(t('editPermissionsConsent')),
+              for(final permission in vendorPermissions) CheckboxListTile(
+                value:desired.contains(permission),
+                title:Text(t(permission)),
+                onChanged:(value) => update(() {
+                  if(value == true) { desired.add(permission); }
+                  else { desired.remove(permission); }
+                }),
+              ),
+            ],
+          )),
+          actions:[
+            TextButton(onPressed:()=>Navigator.pop(dialog),child:Text(t('cancel'))),
+            FilledButton(
+              onPressed:desired.isEmpty || setEquals(desired,original) ? null :
+                ()=>Navigator.pop(dialog,Set<String>.of(desired)),
+              child:Text(t('confirm')),
+            ),
+          ],
+        )),
+      );
+    } finally {
+      if (current(reviewed)) setState(() => confirming = false);
+    }
+    if (decision == null || !current(reviewed) || !top || busy || !canEdit(row)) return;
+    final epoch = ++generation;
+    setState(() { busy = true; error = null; uncertain = false; });
+    try {
+      final receipt = await api.request(path,method:'PATCH',body:{
+        'expected_version':row['invitation_version'],
+        'permissions':[for(final permission in vendorPermissions) if(decision.contains(permission)) permission],
+      });
+      if (!current(epoch)) return;
+      if (!staffPermissionChangeReceipt(row,decision,receipt))
+        throw const FormatException('Unconfirmed permission change.');
+      await load();
+    } catch(e) {
+      if (current(epoch)) uncertain = true;
+      handleFailure(e,epoch);
+    } finally {
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> create() async {
+    if (!active || !top || busy || confirming || currentCompany?['capabilities']?['owner'] != true) return;
+    final epoch = generation;
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => widget.kind == 'staff'
+        builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : widget.kind == 'staff'
             ? VendorInviteView(
                 api: widget.api,
                 company: widget.company!['id'] as int,
@@ -484,7 +649,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
               ),
       ),
     );
-    if (mounted) {
+    if (current(epoch) && top) {
       if (saved == true)
         setState(
           () =>
@@ -495,27 +660,31 @@ class _VendorRecordsState extends State<VendorRecordsView> {
   }
 
   Future<void> preview(Map<String, dynamic> row) async {
+    if (!active || !top || busy || confirming || !(rows?.items.contains(row) ?? false)) return;
     final epoch = ++generation;
     setState(() => busy = true);
     try {
       final doc = await widget.api.downloadDocument('$base/${row['id']}');
-      if (!mounted || epoch != generation) return;
+      if (!current(epoch)) return;
       if (doc.bytes.length != row['size_bytes'])
         throw const ApiException(502, 'Document metadata changed.');
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => VendorDocumentPreview(document: doc),
+          builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : VendorDocumentPreview(document: doc,revokedSessionEvents:widget.api.sessionEvents),
         ),
       );
     } catch (e) {
-      if (mounted && epoch == generation) fail(e);
+      handleFailure(e,epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final rendered = generation;
+    VoidCallback guard(VoidCallback action) => () { if (current(rendered) && top && !busy && !confirming) action(); };
+    if (!active) return Scaffold(appBar:AppBar(title:Text(t(widget.kind))),body:Center(child:Text(t('privateHidden'))));
     final editable = [
       'draft',
       'changes_requested',
@@ -536,7 +705,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                 (widget.kind == 'staff' ||
                     (widget.kind == 'documents' && editable)))
               FilledButton(
-                onPressed: busy ? null : create,
+                onPressed: busy || confirming ? null : guard(create),
                 child: Text(t(widget.kind == 'staff' ? 'invite' : 'upload')),
               ),
             if (rows?.items.isEmpty == true) Text(t('empty')),
@@ -553,7 +722,7 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                           Text('${row['mime_type']} · ${row['size_bytes']} B'),
                           Text('${row['created_at']}'),
                           TextButton(
-                            onPressed: busy ? null : () => preview(row),
+                            onPressed: busy || confirming ? null : guard(() => preview(row)),
                             child: Text(t('preview')),
                           ),
                         ] else if (widget.kind == 'reviews') ...[
@@ -573,13 +742,19 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                             Text(t('$p')),
                           if (widget.kind == 'invitations')
                             FilledButton(
-                              onPressed: busy ? null : () => action(row),
+                              onPressed: busy || confirming ? null : guard(() => action(row)),
                               child: Text(t('accept')),
                             )
-                          else if (row['status'] != 'revoked')
+                          else if (row['status'] != 'revoked' && currentCompany?['capabilities']?['owner'] == true)
                             TextButton(
-                              onPressed: busy ? null : () => action(row),
+                              onPressed: busy || confirming ? null : guard(() => action(row)),
                               child: Text(t('revoke')),
+                            ),
+                          if (canEdit(row))
+                            TextButton(
+                              key:ValueKey('staff-permissions-${row['id']}'),
+                              onPressed:busy || confirming ? null : guard(()=>editPermissions(row)),
+                              child:Text(t('editPermissions')),
                             ),
                         ],
                       ],
@@ -592,24 +767,18 @@ class _VendorRecordsState extends State<VendorRecordsView> {
                   TextButton(
                     onPressed: busy
                         ? null
-                        : () {
-                            page--;
-                            load();
-                          },
+                        : guard(() { page--; load(); }),
                     child: Text(t('previous')),
                   ),
                 if (rows != null && page < rows!.last)
                   TextButton(
                     onPressed: busy
                         ? null
-                        : () {
-                            page++;
-                            load();
-                          },
+                        : guard(() { page++; load(); }),
                     child: Text(t('next')),
                   ),
                 TextButton(
-                  onPressed: busy ? null : load,
+                  onPressed: busy || confirming ? null : guard(load),
                   child: Text(t('refresh')),
                 ),
               ],
@@ -635,7 +804,90 @@ class VendorInviteView extends StatefulWidget {
   State<VendorInviteView> createState() => _VendorInviteState();
 }
 
-class _VendorInviteState extends State<VendorInviteView> {
+/// The invitation API deliberately does not disclose account existence.
+bool staffInviteAcknowledged(dynamic receipt) =>
+    receipt is Map && receipt['message'] == 'Invitation recorded if the account is eligible.';
+
+bool evidenceUploadAcknowledged(dynamic receipt,int company,String kind,
+    String mime,int size) =>
+    receipt is Map && receipt['id'] is int && receipt['id'] > 0 &&
+    receipt['company_id'] is int && receipt['company_id'] == company &&
+    receipt['kind'] == kind && receipt['mime_type'] == mime &&
+    receipt['size_bytes'] is int && receipt['size_bytes'] == size &&
+    !receipt.containsKey('storage_path') && !receipt.containsKey('sha256');
+
+/// These child routes own their original account fence for their entire
+/// lifetime. A parent rebuild must never rebind an unsubmitted private draft.
+mixin _PrivateVendorDraft<T extends StatefulWidget> on State<T>, WidgetsBindingObserver {
+  late bool Function() draftFence;
+  StreamSubscription<int>? draftEvents;
+  bool draftForeground = true, draftRetired = false;
+  int draftEpoch = 0;
+  EvApi get draftApi;
+  int get draftCompany;
+  void clearDraft();
+  bool get activeDraft => mounted && draftForeground && !draftRetired && draftFence();
+  bool draftCurrent(int epoch) => activeDraft && epoch == draftEpoch;
+  bool get draftTop => ModalRoute.of(context)?.isCurrent ?? true;
+  bool get pickingExternal => false;
+
+  @override
+  void initState() {
+    super.initState();
+    final api = draftApi;
+    draftFence = api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    draftForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    draftRetired = !draftForeground;
+    WidgetsBinding.instance.addObserver(this);
+    draftEvents = api.sessionEvents.listen((_) {
+      if (mounted && !draftFence()) {
+        setState(() { draftRetired = true; clearDraft(); });
+      }
+    });
+  }
+
+  void retireIfChanged(EvApi previous,int company) {
+    if (!identical(previous,draftApi) || company != draftCompany || !draftFence()) {
+      draftEpoch++; draftRetired = true; clearDraft();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == draftForeground) return;
+    setState(() {
+      draftForeground = next;
+      // The native picker can temporarily cover the app. No consent exists
+      // while picking, and results are accepted only after foreground return.
+      if (!next && !pickingExternal) {
+        draftEpoch++; draftRetired = true; clearDraft();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    draftEpoch++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(draftEvents?.cancel());
+    super.dispose();
+  }
+}
+
+class _VendorInviteState extends State<VendorInviteView>
+    with WidgetsBindingObserver, _PrivateVendorDraft<VendorInviteView> {
+  @override EvApi get draftApi => widget.api;
+  @override int get draftCompany => widget.company;
+  @override void clearDraft() {
+    email.clear(); scopes.clear(); error = null; busy = false; uncertain = false;
+  }
+  @override void didUpdateWidget(covariant VendorInviteView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    retireIfChanged(oldWidget.api,oldWidget.company);
+  }
   final email = TextEditingController();
   final scopes = <String>{};
   Object? error;
@@ -648,23 +900,28 @@ class _VendorInviteState extends State<VendorInviteView> {
   }
 
   Future<void> send() async {
-    if (!email.text.contains('@') || scopes.isEmpty) {
+    if (!activeDraft || !draftTop || busy || uncertain) return;
+    final address = email.text.trim(), reviewed = scopes.toList(), api = widget.api;
+    if (!address.contains('@') || reviewed.isEmpty) {
       setState(
         () =>
             error = const ApiException(422, 'Choose valid invitation details.'),
       );
       return;
     }
+    final epoch = ++draftEpoch;
     setState(() => busy = true);
     try {
-      await widget.api.request(
+      final receipt = await api.request(
         'vendor-ops/companies/${widget.company}/staff',
         method: 'POST',
-        body: {'email': email.text.trim(), 'permissions': scopes.toList()},
+        body: {'email': address, 'permissions': reviewed},
       );
-      if (mounted) Navigator.pop(context, true);
+      if (!draftCurrent(epoch)) return;
+      if (!staffInviteAcknowledged(receipt)) throw const FormatException('Unconfirmed invitation request.');
+      if (draftTop) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) {
+      if (draftCurrent(epoch)) {
         setState(() {
           error = e;
           uncertain = e is! ApiException || e.status != 422;
@@ -672,16 +929,24 @@ class _VendorInviteState extends State<VendorInviteView> {
         if (e is ApiException && [401, 419].contains(e.status)) {
           email.clear();
           widget.onExpired();
-          Navigator.of(context).popUntil((r) => r.isFirst);
+          if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
         }
+      } else if (mounted && draftForeground && epoch == draftEpoch && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (draftCurrent(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final rendered = draftEpoch;
+    bool editable() => draftCurrent(rendered) && draftTop && !busy && !uncertain;
+    if (!activeDraft) return Scaffold(appBar:AppBar(title:Text(t('invite'))),
+      body:Center(child:Text(t('privateHidden'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('invite'))),
     body: SafeArea(
       child: ListView(
@@ -711,18 +976,17 @@ class _VendorInviteState extends State<VendorInviteView> {
               title: Text(t(p)),
               onChanged: busy || uncertain
                   ? null
-                  : (v) => setState(
-                      () => v == true ? scopes.add(p) : scopes.remove(p),
-                    ),
+                  : (v) { if (editable()) setState(() => v == true ? scopes.add(p) : scopes.remove(p)); },
             ),
           FilledButton(
-            onPressed: busy || uncertain ? null : send,
+            onPressed: busy || uncertain ? null : () { if (editable()) send(); },
             child: Text(t('invite')),
           ),
         ],
       ),
     ),
   );
+  }
 }
 
 class VendorEvidenceUpload extends StatefulWidget {
@@ -741,49 +1005,71 @@ class VendorEvidenceUpload extends StatefulWidget {
   State<VendorEvidenceUpload> createState() => _EvidenceUploadState();
 }
 
-class _EvidenceUploadState extends State<VendorEvidenceUpload> {
-  final key = operationKey();
+class _EvidenceUploadState extends State<VendorEvidenceUpload>
+    with WidgetsBindingObserver, _PrivateVendorDraft<VendorEvidenceUpload> {
+  @override EvApi get draftApi => widget.api;
+  @override int get draftCompany => widget.company;
+  bool picking = false;
+  @override bool get pickingExternal => picking;
+  int selection = 0;
+  @override void clearDraft() {
+    evidence = null; consent = false; busy = false; uncertain = false;
+    error = null; picking = false; selection++;
+  }
+  @override void didUpdateWidget(covariant VendorEvidenceUpload oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    retireIfChanged(oldWidget.api,oldWidget.company);
+  }
+  String key = operationKey();
   VendorEvidence? evidence;
   String kind = 'trade_license';
   bool consent = false, busy = false, uncertain = false;
   Object? error;
-  int generation = 0;
   String t(String k) => vendorOpsText(context, k);
   @override
   void dispose() {
-    generation++;
     evidence = null;
     super.dispose();
   }
 
   Future<void> pick() async {
-    final epoch = ++generation;
-    setState(() => busy = true);
+    if (!activeDraft || !draftTop || busy || uncertain) return;
+    final epoch = ++draftEpoch;
+    setState(() { busy = true; picking = true; consent = false; evidence = null; selection++; error = null; });
     try {
       final e = await (widget.pick?.call() ?? pickVendorEvidence());
-      if (mounted && epoch == generation) setState(() => evidence = e);
+      if (!draftCurrent(epoch)) return;
+      if (e != null && (e.bytes.isEmpty || e.bytes.length > 5*1024*1024 ||
+          vendorEvidenceMime(e.bytes) != e.mime))
+        throw const FormatException('Invalid evidence selection.');
+      setState(() { evidence = e == null ? null : VendorEvidence(Uint8List.fromList(e.bytes),e.mime); key = operationKey(); });
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => error = e);
+      if (draftCurrent(epoch)) setState(() => error = e);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && epoch == draftEpoch && !draftRetired && draftFence())
+        setState(() { picking = false; busy = false; });
     }
   }
 
   Future<void> upload() async {
-    if (!consent || evidence == null) return;
-    final epoch = ++generation;
-    setState(() => busy = true);
+    if (!activeDraft || !draftTop || busy || uncertain || !consent || evidence == null) return;
+    final reviewed = evidence!, reviewedKind = kind, api = widget.api, company = widget.company;
+    final epoch = ++draftEpoch;
+    setState(() { busy = true; consent = false; selection++; });
     try {
-      await widget.api.uploadDocument(
-        'vendor-ops/companies/${widget.company}/documents',
-        kind: kind,
-        bytes: evidence!.bytes,
-        mime: evidence!.mime,
+      final receipt = await api.uploadDocument(
+        'vendor-ops/companies/$company/documents',
+        kind: reviewedKind,
+        bytes: reviewed.bytes,
+        mime: reviewed.mime,
         key: key,
       );
-      if (mounted && epoch == generation) Navigator.pop(context, true);
+      if (!draftCurrent(epoch)) return;
+      if (!evidenceUploadAcknowledged(receipt,company,reviewedKind,reviewed.mime,reviewed.bytes.length))
+        throw const FormatException('Unconfirmed evidence upload.');
+      if (draftTop) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (draftCurrent(epoch)) {
         setState(() {
           error = e;
           uncertain = e is! ApiException || e.status != 422;
@@ -791,16 +1077,24 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
         });
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
-          Navigator.of(context).popUntil((r) => r.isFirst);
+          if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
         }
+      } else if (mounted && draftForeground && epoch == draftEpoch && e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+        if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (draftCurrent(epoch)) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final rendered = draftEpoch, reviewedSelection = selection;
+    bool editable() => draftCurrent(rendered) && draftTop && !busy && !uncertain && reviewedSelection == selection;
+    if (!activeDraft) return Scaffold(appBar:AppBar(title:Text(t('upload'))),
+      body:Center(child:Text(t('privateHidden'))));
+    return Scaffold(
     appBar: AppBar(title: Text(t('upload'))),
     body: SafeArea(
       child: ListView(
@@ -824,10 +1118,10 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
                 .toList(),
             onChanged: busy || uncertain
                 ? null
-                : (v) => setState(() => kind = v!),
+                : (v) { if (editable() && v != null && v != kind) setState(() { kind = v; consent = false; selection++; key = operationKey(); }); },
           ),
           TextButton(
-            onPressed: busy || uncertain ? null : pick,
+            onPressed: busy || uncertain ? null : () { if (editable()) pick(); },
             child: Text(t('pick')),
           ),
           if (evidence != null)
@@ -839,18 +1133,19 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
             title: Text(t('uploadConsent')),
             onChanged: busy || uncertain
                 ? null
-                : (v) => setState(() => consent = v == true),
+                : (v) { if (editable() && evidence != null) setState(() { consent = v == true; selection++; }); },
           ),
           FilledButton(
             onPressed: busy || uncertain || !consent || evidence == null
                 ? null
-                : upload,
+                : () { if (editable()) upload(); },
             child: Text(t('upload')),
           ),
         ],
       ),
     ),
   );
+  }
 }
 
 /// Probe a bounded native raster before declaring a private PDF preview ready.

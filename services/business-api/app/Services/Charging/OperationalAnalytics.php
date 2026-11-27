@@ -18,6 +18,17 @@ class OperationalAnalytics
         return $a + $b;
     }
 
+    private function sourceInteger(mixed $value): int
+    {
+        // Raw query results must not silently truncate damaged source meters
+        // or sequences (SQLite permits REAL values in integer-affinity columns).
+        abort_unless(is_int($value) || is_string($value), 409, 'Invalid accepted meter source.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false && $number >= 0 && $number <= self::MAX, 409, 'Invalid accepted meter source.');
+
+        return $number;
+    }
+
     private function seconds(mixed $value): int
     {
         return CarbonImmutable::parse($value)->getTimestamp();
@@ -115,8 +126,12 @@ class OperationalAnalytics
             $previous = null;
             foreach ($source as $e) {
                 $time = $this->seconds($e->occurred_at);
-                if ($previous && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $e->meter_wh >= $previous[1]) {
-                    $delta = (int) $e->meter_wh - $previous[1];
+                $sequence = $this->sourceInteger($e->sequence);
+                $meter = $this->sourceInteger($e->meter_wh);
+                // A filtered or missing source sequence cannot establish a
+                // consecutive accepted meter interval. Do not bridge the gap.
+                if ($previous && $sequence === $previous[2] + 1 && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $meter >= $previous[1]) {
+                    $delta = $meter - $previous[1];
                     $duration = $time - $previous[0];
                     // Divide before scaling: a valid cumulative meter delta can
                     // overflow PHP's integer range when multiplied by 3600.
@@ -127,7 +142,7 @@ class OperationalAnalytics
                     $demand[$site][] = [$previous[0], $time, $evse->id, $watts];
                     $rows[$site]['maximum_session_interval_average_w'] = max($rows[$site]['maximum_session_interval_average_w'], $watts);
                 }
-                $previous = [$time, (int) $e->meter_wh];
+                $previous = [$time, $meter, $sequence];
             }
         }
         foreach ($intervals as $site => $groups) {
@@ -144,6 +159,7 @@ class OperationalAnalytics
         $observations = DB::table('charging_status_observations')->whereIn('binding_id', $bindings->pluck('id'))->where('occurred_at', '>=', $from->subSeconds(300))->where('occurred_at', '<=', $until)->where('created_at', '<=', $asOf)->orderBy('occurred_at')->orderBy('source_event_id')->limit(20001)->get();
         abort_if($observations->count() > 20000, 409, 'Narrow the report period/site.');
         $components = [];
+        $unavailableBySite = [];
         foreach ($maps as $m) {
             $evse = $byEvse[$m->evse_id];
             $b = $byBinding[$evse->binding_id];
@@ -176,6 +192,7 @@ class OperationalAnalytics
             $times = array_keys($timeline);
             $known = 0;
             $fault = 0;
+            $unavailable = 0;
             foreach ($times as $i => $t) {
                 $e = $timeline[$t];
                 $seconds = max(0, min($z, $t + 300, $times[$i + 1] ?? $z) - max($a, $t));
@@ -184,15 +201,23 @@ class OperationalAnalytics
                 } $known += $seconds;
                 if ($e['fault']) {
                     $fault += $seconds;
+                } elseif ($e['status'] === 'Unavailable') {
+                    $unavailable += $seconds;
                 }
             }
             $site = $component['site'];
             $rows[$site]['status_known_seconds'] += $known;
             $rows[$site]['reported_fault_seconds'] += $fault;
+            $unavailableBySite[$site] = ($unavailableBySite[$site] ?? 0) + $unavailable;
         }
         foreach ($rows as &$row) {
             $row += app(ObservedSiteDemand::class)->project($demand[$row['site_id']] ?? []);
             $row['status_unknown_seconds'] = $row['possible_connector_seconds'] - $row['status_known_seconds'];
+            $row['reported_non_fault_unavailable_seconds'] = $unavailableBySite[$row['site_id']] ?? 0;
+            // These are disjoint source-status buckets, not physical uptime.
+            $row['reported_downtime_seconds'] = $row['reported_fault_seconds'] + $row['reported_non_fault_unavailable_seconds'];
+            abort_unless($row['reported_downtime_seconds'] <= $row['status_known_seconds'], 409, 'Inconsistent source coverage.');
+            $row['other_known_status_seconds'] = $row['status_known_seconds'] - $row['reported_downtime_seconds'];
         }unset($row);
         // Canonical invoice facts stay separate by currency, precision and provenance.
         $money = [];

@@ -16,9 +16,12 @@ final class PartnerRewardGovernanceController extends Controller
 
     public function show(Request $request, int $partner, int $review, PartnerRewardGovernance $governance)
     {
-        $request->validate(['page' => 'sometimes|integer|between:1,100000']);
+        $values = $request->validate([
+            'page' => 'sometimes|integer|between:1,100000',
+            'claims_page' => 'sometimes|integer|between:1,100000',
+        ]);
 
-        return response()->json($governance->history($request->user(), $partner, $review))->header('Cache-Control', 'private, no-store');
+        return response()->json($governance->history($request->user(), $partner, $review, (int) ($values['claims_page'] ?? 1)))->header('Cache-Control', 'private, no-store');
     }
 
     public function propose(Request $request, int $partner, PartnerRewardGovernance $governance)

@@ -4,7 +4,79 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+function verifyRevenueCohortParser() {
+  const source = fs.readFileSync("services/business-api/public/commercial.js", "utf8");
+  const start = source.indexOf("    function validateRevenueCohort(");
+  const end = source.indexOf("    function vendorRevenue(", start);
+  assert(start >= 0 && end > start);
+  const validate = new Function(source.slice(start, end) + "\nreturn validateRevenueCohort;")();
+  const fields = {
+    invoice_count: 2, invoiced_minor: 1050, vendor_allocated_minor: 900,
+    commission_allocated_minor: 150, paid_minor: 1030, refunded_minor: 100,
+    vendor_refunded_minor: 80, unpaid_credited_minor: 20, vendor_credited_minor: 15,
+    net_collected_minor: 930, net_vendor_allocated_minor: 805,
+  };
+  const fixture = () => ({
+    vendor_id: 42, currency: "AED", minor_units: 2, from: "2026-11-01", to: "2026-11-01",
+    as_of: "2026-11-26T01:02:03+00:00", evidence: "SIMULATED_CANONICAL_FINANCE",
+    basis: "INVOICE_ISSUANCE_DATE_UTC_COHORT",
+    payment_and_refund_totals: "LIFETIME_OF_SELECTED_INVOICE_COHORT_AS_OF_QUERY",
+    external_psp_or_bank_verified: false, real_money_movement: false,
+    not_cashflow_or_payout_eligibility: true,
+    data: [{date_utc: "2026-11-01", ...fields}], totals: {...fields},
+  });
+  const run = report => validate(report, 42, "AED", "2026-11-01", "2026-11-01");
+  assert.equal(run(fixture()).totals.net_vendor_allocated_minor, 805);
+  const legacy = fixture(); delete legacy.as_of;
+  assert.equal(run(legacy).totals.invoice_count, 2);
+  const preciseClock = fixture(); preciseClock.as_of = "2026-11-26T01:02:03.123456Z";
+  assert.equal(run(preciseClock).as_of, preciseClock.as_of);
+  const corruptions = [
+    r => r.vendor_id = "42", r => r.currency = "USD", r => r.from = "2026-11-02",
+    r => r.minor_units = "2", r => r.minor_units = 4, r => r.evidence = "LIVE",
+    r => r.real_money_movement = true, r => r.external_psp_or_bank_verified = true,
+    r => r.not_cashflow_or_payout_eligibility = false, r => r.payment_and_refund_totals = "OTHER",
+    r => r.as_of = "2026-02-30T01:02:03Z", r => r.as_of = "2026-11-26T01:02:03+04:00",
+    r => r.data = [], r => r.data[0].date_utc = "2026-11-02",
+    r => r.data[0].paid_minor = "1050", r => r.data[0].refunded_minor = -1,
+    r => r.data[0].commission_allocated_minor = 1.5,
+    r => r.data[0].net_collected_minor = 931, r => r.data[0].net_vendor_allocated_minor = 806,
+    r => r.totals.invoice_count = 3, r => r.totals.paid_minor = 1049,
+    r => r.totals.net_vendor_allocated_minor = 806,
+    r => r.data[0].invoice_count = Number.MAX_SAFE_INTEGER + 1,
+  ];
+  for (const change of corruptions) {
+    const report = fixture(); change(report);
+    assert.throws(() => run(report), /Revenue cohort source cannot be verified/);
+  }
+  // Each mutation preserves daily/total equality and recalculates net
+  // values; none is a possible original invoice cohort.
+  const impossible = [
+    {paid_minor: 1051}, {unpaid_credited_minor: 21},
+    {refunded_minor: 1031}, {commission_allocated_minor: 151},
+    {vendor_refunded_minor: 101}, {vendor_credited_minor: 21},
+    {invoice_count: 0},
+    {vendor_allocated_minor: 90, commission_allocated_minor: 100},
+  ];
+  for (const change of impossible) {
+    const report = fixture(), row = report.data[0];
+    Object.assign(row, change);
+    row.net_collected_minor = row.paid_minor - row.refunded_minor;
+    row.net_vendor_allocated_minor = row.vendor_allocated_minor - row.vendor_refunded_minor - row.vendor_credited_minor;
+    Object.assign(report.totals, row);
+    assert.throws(() => run(report), /Revenue cohort source cannot be verified/);
+  }
+  const overflow = fixture();
+  overflow.to = "2026-11-02";
+  overflow.data[0].invoiced_minor = Number.MAX_SAFE_INTEGER;
+  overflow.data.push({...overflow.data[0], date_utc: "2026-11-02", invoiced_minor: 1});
+  assert.throws(() => validate(overflow, 42, "AED", overflow.from, overflow.to),
+    /Revenue cohort source cannot be verified/);
+  console.log("PASS exact revenue cohort parser: 3 valid and " + (corruptions.length + impossible.length + 1) + " rejected source cases");
+}
+
 (async () => {
+  verifyRevenueCohortParser();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
@@ -280,6 +352,57 @@ const assert = require("node:assert/strict");
     const exportText = fs.readFileSync(dir + "/admin-approval-queue.csv", "utf8");
     assert.match(exportText, /^kind,record_id,vendor_id,invoice_id,currency/);
     assert.doesNotMatch(exportText, /provider_reference|request_key|secret/i);
+    // Apply the same real server scope to the visible rows and CSV.
+    const queue = maker.locator("[data-finance-approval-queue]");
+    const loadQueue = maker.getByRole("button", {
+      name: "Load pending finance reviews", exact: true,
+    });
+    await maker.locator("[data-finance-review-currency]").fill("aed");
+    await maker.locator("[data-finance-review-vendor]").fill(String(f.vendor));
+    assert.equal(await queue.locator("[data-finance-approval-kind]").count(), 0);
+    assert.equal(await approvalCsv.count(), 0);
+    const scoped = maker.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/finance/approval-queue" &&
+        url.searchParams.get("currency") === "AED" &&
+        url.searchParams.get("vendor_id") === String(f.vendor);
+    });
+    await loadQueue.click();
+    const scopedHttp = await scoped;
+    assert.equal(scopedHttp.status(), 200);
+    const scopedBody = await scopedHttp.json();
+    assert(scopedBody.data.every(row => row.vendor_id === f.vendor && row.currency === "AED"));
+    await queue.getByRole("heading", { name: "Pending financial reviews" }).waitFor();
+    const scopedLink = new URL(await approvalCsv.getAttribute("href"), base);
+    assert.equal(scopedLink.searchParams.get("currency"), "AED");
+    assert.equal(scopedLink.searchParams.get("vendor_id"), String(f.vendor));
+    const filteredDownload = maker.waitForEvent("download");
+    await approvalCsv.click();
+    const filteredFile = await filteredDownload;
+    await filteredFile.saveAs(dir + "/admin-approval-scoped.csv");
+    const filteredCsv = fs.readFileSync(dir + "/admin-approval-scoped.csv", "utf8");
+    for (const line of filteredCsv.trim().split(/\r?\n/).slice(1)) {
+      const fields = line.split(",");
+      assert.equal(fields[2], String(f.vendor));
+      assert.equal(fields[4], "AED");
+    }
+
+    // A malformed second response must remove the old private rows and
+    // export link; never render a partial new page or leak another vendor.
+    const pattern = "**/api/finance/approval-queue?*";
+    const forge = async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.current_page = 2;
+      await route.fulfill({ response, json: body });
+    };
+    await maker.route(pattern, forge);
+    await loadQueue.click();
+    await maker.locator("[data-commercial-status]")
+      .getByText("Financial approval queue source cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await queue.locator("[data-finance-approval-kind]").count(), 0);
+    assert.equal(await approvalCsv.count(), 0);
+    await maker.unroute(pattern, forge);
     const wrongRole = await vendor.request.get(
       base + "/api/finance/approval-queue?kind=refund",
       { headers: { Accept: "application/json" } },

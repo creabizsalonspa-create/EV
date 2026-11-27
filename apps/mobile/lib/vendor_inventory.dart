@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'station_information.dart';
+import 'station_availability_blocks.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'operational_analytics.dart';
@@ -7,6 +9,8 @@ import 'vendor_topology.dart';
 import 'charger_admission.dart';
 import 'charger_diagnostics.dart';
 import 'charger_availability.dart';
+import 'charger_logs.dart';
+import 'charger_source_registration.dart';
 import 'charger_resets.dart';
 import 'charger_firmware.dart';
 import 'maintenance_windows.dart';
@@ -35,7 +39,24 @@ class VendorInventoryView extends StatefulWidget {
   State<VendorInventoryView> createState() => _VendorInventoryViewState();
 }
 
-class _VendorInventoryViewState extends State<VendorInventoryView> {
+bool inventoryMaintenanceReceipt(dynamic value, int connector, int charger,
+    bool blocked, String reason) =>
+    value is Map && value['id'] is int && value['id'] == connector &&
+    value['charger_id'] is int && value['charger_id'] == charger &&
+    value['maintenance_blocked'] == blocked &&
+    value['maintenance_reason'] == reason &&
+    value['availability'] == 'unknown' && value['remote_control_enabled'] == false;
+
+class _VendorInventoryViewState extends State<VendorInventoryView> with WidgetsBindingObserver {
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+  bool foreground = true, retired = false, confirming = false;
+  bool get active => mounted && foreground && !retired && authorized();
+  bool current(int epoch) => active && generation == epoch;
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    data = null; error = null; busy = false; uncertain = false; confirming = false;
+  }
   ApiPage<Map<String, dynamic>>? data;
   Object? error;
   bool busy = false, uncertain = false;
@@ -63,13 +84,55 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
   @override
   void initState() {
     super.initState();
-    load();
+    authorized = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    final source = widget.api;
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(source,widget.api) && !authorized()) {
+        setState(() { retired = true; redact(); });
+      }
+    });
+    if (active) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorInventoryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api,widget.api) ||
+        oldWidget.company?['id'] != widget.company?['id'] ||
+        oldWidget.site?['id'] != widget.site?['id'] ||
+        oldWidget.charger?['id'] != widget.charger?['id'] ||
+        oldWidget.metadataEditor != widget.metadataEditor ||
+        oldWidget.company?['capabilities'].toString() != widget.company?['capabilities'].toString()) {
+      generation++; retired = true; redact();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    final next = state == AppLifecycleState.resumed;
+    if (next == foreground) return;
+    setState(() { foreground = next; generation++; redact(); });
   }
 
   @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     super.dispose();
+  }
+
+  void handleFailure(Object e,int epoch) {
+    if (current(epoch)) { failed(e); }
+    else if (mounted && foreground && epoch == generation &&
+        e is ApiException && e.endsCurrentSession) {
+      widget.onExpired();
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   void failed(Object e) {
@@ -80,12 +143,13 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
     });
     if (e is ApiException && [401, 419].contains(e.status)) {
       widget.onExpired();
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
   Future<void> load({int page = 1}) async {
-    final epoch = ++generation;
+    if (!active || page < 1 || page > 100000) return;
+    final epoch = ++generation, request = widget.api, path = endpoint;
     target = page;
     setState(() {
       busy = true;
@@ -94,23 +158,35 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
       uncertain = false;
     });
     try {
-      final result = await widget.api.request(
-        endpoint,
-        query: {'page': '$page'},
-      );
-      if (!mounted || epoch != generation) return;
-      setState(() => data = ApiPage.fromJson(result, (v) => v));
+      final result = await request.request(path,query: {'page': '$page'});
+      if (!current(epoch)) return;
+      final parsed = ApiPage.fromJson(result, (v) => v);
+      final seen = <int>{};
+      if (parsed.current != page || parsed.last < 1 || page > parsed.last ||
+          parsed.total < 0 || parsed.items.length > 25 ||
+          parsed.items.length > parsed.total ||
+          parsed.items.any((row) => row['id'] is! int || row['id'] <= 0 ||
+              !seen.add(row['id'] as int) ||
+              (level == 1 && row['company_id'] != widget.company?['id']) ||
+              (level == 2 && (row['company_id'] != widget.company?['id'] ||
+                row['site_id'] != widget.site?['id'])) ||
+              (level == 3 && row['charger_id'] != widget.charger?['id']))) {
+        throw const FormatException('Invalid inventory source page.');
+      }
+      setState(() => data = parsed);
     } catch (e) {
-      if (mounted && epoch == generation) failed(e);
+      handleFailure(e,epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> open(Map<String, dynamic> row) async {
+    if (!active || !top || busy || confirming || !(data?.items.contains(row) ?? false)) return;
+    final epoch = generation;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => VendorInventoryView(
+        builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : VendorInventoryView(
           api: widget.api,
           onExpired: widget.onExpired,
           metadataEditor: widget.metadataEditor,
@@ -120,7 +196,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         ),
       ),
     );
-    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+    if (current(epoch) && top) {
       await load(page: data?.current ?? 1);
     }
   }
@@ -130,11 +206,9 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         authorized = request.sessionFence(),
         epoch = generation;
     bool live() =>
-        mounted &&
-        epoch == generation &&
+        current(epoch) && top &&
         request == widget.api &&
-        authorized() &&
-        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+        authorized() && !confirming;
     return TextButton(
       onPressed: busy
           ? null
@@ -142,7 +216,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
               if (!live() || row['id'] is! int) return;
               await Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => live()
+                  builder: (_) => current(epoch) && authorized()
                       ? VendorSessionObservationsView(
                           api: request,
                           companyId: row['id'] as int,
@@ -161,10 +235,16 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
   }
 
   Future<void> maintenance(Map<String, dynamic> row) async {
+    if (!active || !top || busy || confirming || !writer || !(data?.items.contains(row) ?? false) || (row['maintenance_blocked'] == true && capabilities['inventory_operational'] != true)) return;
+    final reviewed = generation, request = widget.api, path = endpoint;
+    final connector = row['id'] as int, charger = widget.charger!['id'] as int;
+    setState(() => confirming = true);
     var reason = '';
     final form = GlobalKey<FormState>();
     final blocked = row['maintenance_blocked'] == true;
-    final result = await showDialog<String>(
+    String? result;
+    try {
+    result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr(blocked ? 'release' : 'block')),
@@ -205,7 +285,10 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         ],
       ),
     );
-    if (result == null || !mounted) return;
+    } finally {
+      if (current(reviewed)) setState(() => confirming = false);
+    }
+    if (result == null || !current(reviewed) || !top || busy || !writer || (blocked && capabilities['inventory_operational'] != true)) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -213,26 +296,30 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
       error = null;
     });
     try {
-      await widget.api.request(
-        '$endpoint/${row['id']}/maintenance',
+      final receipt = await request.request(
+        '$path/$connector/maintenance',
         method: 'PATCH',
         body: {'maintenance_blocked': !blocked, 'maintenance_reason': result},
       );
-      if (mounted && epoch == generation) await load(page: target);
-    } catch (e) {
-      if (mounted && epoch == generation) {
-        uncertain = e is! ApiException || e.status == 0 || e.status >= 500;
-        failed(e);
+      if (!current(epoch)) return;
+      if (!inventoryMaintenanceReceipt(receipt,connector,charger,!blocked,result)) {
+        throw const FormatException('Unconfirmed maintenance receipt.');
       }
+      await load(page: target);
+    } catch (e) {
+      if (current(epoch)) uncertain = e is! ApiException || e.status == 0 || e.status >= 500;
+      handleFailure(e,epoch);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> createInventory() async {
+    if (!active || !top || busy || confirming || data == null || (level != 0 && (!writer || capabilities['inventory_operational'] != true))) return;
+    final epoch = generation;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => VendorEditView(
+        builder: (_) => !current(epoch) ? const Scaffold(body:SizedBox.shrink()) : VendorEditView(
           api: widget.api,
           onExpired: widget.onExpired,
           kind: ['company', 'site', 'charger', 'connector'][level],
@@ -242,46 +329,55 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         ),
       ),
     );
-    if (mounted) await load(page: target);
+    if (current(epoch) && top) await load(page: target);
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = EvStrings.of(context), p = data;
+    final s = EvStrings.of(context), p = active ? data : null;
     final title = tr(['companies', 'sites', 'chargers', 'connectors'][level]);
+    final rendered = generation;
+    bool live() => current(rendered) && top && !busy && !confirming;
+    VoidCallback guarded(VoidCallback callback) => () { if (live()) callback(); };
+    WidgetBuilder scoped(WidgetBuilder builder) => (c) =>
+        current(rendered) ? builder(c) : const Scaffold(body:SizedBox.shrink());
+    if (!active) return Scaffold(
+      appBar:AppBar(title:Text(title)),
+      body:Center(child:Text(foreground ? s.t('expired') : tr('hidden'))),
+    );
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
         actions: [
           IconButton(
             tooltip: s.t('refresh'),
-            onPressed: busy ? null : () => load(page: target),
+            onPressed: busy || confirming ? null : guarded(() => load(page: target)),
             icon: const Icon(Icons.refresh),
           ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          if (!busy) await load(page: target);
+          if (live()) await load(page: target);
         },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
             Text(tr('disclaimer')),
-            if (level == 1)
+            if (p != null && level == 1)
               TextButton(
                 onPressed: busy
                     ? null
-                    : () => Navigator.of(context).push(
+                    : guarded(() => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => OperationalAnalyticsView(
+                          builder: scoped((_) => OperationalAnalyticsView(
                             api: widget.api,
                             companyId: widget.company!['id'] as int,
                             onExpired: widget.onExpired,
-                          ),
+                          )),
                         ),
-                      ),
+                      )),
                 child: Text(
                   Localizations.localeOf(context).languageCode == 'ar'
                       ? 'تحليلات تشغيل الشحن'
@@ -289,7 +385,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                 ),
               ),
 
-            if (level == 0) ...[
+            if (p != null && level == 0) ...[
               if (widget.metadataEditor)
                 OutlinedButton.icon(
                   key: const Key('vendor-station-information-open'),
@@ -301,39 +397,40 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                   ),
                   onPressed: busy
                       ? null
-                      : () => Navigator.of(context).push(
+                      : guarded(() => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => VendorStationInformationView(
+                            builder: scoped((_) => VendorStationInformationView(
                               api: widget.api,
                               onExpired: widget.onExpired,
-                            ),
+                            )),
                           ),
-                        ),
+                        )),
                 ),
               FilledButton(
-                onPressed: busy ? null : createInventory,
+                onPressed: busy ? null : guarded(createInventory),
                 child: Text(vendorOpsText(context, 'newCompany')),
               ),
               TextButton(
                 onPressed: busy
                     ? null
                     : () async {
+                        if (!live()) return;
                         await Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => VendorRecordsView(
+                            builder: scoped((_) => VendorRecordsView(
                               api: widget.api,
                               onExpired: widget.onExpired,
                               kind: 'invitations',
-                            ),
+                            )),
                           ),
                         );
-                        if (mounted) load();
+                        if (current(rendered) && top) load();
                       },
                 child: Text(vendorOpsText(context, 'invitations')),
               ),
-            ] else if (writer && capabilities['inventory_operational'] == true)
+            ] else if (p != null && writer && capabilities['inventory_operational'] == true)
               FilledButton(
-                onPressed: busy ? null : createInventory,
+                onPressed: busy ? null : guarded(createInventory),
                 child: Text(
                   vendorOpsText(
                     context,
@@ -352,7 +449,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
               Text(s.t(errorKey(error!))),
               if (uncertain) Text(tr('uncertain')),
               TextButton(
-                onPressed: busy ? null : () => load(page: target),
+                onPressed: busy || confirming ? null : guarded(() => load(page: target)),
                 child: Text(s.t('retry')),
               ),
             ],
@@ -383,6 +480,39 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                           Text('${row['address']}'),
                           Text('${row['country']} · ${row['timezone']}'),
                           Text('${row['latitude']}, ${row['longitude']}'),
+                          // Only the vendor owner may change a station-wide
+                          // booking policy. A staff member's inventory grant
+                          // is not a station ownership grant.
+                          if (widget.metadataEditor &&
+                              capabilities['owner'] == true &&
+                              row['station_id'] is int &&
+                              (row['station_id'] as int) > 0)
+                            OutlinedButton.icon(
+                              key: Key('station-blocks-${row['station_id']}'),
+                              icon: const Icon(Icons.event_busy_outlined),
+                              onPressed: busy
+                                  ? null
+                                  : () async {
+                                      if (!live()) return;
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: scoped((_) => StationAvailabilityBlocksView(
+                                            api: widget.api,
+                                            stationId: row['station_id'] as int,
+                                            onExpired: widget.onExpired,
+                                          )),
+                                        ),
+                                      );
+                                      if (current(rendered) && top) {
+                                        await load(page: data?.current ?? 1);
+                                      }
+                                    },
+                              label: Text(
+                                Localizations.localeOf(context).languageCode == 'ar'
+                                    ? 'إدارة فترات حجب المحطة'
+                                    : 'Manage station availability blocks',
+                              ),
+                            ),
                         ],
                         if (level == 2) ...[
                           Text('${row['manufacturer']} · ${row['model']}'),
@@ -395,41 +525,85 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                             onPressed: busy
                                 ? null
                                 : () async {
+                                    if (!live()) return;
                                     await Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => VendorTopologyView(
+                                        builder: scoped((_) => VendorTopologyView(
                                           api: widget.api,
                                           company: widget.company!,
                                           charger: row,
                                           onExpired: widget.onExpired,
-                                        ),
+                                        )),
                                       ),
                                     );
-                                    if (mounted &&
-                                        ModalRoute.of(context)?.isCurrent ==
-                                            true)
+                                    if (current(rendered) && top)
                                       await load(page: data?.current ?? 1);
                                   },
                             child: Text(topologyText(context, 'title')),
                           ),
+                        if (level == 2 &&
+                            row['source'] == 'direct_unverified' &&
+                            ['1.6', '2.0.1'].contains(row['ocpp_protocol']) &&
+                            widget.company?['id'] is int &&
+                            row['id'] is int) ...[
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : guarded(() => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: scoped((_) =>
+                                          ChargerSourceRegistrationView(
+                                            api: widget.api,
+                                            companyId:
+                                                widget.company!['id'] as int,
+                                            chargerId: row['id'] as int,
+                                            onExpired: widget.onExpired,
+                                          )),
+                                    ),
+                                  )),
+                            child: Text(
+                              EvStrings.of(context).arabic
+                                  ? 'التسجيل لدى المصدر'
+                                  : 'Source registration',
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : guarded(() => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: scoped((_) => ChargerLogsView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: row['id'] as int,
+                                        onExpired: widget.onExpired,
+                                      )),
+                                    ),
+                                  )),
+                            child: Text(
+                              EvStrings.of(context).arabic
+                                  ? 'ملفات تشخيص المصدر الخاصة'
+                                  : 'Private source diagnostic files',
+                            ),
+                          ),
+                        ],
                         if (level == 2)
                           OutlinedButton(
                             onPressed: busy
                                 ? null
                                 : () async {
+                                    if (!live()) return;
                                     await Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => ChargerAdmissionView(
+                                        builder: scoped((_) => ChargerAdmissionView(
                                           api: widget.api,
                                           company: widget.company!,
                                           charger: row,
                                           onExpired: widget.onExpired,
-                                        ),
+                                        )),
                                       ),
                                     );
-                                    if (mounted &&
-                                        ModalRoute.of(context)?.isCurrent ==
-                                            true)
+                                    if (current(rendered) && top)
                                       await load(page: data?.current ?? 1);
                                   },
                             child: Text(admissionText(context, 'title')),
@@ -438,75 +612,75 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => Navigator.of(context).push(
+                                : guarded(() => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
-                                      builder: (_) => ChargerDiagnosticsView(
+                                      builder: scoped((_) => ChargerDiagnosticsView(
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: row['id'] as int,
                                         onExpired: widget.onExpired,
-                                      ),
+                                      )),
                                     ),
-                                  ),
+                                  )),
                             child: Text(diagnosticsTitle(context)),
                           ),
                         if (level == 2 && row['source'] == 'simulator')
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => Navigator.of(context).push(
+                                : guarded(() => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
-                                      builder: (_) => ChargerAvailabilityView(
+                                      builder: scoped((_) => ChargerAvailabilityView(
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: row['id'] as int,
                                         onExpired: widget.onExpired,
-                                      ),
+                                      )),
                                     ),
-                                  ),
+                                  )),
                             child: Text(availabilityCommandTitle(context)),
                           ),
                         if (level == 2)
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => Navigator.of(context).push(
+                                : guarded(() => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
-                                      builder: (_) => ChargerResetsView(
+                                      builder: scoped((_) => ChargerResetsView(
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: row['id'] as int,
                                         onExpired: widget.onExpired,
-                                      ),
+                                      )),
                                     ),
-                                  ),
+                                  )),
                             child: Text(resetTitle(context)),
                           ),
                         if (level == 2)
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => Navigator.of(context).push(
+                                : guarded(() => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
-                                      builder: (_) => ChargerFirmwareView(
+                                      builder: scoped((_) => ChargerFirmwareView(
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: row['id'] as int,
                                         manufacturer: '${row['manufacturer']}',
                                         model: '${row['model']}',
                                         onExpired: widget.onExpired,
-                                      ),
+                                      )),
                                     ),
-                                  ),
+                                  )),
                             child: Text(firmwareTitle(context)),
                           ),
                         if (level == 3) ...[
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => Navigator.of(context).push(
+                                : guarded(() => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
-                                      builder: (_) => MaintenanceWindowsView(
+                                      builder: scoped((_) => MaintenanceWindowsView(
                                         api: widget.api,
                                         companyId: widget.company!['id'] as int,
                                         chargerId: widget.charger!['id'] as int,
@@ -516,9 +690,9 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                             capabilities['inventory_operational'] ==
                                             true,
                                         onExpired: widget.onExpired,
-                                      ),
+                                      )),
                                     ),
-                                  ),
+                                  )),
                             child: Text(maintenanceTitle(context)),
                           ),
                           Text(
@@ -547,7 +721,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                           capabilities['inventory_operational'] !=
                                               true)
                                   ? null
-                                  : () => maintenance(row),
+                                  : guarded(() => maintenance(row)),
                               child: Text(
                                 tr(
                                   row['maintenance_blocked'] == true
@@ -565,16 +739,17 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                             onPressed: busy
                                 ? null
                                 : () async {
+                                    if (!live()) return;
                                     await Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => VendorCompanyView(
+                                        builder: scoped((_) => VendorCompanyView(
                                           api: widget.api,
                                           onExpired: widget.onExpired,
                                           company: row['id'] as int,
-                                        ),
+                                        )),
                                       ),
                                     );
-                                    if (mounted) load(page: target);
+                                    if (current(rendered) && top) load(page: target);
                                   },
                             child: Text(vendorOpsText(context, 'company')),
                           ),
@@ -588,7 +763,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                         as Map?)?['inventory_read'] ==
                                     true))
                           FilledButton.tonal(
-                            onPressed: busy ? null : () => open(row),
+                            onPressed: busy ? null : guarded(() => open(row)),
                             child: Text(
                               tr(['sites', 'chargers', 'connectors'][level]),
                             ),
@@ -610,13 +785,13 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                   OutlinedButton(
                     onPressed: busy || p.current <= 1
                         ? null
-                        : () => load(page: p.current - 1),
+                        : guarded(() => load(page: p.current - 1)),
                     child: Text(s.t('previous')),
                   ),
                   OutlinedButton(
                     onPressed: busy || p.current >= p.last
                         ? null
-                        : () => load(page: p.current + 1),
+                        : guarded(() => load(page: p.current + 1)),
                     child: Text(s.t('next')),
                   ),
                 ],
@@ -663,6 +838,7 @@ const inventoryEnglish = {
   'approval':
       'Current company approval and license are required to remove a block.',
   'empty': 'No inventory records in this scope.',
+  'hidden': 'Private inventory is hidden while the app is inactive.',
   'uncertain':
       'The update may have been saved. Refresh authoritative inventory before submitting again.',
 };
@@ -694,5 +870,6 @@ const inventoryArabic = {
   'unknown': 'التوافر المباشر: غير معروف',
   'approval': 'تتطلب إزالة الحظر موافقة الشركة وصلاحية الرخصة الحالية.',
   'empty': 'لا توجد سجلات مخزون ضمن هذا النطاق.',
+  'hidden': 'يُخفى المخزون الخاص عندما يكون التطبيق غير نشط.',
   'uncertain': 'ربما حُفظ التحديث. حدّث المخزون المعتمد قبل إعادة الإرسال.',
 };

@@ -22,7 +22,10 @@ final class VendorEarningsCsv {
   /// Parse strict RFC-style double quotes and comma-delimited rows.
   /// Every untrusted cell must equal the source snapshot already verified
   /// for the logged-in vendor, currency and exact page.
-  static List<List<String>> _parse(String source) {
+  static List<List<String>> parseBounded(String source, {int maxRows = 26}) {
+    if (maxRows < 1 || maxRows > 94 || source.length > 65536) {
+      throw const FormatException('Invalid bounded CSV limit.');
+    }
     final rows = <List<String>>[];
     var row = <String>[];
     var cell = StringBuffer();
@@ -36,7 +39,7 @@ final class VendorEarningsCsv {
     void record() {
       rows.add(row);
       row = <String>[];
-      if (rows.length > 26) {
+      if (rows.length > maxRows) {
         throw const FormatException('CSV exceeds bounded page.');
       }
     }
@@ -114,7 +117,7 @@ final class VendorEarningsCsv {
       throw const FormatException('Untrusted private earnings export.');
     }
     final text = utf8.decode(document.bytes, allowMalformed: false);
-    final data = _parse(text);
+    final data = parseBounded(text);
     if (data.length != rows.length + 1 ||
         data.isEmpty ||
         data.first.length != headers.length) {

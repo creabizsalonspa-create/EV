@@ -83,6 +83,111 @@ class OperationalAnalyticsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_non_fault_unavailable_is_reported_separately_and_stops_at_freshness_limit(): void
+    {
+        [$owner, , , $binding, , , $url] = $this->setupReport();
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [
+                ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z'],
+                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Unavailable', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:06:00Z'],
+                ['id' => 3, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:07:00Z'],
+            ],
+        ]);
+
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.status_known_seconds', 660)
+            ->assertJsonPath('sites.0.status_unknown_seconds', 42540)
+            ->assertJsonPath('sites.0.reported_fault_seconds', 60)
+            ->assertJsonPath('sites.0.reported_non_fault_unavailable_seconds', 300)
+            ->assertJsonPath('sites.0.reported_downtime_seconds', 360)
+            ->assertJsonPath('sites.0.other_known_status_seconds', 300)
+            ->assertJsonPath('sites.0.possible_connector_seconds', 43200)
+            ->assertJsonPath('physical_uptime_verified', false);
+        $this->get($url.'/export'.$query)->assertOk()->assertSee('reported_non_fault_unavailable_seconds')->assertSee('reported_downtime_seconds')->assertSee('other_known_status_seconds');
+        $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_demand_does_not_bridge_missing_accepted_meter_sequence(): void
+    {
+        [$owner, , , $binding, $map, $evse, $url] = $this->setupReport();
+        $session = $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $link = DB::table('csms_session_links')->where('charging_session_id', $session->id)->first();
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 1)->update(['sequence' => 2]);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_sequence' => 2]);
+        $before = DB::table('finance_journals')->count();
+        $query = '?from=2026-11-06&to=2026-11-06';
+
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', null)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 0)
+            ->assertJsonPath('physical_site_demand_verified', false);
+
+        // Restoring a consecutive accepted source interval restores demand,
+        // without changing completed energy or financial facts.
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 2)->update(['sequence' => 1]);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_sequence' => 1]);
+        $this->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 3600);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_distinct_evses_contribute_simultaneous_demand_without_double_counting_time(): void
+    {
+        [$owner, , $charger, $binding, $map, $evse, $url] = $this->setupReport();
+        $connector = VendorConnector::create(['charger_id' => $charger->id, 'connector_number' => 2, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
+        $secondEvse = DB::table('charging_evses')->insertGetId(['charger_id' => $charger->id, 'number' => 2, 'mode' => 'exclusive', 'binding_id' => $binding->id, 'source_evse_number' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        $secondMap = DB::table('charging_connector_mappings')->insertGetId(['station_id' => $binding->station_id, 'evse_id' => $secondEvse, 'connector_id' => $connector->id, 'source_connector_number' => 2, 'source_target_key' => hash('sha256', 'parallel-'.$binding->id), 'created_at' => now(), 'updated_at' => now()]);
+        $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $this->sourceSession($binding, $secondMap, $secondEvse, '2026-11-06 10:30:00', '2026-11-06 11:30:00');
+        $before = DB::table('finance_journals')->count();
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.mapped_evses', 2)
+            ->assertJsonPath('sites.0.completed_energy_wh', 2000)
+            ->assertJsonPath('sites.0.observed_busy_seconds', 7200)
+            ->assertJsonPath('sites.0.maximum_session_interval_average_w', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 2000)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 5400)
+            ->assertJsonPath('sites.0.demand_ambiguous_evse_seconds', 0)
+            ->assertJsonPath('physical_site_demand_verified', false);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_fractional_intermediate_accepted_meter_cannot_be_truncated_into_demand(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite integer-affinity corruption regression; PostgreSQL integer columns are exact.');
+        }
+        [$owner, , , $binding, $map, $evse, $url] = $this->setupReport();
+        $session = $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $link = DB::table('csms_session_links')->where('charging_session_id', $session->id)->first();
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 1)->update(['sequence' => 2]);
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_sequence' => 2]);
+        DB::table('csms_inbox_events')->insert([
+            'link_id' => $link->id, 'event_id' => 'fractional-meter-'.$link->id,
+            'fingerprint' => hash('sha256', 'fractional-meter-'.$link->id),
+            'type' => 'meter', 'sequence' => 1, 'meter_wh' => 600.5,
+            'occurred_at' => '2026-11-06 10:30:00', 'outcome' => 'applied', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertConflict();
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('sequence', 1)->update(['meter_wh' => 600]);
+        $this->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 3600);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_large_valid_meter_delta_does_not_overflow_during_power_scaling(): void
     {
         [$owner, $company, , $b, $map, $evse, $url] = $this->setupReport();
@@ -219,7 +324,7 @@ class OperationalAnalyticsTest extends TestCase
         app(FaultMonitor::class)->ingest($b, ['source_generation' => FaultMonitor::generation($b), 'events' => [
             ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
             ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z']]]);
-        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.status_known_seconds', 0)->assertJsonPath('sites.0.status_unknown_seconds', 43200);
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.status_known_seconds', 0)->assertJsonPath('sites.0.status_unknown_seconds', 43200)->assertJsonPath('sites.0.reported_downtime_seconds', 0)->assertJsonPath('sites.0.other_known_status_seconds', 0);
     }
 
     public function test_feedback_aggregates_include_only_current_public_revision_in_window_without_private_data_or_billing_changes(): void

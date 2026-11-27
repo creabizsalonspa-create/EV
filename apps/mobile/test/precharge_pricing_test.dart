@@ -14,6 +14,9 @@ class PricingApi extends FixtureApi {
   final writes = <Map<String,dynamic>>[];
   Completer<dynamic>? pending;
   int epoch = 0;
+  final sessionChanges = StreamController<int>.broadcast(sync:true);
+  @override Stream<int> get sessionEvents => sessionChanges.stream;
+  void rotate() { epoch++; sessionChanges.add(epoch); }
   bool expiredQuote = false, malformedReceipt = false, mismatchedReceipt = false, sqlReplay = false;
   @override
   bool Function() sessionFence() { final captured = epoch; return () => captured == epoch; }
@@ -42,6 +45,42 @@ Widget app(PricingApi api,{bool arabic=false}) => MaterialApp(
   home:Builder(builder:(context)=>Scaffold(body:TextButton(onPressed:()=>reviewPrechargePricing(context,api,7),child:const Text('Review')))),
 );
 void main() {
+  for (final ar in [false,true]) {
+    testWidgets('rendered quote redacts immediately on same-client account revocation ($ar)', (tester) async {
+      final api=PricingApi();
+      addTearDown(api.close);
+      addTearDown(api.sessionChanges.close);
+      await tester.pumpWidget(app(api,arabic:ar));
+      await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField),'1500');
+      await tester.tap(find.text(ar?'عرض التقدير':'Get estimate'));await tester.pumpAndSettle();
+      expect(find.textContaining('KWD 0.396'),findsOneWidget);
+      final old = tester.widget<FilledButton>(find.widgetWithText(FilledButton,ar?'قبول السعر':'Accept price')).onPressed!;
+      api.rotate();await tester.pumpAndSettle();
+      expect(find.textContaining('KWD 0.396'),findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,'10000');
+      old();await tester.pumpAndSettle();
+      expect(api.writes,isEmpty);
+      expect(tester.widget<TextButton>(find.widgetWithText(TextButton,ar?'عرض التقدير':'Get estimate')).onPressed,isNull);
+    });
+  }
+  testWidgets('a retained consent callback cannot approve a newly reviewed quote', (tester) async {
+    final api=PricingApi();
+    addTearDown(api.close);
+    addTearDown(api.sessionChanges.close);
+    await tester.pumpWidget(app(api));await tester.tap(find.text('Review'));await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'1500');
+    await tester.tap(find.text('Get estimate'));await tester.pumpAndSettle();
+    final old=tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Accept price')).onPressed!;
+    await tester.tap(find.text('Get estimate'));await tester.pumpAndSettle();
+    expect(find.textContaining('KWD 0.396'),findsOneWidget);
+    old();await tester.pumpAndSettle();
+    expect(api.writes,isEmpty);
+    await tester.tap(find.text('Accept price'));await tester.pumpAndSettle();
+    expect(api.writes,hasLength(1));
+    expect(find.byType(PrechargePricingDialog),findsNothing);
+  });
+
 
   for(final ar in [false,true]){
     testWidgets('expired charging price is never displayed or accepted ($ar)',(tester) async {
@@ -111,6 +150,11 @@ void main() {
     expect(confirmedPrechargeReceipt({...receipt,'id':0},price),false);
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'2026-02-30 10:00:00'},price),false);
     expect(confirmedPrechargeReceipt({...receipt,'valid_until':'not-a-timestamp'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':'invalid-but-long-enough-to-pass'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':'2026-02-30T04:30:00.000000Z'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':exp},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'valid_until':exp.substring(0,exp.length-2)+'1Z'},price),false);
+    expect(confirmedPrechargeReceipt({...receipt,'accepted_at':DateTime.now().toUtc().toIso8601String().substring(0,19).replaceFirst('T',' ')},price),true);
   });
 
 

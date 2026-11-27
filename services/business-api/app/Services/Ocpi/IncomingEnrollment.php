@@ -59,13 +59,17 @@ class IncomingEnrollment
         abort_unless($link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture(), 401);
         // Read-only discovery with the peer's newly offered token B. It cannot
         // modify the peer and is fenced again before local activation.
-        $exchange->endpoint($p, base64_encode($peer['token']));
+        $exchange->endpoint($p, base64_encode($peer['token']), $link);
 
         return DB::transaction(function () use ($p, $link, $body, $peer, $exchange) {
+            $owner = User::whereKey($p->owner_id)->lockForUpdate()->first(['id', 'role', 'account_status']);
+            abort_unless($owner?->role === 'vendor' && $owner->account_status === 'active', 401);
             $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
             $this->current($p, $current, $link->configuration_hash);
             $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
-            abort_unless($active->state === 'awaiting_registration' && $active->generation === $link->generation && $active->local_token_digest === $link->local_token_digest && $active->bootstrap_expires_at && CarbonImmutable::parse($active->bootstrap_expires_at)->isFuture(), 401);
+            abort_unless($active->owner_id === $owner->id && hash_equals($link->configuration_hash, $active->configuration_hash)
+                && $active->state === 'awaiting_registration' && $exchange->sameLink($link, $active)
+                && $active->bootstrap_expires_at && CarbonImmutable::parse($active->bootstrap_expires_at)->isFuture(), 401);
             $prepared = DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('generation', $active->generation)->where('action', 'prepare_incoming')->where('state', 'awaiting_peer')->lockForUpdate()->firstOrFail();
             $proof = Crypt::decryptString($prepared->source_payload_ciphertext);
             abort_unless(hash_equals($prepared->source_payload_hash, hash('sha256', $proof)) && (json_decode($proof, true, flags: JSON_THROW_ON_ERROR)['configuration_hash'] ?? null) === $active->configuration_hash, 409);

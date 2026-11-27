@@ -12,6 +12,16 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CommercialCampaignController extends Controller
 {
+    private const REVIEW_STATES = ['draft', 'submitted', 'approved', 'paused', 'rejected', 'cancelled', 'suspended'];
+
+    private function pageRules(): array
+    {
+        return [
+            'page' => 'sometimes|integer|between:1,100000',
+            'per_page' => 'sometimes|integer|between:1,25',
+        ];
+    }
+
     /** Call only inside a transaction that holds the current account lock. */
     private function scope(Request $r, int $revokedStatus = 409)
     {
@@ -38,33 +48,75 @@ class CommercialCampaignController extends Controller
         $data = (array) $row;
         unset($data['request_key'], $data['fingerprint']);
 
-        return $data + ['control_revision' => (string) $service->controlRevision($row->id), 'delivered_units' => $service->delivered($row->id), 'verified_server_clicks' => DB::table('commercial_campaign_deliveries')->where('campaign_id', $row->id)->where('kind', 'click')->count(), 'unit' => 'PREPAID_PACKAGE_DELIVERY_UNIT', 'additional_cash_charge' => false, 'human_impressions_verified' => false, 'sponsored' => true];
+        // One statement obtains both counters; a click committed between two
+        // separate COUNTs must not manufacture a temporary impossible ratio.
+        $counts = DB::table('commercial_campaign_deliveries')->where('campaign_id', $row->id)
+            ->selectRaw('COUNT(CASE WHEN kind = ? THEN 1 END) AS delivered, COUNT(CASE WHEN kind = ? THEN 1 END) AS clicks', ['delivery', 'click'])
+            ->first();
+        $delivered = (int) $counts->delivered;
+        $clicks = (int) $counts->clicks;
+        $revision = $service->controlRevision($row->id);
+        abort_unless($revision > 0 && $delivered <= (int) $row->budget_units
+            && $clicks <= $delivered, 409, 'Campaign source counters cannot be reconciled.');
+
+        return $data + ['control_revision' => (string) $revision, 'delivered_units' => $delivered, 'verified_server_clicks' => $clicks, 'unit' => 'PREPAID_PACKAGE_DELIVERY_UNIT', 'additional_cash_charge' => false, 'human_impressions_verified' => false, 'sponsored' => true];
     }
 
     public function index(Request $r, CampaignService $s)
     {
-        return DB::transaction(fn () => response()->json(
-            $this->scope($r)->orderByDesc('id')->paginate(25)
-                ->through(fn ($row) => $this->safe($row, $s))->toArray()
-                    + ['adapter_enabled' => (bool) config('campaigns.enabled')]
-        )->header('Cache-Control', 'private, no-store'), 3);
+        $v = $r->validate($this->pageRules() + [
+            'status' => ['sometimes', Rule::in(self::REVIEW_STATES)],
+            'country' => ['sometimes', 'regex:/\A[A-Z]{2}\z/'],
+            'vendor_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+            'station_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+            'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+        ]);
+
+        return DB::transaction(function () use ($r, $s, $v) {
+            // All filters narrow the already-authorized tenant query.
+            $query = $this->scope($r);
+            foreach (['status', 'country', 'vendor_id', 'station_id', 'invoice_id'] as $field) {
+                if (isset($v[$field])) {
+                    $query->where($field, $v[$field]);
+                }
+            }
+            $page = $query->orderByDesc('id')
+                ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(fn ($row) => $this->safe($row, $s));
+
+            return response()->json($page->toArray() + [
+                'adapter_enabled' => (bool) config('campaigns.enabled'),
+                'scope' => [
+                    'status' => $v['status'] ?? null,
+                    'country' => $v['country'] ?? null,
+                    'vendor_id' => isset($v['vendor_id']) ? (int) $v['vendor_id'] : null,
+                    'station_id' => isset($v['station_id']) ? (int) $v['station_id'] : null,
+                    'invoice_id' => isset($v['invoice_id']) ? (int) $v['invoice_id'] : null,
+                ],
+            ])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function stations(Request $r)
     {
-        return DB::transaction(function () use ($r) {
+        $v = $r->validate($this->pageRules());
+
+        return DB::transaction(function () use ($r, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($actor->role === 'vendor', 403);
 
             return response()->json(DB::table('stations')->where('vendor_id', $actor->id)
-                ->orderBy('id')->select('id', 'name', 'country')->paginate(25))
+                ->orderBy('id')->select('id', 'name', 'country')
+                ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1)))
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
     public function packages(Request $r, CampaignService $s)
     {
-        return DB::transaction(function () use ($r, $s) {
+        $v = $r->validate($this->pageRules());
+
+        return DB::transaction(function () use ($r, $s, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless(in_array($actor->role, ['vendor', 'admin'], true), 403);
             $q = DB::table('commercial_subscription_invoices as i')
@@ -74,7 +126,8 @@ class CommercialCampaignController extends Controller
                 ->when($actor->role !== 'admin', fn ($q) => $q->where('s.user_id', $actor->id))
                 ->select('i.*', 's.user_id');
 
-            return response()->json($q->orderByDesc('i.id')->paginate(25)
+            return response()->json($q->orderByDesc('i.id')
+                ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
                 ->through(function ($i) use ($s) {
                     $eligible = true;
                     try {
@@ -108,7 +161,8 @@ class CommercialCampaignController extends Controller
         }
         $v['region'] = $v['region'] ?? null;
 
-        return response()->json(['campaign' => $this->safe($s->create($r->user(), $v), $s)], 201);
+        return response()->json(['campaign' => $this->safe($s->create($r->user(), $v), $s)], 201)
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function cancelIntent(Request $r, CampaignService $s)
@@ -116,21 +170,33 @@ class CommercialCampaignController extends Controller
         $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
         $receipt = $s->cancelIntent($r->user(), $v['idempotency_key']);
 
-        return response()->json(['cancelled' => $receipt['cancelled'], 'campaign' => $receipt['campaign'] ? $this->safe($receipt['campaign'], $s) : null]);
+        return response()->json(['cancelled' => $receipt['cancelled'], 'campaign' => $receipt['campaign'] ? $this->safe($receipt['campaign'], $s) : null])
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function show(Request $r, int $campaign, CampaignService $s)
     {
-        return DB::transaction(function () use ($r, $campaign, $s) {
-            $row = $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
+        $v = $r->validate($this->pageRules());
+
+        return DB::transaction(function () use ($r, $campaign, $s, $v) {
+            // The canonical writer locks the campaign row before appending
+            // control or publisher events. Retain that lock until all detail
+            // evidence has been serialized; no provider calls occur here.
+            $row = $this->scope($r)->where('id', $campaign)->lockForUpdate()->first() ?? abort(404);
+            $events = DB::table('commercial_campaign_events')->where('campaign_id', $campaign)
+                ->orderBy('id')->limit(1001)->get();
+            abort_if($events->count() > 1000, 409, 'Campaign history requires assisted review.');
 
             return response()->json([
                 'campaign' => $this->safe($row, $s),
                 'currently_eligible' => $s->eligible($row),
-                'events' => DB::table('commercial_campaign_events')
-                    ->where('campaign_id', $campaign)->orderBy('id')->get(),
+                'events' => $events,
+                // A private review needs canonical receipt identity and time,
+                // not the publisher's raw idempotency keys or payload hashes.
                 'deliveries' => DB::table('commercial_campaign_deliveries')
-                    ->where('campaign_id', $campaign)->orderByDesc('id')->paginate(25),
+                    ->where('campaign_id', $campaign)->orderByDesc('id')
+                    ->select('id', 'campaign_id', 'parent_delivery_id', 'kind', 'occurred_at', 'created_at')
+                    ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1)),
             ])->header('Cache-Control', 'private, no-store');
         }, 3);
     }
