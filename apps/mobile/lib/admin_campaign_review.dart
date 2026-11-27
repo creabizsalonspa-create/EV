@@ -164,6 +164,16 @@ class AdminCampaignPage {
   final bool enabled;
   AdminCampaignPage._(this.rows, this.number, this.last, this.enabled);
 
+  static void verifyScope(AdminCampaignRecord row, Map<String, String> scope) {
+    if ((scope['status'] != null && row.status != scope['status']) ||
+        (scope['country'] != null && row.country != scope['country']) ||
+        (scope['vendor_id'] != null && '${row.vendor}' != scope['vendor_id']) ||
+        (scope['station_id'] != null && '${row.station}' != scope['station_id']) ||
+        (scope['invoice_id'] != null && '${row.invoice}' != scope['invoice_id'])) {
+      throw const FormatException('Campaign outside requested filter.');
+    }
+  }
+
   factory AdminCampaignPage.parse(dynamic raw, int requested,
       {Map<String, String> scope = const {}}) {
     if (raw is! Map || raw['data'] is! List || raw['adapter_enabled'] is! bool) {
@@ -197,15 +207,7 @@ class AdminCampaignPage {
           throw const FormatException('Invalid campaign filter authority.');
         }
       }
-      for (final row in rows) {
-        if ((scope['status'] != null && row.status != scope['status']) ||
-            (scope['country'] != null && row.country != scope['country']) ||
-            (scope['vendor_id'] != null && '${row.vendor}' != scope['vendor_id']) ||
-            (scope['station_id'] != null && '${row.station}' != scope['station_id']) ||
-            (scope['invoice_id'] != null && '${row.invoice}' != scope['invoice_id'])) {
-          throw const FormatException('Campaign outside requested filter.');
-        }
-      }
+      for (final row in rows) { verifyScope(row, scope); }
     }
     return AdminCampaignPage._(List.unmodifiable(rows), current, last, raw['adapter_enabled']);
   }
@@ -339,7 +341,8 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
   }
 
   Future<void> load({int next = 1, AdminCampaignRecord? detail}) async {
-    if (!visible || busy) return;
+    if (!visible || busy || filtersDirty ||
+        (detail != null && !(page?.rows.any((row) => identical(row, detail)) ?? false))) return;
     if (scroll.hasClients) scroll.jumpTo(0);
     final epoch = ++generation;
     final requestApi = widget.api;
@@ -364,6 +367,7 @@ class _AdminCampaignState extends State<AdminCampaignReviewView>
           throw const FormatException('Invalid campaign eligibility.');
         }
         record = AdminCampaignRecord.parse(raw['campaign'], id: detail.id);
+        AdminCampaignPage.verifyScope(record, scope);
         if (!detail.sameTerms(record) || record.revision < detail.revision ||
             record.delivered < detail.delivered || record.clicks < detail.clicks) {
           throw const FormatException('Campaign source regressed or terms changed.');
