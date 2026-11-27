@@ -75,7 +75,44 @@ function verifyRevenueCohortParser() {
   console.log("PASS exact revenue cohort parser: 3 valid and " + (corruptions.length + impossible.length + 1) + " rejected source cases");
 }
 
+function verifyInvoiceAuditParser() {
+  const source = fs.readFileSync("services/business-api/public/commercial.js", "utf8");
+  const start = source.indexOf("    function validateInvoiceAuditRow(");
+  const end = source.indexOf("    function money(", start);
+  assert(start >= 0 && end > start);
+  const validate = new Function(source.slice(start, end) + "\nreturn validateInvoiceAuditRow;")();
+  const good = {
+    invoice_id: 1, currency: "AED", evidence: "SIMULATED_CANONICAL_LEDGER",
+    external_psp_or_bank_verified: false, invoice_number: "INV-1", minor_units: 2,
+    status: "reconciled", issues: [], journal_count: 2, invoiced_minor: 100,
+    paid_minor: 100, refunded_minor: 0, unpaid_credited_minor: 0,
+    net_collected_minor: 100, amount_due_minor: 0,
+  };
+  const run = patch => validate({...good, ...patch}, "AED", 2);
+  assert.equal(run({}).status, "reconciled");
+  assert.equal(run({status: "attention_required", issues: ["collection_out_of_bounds"],
+    paid_minor: -5, net_collected_minor: -5, amount_due_minor: 105}).paid_minor, -5);
+  assert.equal(run({paid_minor: 0, unpaid_credited_minor: 100, net_collected_minor: 0}).status, "reconciled");
+  const bad = [
+    {paid_minor: 200, net_collected_minor: 200}, {net_collected_minor: 2},
+    {amount_due_minor: -1}, {journal_count: 0}, {journal_count: 501},
+    {status: "attention_required", issues: ["BANK_VERIFIED"]},
+    {status: "attention_required", issues: ["journal_unbalanced", "journal_unbalanced"]},
+    {invoice_number: ""}, {invoice_number: "x".repeat(256)},
+    {invoice_id: 2}, {minor_units: 4}, {currency: "USD"},
+    {external_psp_or_bank_verified: true}, {paid_minor: 1.5},
+    {paid_minor: Number.MAX_SAFE_INTEGER, refunded_minor: -Number.MAX_SAFE_INTEGER,
+      net_collected_minor: Number.MAX_SAFE_INTEGER, status: "attention_required",
+      issues: ["collection_out_of_bounds"]},
+    {refunded_minor: 101, net_collected_minor: -1},
+    {unpaid_credited_minor: 1}, {status: "attention_required", issues: []},
+  ];
+  for (const patch of bad) assert.throws(() => run(patch), /Invalid internal audit source/);
+  console.log("PASS invoice audit parser: 3 valid and " + bad.length + " rejected source cases");
+}
+
 (async () => {
+  verifyInvoiceAuditParser();
   verifyRevenueCohortParser();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
@@ -242,6 +279,32 @@ function verifyRevenueCohortParser() {
       name: "Inspect accessible ledger integrity", exact: true,
     }).click();
     const integrityPane = vendor.locator("[data-financial-integrity]");
+    await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
+    const auditLink = integrityPane.getByRole("link", { name: "Download integrity CSV", exact: true });
+    const scopedAudit = new URL(await auditLink.getAttribute("href"), base);
+    assert.equal(scopedAudit.searchParams.get("vendor_id"), String(f.vendor));
+    assert.equal(scopedAudit.searchParams.get("currency"), "AED");
+    assert.equal(scopedAudit.searchParams.get("page"), "1");
+    const auditDownload = vendor.waitForEvent("download");
+    await auditLink.click();
+    const auditFile = await auditDownload;
+    await auditFile.saveAs(dir + "/vendor-integrity.csv");
+    assert.match(fs.readFileSync(dir + "/vendor-integrity.csv", "utf8"),
+      new RegExp("^" + f.invoice + ",", "m"));
+    await vendor.locator("[data-audit-to]").fill("1900-01-01");
+    assert.equal(await auditLink.count(), 0);
+    assert.equal(await integrityPane.locator("[data-audit-invoice-id]").count(), 0);
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
+    await integrityPane.getByText("No matching invoices.", { exact: true }).waitFor();
+    const emptyScope = new URL(await auditLink.getAttribute("href"), base);
+    assert.equal(emptyScope.searchParams.get("to"), "1900-01-01");
+    await vendor.locator("[data-audit-to]").fill("");
+    assert.equal(await auditLink.count(), 0);
+    await vendor.getByRole("button", {
+      name: "Inspect accessible ledger integrity", exact: true,
+    }).click();
     await integrityPane.locator('[data-audit-invoice-id="' + f.invoice + '"]').waitFor();
     const auditResponse = await vendor.request.get(base + "/api/finance/reconciliation-audit");
     assert.equal(auditResponse.status(), 200);
