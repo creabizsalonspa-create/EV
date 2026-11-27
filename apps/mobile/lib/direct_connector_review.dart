@@ -35,7 +35,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   String get path =>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/direct-connector-reviews';
-  bool get canRenew => receipt?['current_registration_matches'] == false;
+  bool get canRenew => receipt?['review_state'] == 'renewal_required';
   bool current(int n) =>
       mounted && foreground && authorized() && n == generation;
   void clear() {
@@ -99,6 +99,8 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
         row['source_evse_number'] is! int || row['source_connector_number'] is! int ||
         !validTarget(row['source_evse_number'], row['source_connector_number']) ||
         row['current_registration_matches'] is! bool ||
+        !['current', 'renewal_required', 'inventory_changed', 'operator_review_required'].contains(row['review_state']) ||
+        row['current_registration_matches'] != (row['review_state'] == 'current') ||
         row['source_observed_at'] is! String || row['reviewed_at'] is! String ||
         row['evidence'] != 'DIRECT_CONNECTOR_REVIEW_ONLY' ||
         row['charging_mapping_created'] != false ||
@@ -132,7 +134,7 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
       setState(() {
         receipt = result;
         readEmpty = result == null;
-        if (result != null && result['current_registration_matches'] == false) {
+        if (result != null && result['review_state'] == 'renewal_required') {
           evse.text = '${result['source_evse_number']}';
           number.text = '${result['source_connector_number']}';
         }
@@ -217,9 +219,12 @@ class _DirectConnectorReviewState extends State<DirectConnectorReviewView>
               Text(t('Review outcome uncertain; read stored review before another submission.',
                 'نتيجة المراجعة غير مؤكدة؛ اقرأ المراجعة المحفوظة قبل إرسال طلب آخر.')),
             if (receipt != null) ...[
-              Text(receipt!['current_registration_matches'] == true
-                  ? t('Stored connector review matches current registration', 'مراجعة الموصل المحفوظة تطابق التسجيل الحالي')
-                  : t('Stored review requires registration reconciliation', 'تتطلب المراجعة المحفوظة تسوية التسجيل')),
+              Text(switch (receipt!['review_state']) {
+                'current' => t('Stored connector review matches current registration', 'مراجعة الموصل المحفوظة تطابق التسجيل الحالي'),
+                'renewal_required' => t('Stored review requires registration reconciliation', 'تتطلب المراجعة المحفوظة تسوية التسجيل'),
+                'inventory_changed' => t('Connector inventory changed; operator investigation required', 'تغيرت بيانات الموصل؛ يلزم تحقيق المشغل'),
+                _ => t('Connector review requires operator investigation', 'تتطلب مراجعة الموصل تحقيق المشغل'),
+              }),
               Text('#${receipt!['id']} · ${receipt!['source_evse_number']}/${receipt!['source_connector_number']}'),
               Text('${receipt!['reviewed_at']}'),
             ],
