@@ -174,18 +174,24 @@
       "test_result": "passed",
       "merge_sha": "775b0b8e18f5f285ef613725de2dd60e9d361e36",
       "evidence": "docs/evidence/integrated-checkpoints-20261123/pr205-verified.json"
+    },
+    "pr397-discovery-closure": {
+      "source_sha": "3cf94fa29b915c844885843dc23d7815f4593ce0",
+      "test_result": "passed",
+      "merge_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
+      "evidence": "docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json"
     }
   },
   "weighted_percent": {
-    "coded": "61.46",
-    "tested": "61.46",
-    "merged": "61.46",
+    "coded": "61.99",
+    "tested": "61.99",
+    "merged": "61.99",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "2325683/3783780",
-    "tested": "2325683/3783780",
-    "merged": "2325683/3783780",
+    "coded": "781901/1261260",
+    "tested": "781901/1261260",
+    "merged": "781901/1261260",
     "production_accepted": "0"
   },
   "categories": [
@@ -428,9 +434,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 5,
-        "tested": 5,
-        "merged": 5,
+        "coded": 7,
+        "tested": 7,
+        "merged": 7,
         "production_accepted": 0
       },
       "details": [
@@ -476,13 +482,13 @@
         {
           "id": "2.3.4",
           "software_atom": "Interactive station maps",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit.",
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Consent-gated interactive canonical/partner and separate licensed-report maps, clustering, pan/zoom, manual center, explicit viewport query, GPS consent and private-data revocation. PR16/197/337 plus integrated PR397 correction; no physical availability or live-provider claim.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -528,13 +534,13 @@
         {
           "id": "2.3.8",
           "software_atom": "Favorites",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Canonical and authorized partner favorites implemented and historically tested through PR337; full acceptance held for retained native callback/session revocation defects identified in PR370. No whole-atom credit pending verified correction.",
+          "coded": true,
+          "checkpoint": "pr397-discovery-closure",
+          "note": "Canonical and authorized normalized partner private favorites on web/Flutter, typed saved-only queries, revocation/removal, lost-write recovery, retained callback/account fences. PR337 historical hold resolved by integrated exact PR397; transient licensed reports remain discovery-only.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

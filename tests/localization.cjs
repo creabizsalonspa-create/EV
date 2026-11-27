@@ -172,11 +172,29 @@ const fs = require("node:fs"),
       assert.equal(result.missing, result.expectedMissing);
     };
     await verifyInterpolation('en');
+    // Static privileged guidance must follow the selected language even when
+    // its authenticated section is hidden. No authorization or DOM structure changes.
+    const checkPrivacyCaptions = async (lang) => {
+      for (const id of ["account-privacy-title","operator-role-history-title","admin-accounts-title","admin-kyc-queue-title","admin-staff-permissions-title","admin-audit-trail-title","admin-privacy-title","admin-session-security-title"]) {
+        const title = page.locator('#' + id);
+        const paragraph = page.locator('#' + id + ' + p');
+        for (const node of [title, paragraph]) {
+          const expected = await node.getAttribute('data-' + lang);
+          assert.ok(expected, id);
+          assert.equal(await node.textContent(), expected, id);
+          if (lang === 'ar') assert.match(expected, /[ء-ي]/, id);
+        }
+        assert.equal(await page.locator('[aria-labelledby="' + id + '"]').count(), 1, id);
+      }
+    };
+    await checkPrivacyCaptions('en');
+
     await page.locator("#account input[name=name]").fill("Unchanged draft");
     await page.locator("#language").click();
     await page.waitForFunction(() => document.documentElement.lang === "ar");
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
     await verifyInterpolation('ar');
+    await checkPrivacyCaptions('ar');
     const replaceGrant = "Replace the existing grant? The staff member loses access until accepting the new permissions.";
     assert.equal(await page.evaluate(k => window.EvLocale.text(k), replaceGrant),
       "هل تريد استبدال الصلاحيات الحالية؟ سيفقد الموظف إمكانية الوصول إلى أن يقبل الصلاحيات الجديدة.");
