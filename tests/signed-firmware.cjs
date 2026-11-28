@@ -166,6 +166,17 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
         await form.locator("[name=release_id]").inputValue(),
       );
       const path = `vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/firmware-operations`;
+      // A read-only signed compatibility matrix must not infer firmware
+      // compatibility from a BootNotification without a typed source version.
+      const check = pane.getByRole("button", {
+        name: "Check live source firmware compatibility",
+        exact: true,
+      });
+      await check.click();
+      await pane.locator("[data-firmware-compatibility]")
+        .getByText("Source compatibility unavailable; no release recommended.", { exact: true })
+        .waitFor();
+      assert.equal(charger.commands.filter(c=>["SignedUpdateFirmware","UpdateFirmware"].includes(c.action)).length,0);
       // The first Boot intentionally omitted current firmware identity. The
       // production guard must reject it without a command or durable operation.
       await assert.rejects(owner.request(path,'POST',{release_id:releaseId,reason:'Signed synthetic firmware demonstration only',idempotency_key:key}),/failed \(409\): Complete typed source firmware identity/);
@@ -174,6 +185,32 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       await charger.call('BootNotification',f.protocol==='1.6'
         ?{chargePointVendor:'Synthetic',chargePointModel:'Fixture',firmwareVersion:f.initial_version}
         :{reason:'PowerUp',chargingStation:{vendorName:'Synthetic',model:'Fixture',firmwareVersion:f.initial_version}});
+      await check.click();
+      const matrix = pane.locator("[data-firmware-compatibility]");
+      await matrix.getByText(`Source firmware: ${f.initial_version}`, { exact: true }).waitFor();
+      await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).waitFor();
+      await o.p.locator("#language").click();
+      await matrix.getByRole("heading", { name: "لقطة مصدر موثقة", exact: true }).waitFor();
+      await matrix.getByText(`الإصدار ${f.version}: تطابق مصدر موقع`, { exact: true }).waitFor();
+      await o.p.locator("#language").click();
+      await matrix.getByRole("heading", { name: "Authenticated source snapshot", exact: true }).waitFor();
+      const compatibilityPath = `**/api/vendor-ops/companies/${f.company_id}/chargers/${f.charger_id}/firmware-compatibility`;
+      // A contradictory upstream/browser projection cannot promote a
+      // revoked signer into a visually trusted firmware upgrade option.
+      await o.p.route(compatibilityPath, async (route) => {
+        const sourceReply = await route.fetch();
+        assert.equal(sourceReply.status(), 200);
+        const result = await sourceReply.json();
+        assert(result.releases.length > 0);
+        result.releases[0].signer_currently_trusted = false;
+        await route.fulfill({ response: sourceReply, json: result });
+      }, { times: 1 });
+      await check.click();
+      await matrix.getByText(`${f.version}: Not verified for this source`, { exact: true }).waitFor();
+      assert.equal(await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).count(), 0);
+      await check.click();
+      await matrix.getByText(`${f.version}: Signed source match`, { exact: true }).waitFor();
+      assert.equal(charger.commands.filter(c=>["SignedUpdateFirmware","UpdateFirmware"].includes(c.action)).length,0);
       const submittedReply=o.p.waitForResponse(r=>new URL(r.url()).pathname==='/api/'+path&&r.request().method()==='POST');
       const [submitted]=await Promise.all([submittedReply,form.getByRole("button", { name: "Save", exact: true }).click()]);
       assert.equal(submitted.status(),201);assert.equal((await submitted.json()).status,'transport_submitted');

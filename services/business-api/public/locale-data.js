@@ -2702,6 +2702,42 @@ window.EV_MESSAGES = {
         en: "Signed firmware releases",
         ar: "إصدارات البرامج الثابتة الموقعة",
     },
+    "Check live source firmware compatibility": {
+        en: "Check live source firmware compatibility",
+        ar: "فحص توافق البرنامج الثابت مع المصدر المباشر",
+    },
+    "Authenticated source snapshot": {
+        en: "Authenticated source snapshot",
+        ar: "لقطة مصدر موثقة",
+    },
+    "Source firmware: {version}": {
+        en: "Source firmware: {version}",
+        ar: "برنامج المصدر الثابت: {version}",
+    },
+    "Last source heartbeat: {at}": {
+        en: "Last source heartbeat: {at}",
+        ar: "آخر نبضة من المصدر: {at}",
+    },
+    "Source evidence does not prove physical installation or authorize firmware dispatch.": {
+        en: "Source evidence does not prove physical installation or authorize firmware dispatch.",
+        ar: "لا تثبت أدلة المصدر التثبيت الفعلي ولا تسمح بإرسال البرنامج الثابت.",
+    },
+    "Signed source match": {
+        en: "Signed source match",
+        ar: "تطابق مصدر موقع",
+    },
+    "Not verified for this source": {
+        en: "Not verified for this source",
+        ar: "غير معتمد لهذا المصدر",
+    },
+    "Source compatibility unavailable; no release recommended.": {
+        en: "Source compatibility unavailable; no release recommended.",
+        ar: "توافق المصدر غير متاح؛ لا يُوصى بأي إصدار.",
+    },
+    "{version}: {status}": {
+        en: "{version}: {status}",
+        ar: "الإصدار {version}: {status}",
+    },
     "Manage station availability blocks": {
         en: "Manage station availability blocks",
         ar: "إدارة فترات حجب المحطة",
