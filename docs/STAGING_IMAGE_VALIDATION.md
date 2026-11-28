@@ -35,3 +35,14 @@ The private staging Compose file pins both its PostgreSQL and Caddy **OCI multia
 Registry verification was **read-only metadata retrieval**, not a Docker image pull or runtime/container test. Keep these values synchronized with Agent 10's PR #66 effective-Compose and runtime acceptance gates. A different or newer image requires review and corresponding test/manifest updates; do not silently float to an unreviewed tag.
 
 **Existing staged infrastructure:** Docker Compose changing either pinned dependency can recreate a database or gateway. Do not run an infrastructure-wide up, down, force-recreate, database migration, volume replacement, certificate reset, or gateway restart on an existing host as part of this source update. Require Agent 4/operator review and a separately authorized, backed-up staging maintenance procedure.
+
+
+## HTTP performance evidence
+
+The staging image smoke test seeds 75 synthetic stations in its disposable PostgreSQL database and issues 48 HTTP requests with four simultaneous workers. It verifies the discovery page, the second catalog page and anonymous access denial for the reservation API. Each response must include the content-type security header and finish within five seconds. GitHub Actions retains request counts and latency percentiles in `staging-http-performance/http.json`, labeled with the source commit of the image that served them.
+
+The probe uses a random host port bound to loopback and the existing disposable container cleanup. Its timing applies to the tested Apache/Laravel/PostgreSQL image and workload. Workload sizing, broader authenticated paths and production capacity still need separate evidence.
+
+### Hosted concurrency checkpoint (28 November 2026)
+
+PR #445 head `4a821963850f0b3424334a23896e8d0479960b07`, Platform run 46078338133, staging-image job 140771234918: all 48 requests succeeded in the pinned Apache/PostgreSQL fixture. The emitted image source revision was `264f6ecca2e3a1cbeea72e5637d246feec628928` (the PR merge checkout, not the candidate head). Artifact 15242220088 retained the JSON. Four workers, 75 seeded stations, 16 requests per route, 5000 ms request deadline. Observed p95: discovery page 64.65 ms, paginated catalog 102.24 ms, anonymous reservation denial 54.74 ms. These are synthetic route timings only, not production capacity or SLO acceptance. All six Platform jobs passed for the prior candidate. This reconciliation retains the newer Vite locked-build CI and requires fresh combined-source validation.
