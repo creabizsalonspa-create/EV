@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ChargingSession;
+use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
@@ -35,7 +36,7 @@ class VendorRevenueCohortTest extends TestCase
         $this->admin = User::factory()->create(['role' => 'admin']);
     }
 
-    private function invoice(int $amountMinor, string $label, bool $capture): object
+    private function invoice(int $amountMinor, string $label, bool $capture, bool $allocated = false): object
     {
         $station = Station::create([
             'vendor_id' => $this->vendor->id,
@@ -57,9 +58,17 @@ class VendorRevenueCohortTest extends TestCase
             'total_minor' => $amountMinor, 'stopped_at' => now(),
         ]);
         $finance = app(FinanceService::class);
+        if ($allocated) {
+            $tariff = TariffVersion::create([
+                'station_id' => $station->id, 'created_by' => $this->admin->id,
+                'rate_minor_per_kwh' => 100, 'tax_bps' => 1000, 'commission_bps' => 1000,
+                'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->subMinute(),
+            ]);
+            $finance->snapshotSession($session, $tariff);
+        }
         $invoice = $finance->issue($session, $this->customer->id);
         if ($capture) {
-            $finance->pay($invoice, $this->customer->id, $amountMinor, 'cohort-pay-'.$label);
+            $finance->pay($invoice, $this->customer->id, (int) $invoice->total_minor, 'cohort-pay-'.$label);
         }
 
         return $invoice;
@@ -170,6 +179,139 @@ class VendorRevenueCohortTest extends TestCase
         $this->getJson($base.'?currency=AED&from=2026-11-09&to=2026-11-09')
             ->assertOk()->assertJsonPath('totals.invoice_count', 0);
         $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
+    public function test_cohort_rejects_unbalanced_postings_with_otherwise_valid_receipts(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'unbalanced', true);
+        $journal = DB::table('finance_journals')->where('invoice_id', $invoice->id)
+            ->where('kind', 'payment')->value('id');
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 100);
+
+        // Simulate an appended legacy entry without disabling immutable storage.
+        DB::table('finance_entries')->insert([
+            'journal_id' => $journal, 'account' => 'cash:simulator',
+            'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now(),
+        ]);
+        $count = DB::table('finance_entries')->count();
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->getJson($base.'?currency=AED&from=2026-11-09&to=2026-11-09')
+            ->assertOk()->assertJsonPath('totals.invoice_count', 0);
+        $this->assertSame($count, DB::table('finance_entries')->count());
+    }
+
+    public function test_cumulative_tax_reversal_cannot_exceed_original_allocation(): void
+    {
+        $this->assertCumulativeReversalBound('tax_minor', 'tax_payable:AE');
+    }
+
+    public function test_cumulative_commission_reversal_cannot_exceed_original_allocation(): void
+    {
+        $this->assertCumulativeReversalBound('commission_minor', 'platform_commission');
+    }
+
+    private function assertCumulativeReversalBound(string $component, string $account): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'overallocated-refund', true, true);
+        $this->assertSame(10, (int) $invoice->tax_minor);
+        $this->assertSame(10, (int) $invoice->commission_minor);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 110);
+        // Each imported refund is individually within the original allocation
+        // and has balanced postings. Together they reverse 12 of 10 units of the selected component.
+        foreach ([1, 2] as $index) {
+            $key = 'cohort-'.$component.'-overallocation-'.$index;
+            $journal = DB::table('finance_journals')->insertGetId([
+                'invoice_id' => $invoice->id, 'kind' => 'refund', 'idempotency_key' => $key,
+                'fingerprint' => hash('sha256', $key), 'currency' => 'AED',
+                'amount_minor' => 6, 'created_at' => now(),
+            ]);
+            DB::table('finance_entries')->insert([
+                ['journal_id' => $journal, 'account' => $account, 'debit_minor' => 6, 'credit_minor' => 0, 'created_at' => now()],
+                ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 0, 'credit_minor' => 6, 'created_at' => now()],
+            ]);
+            DB::table('finance_refunds')->insert([
+                'invoice_id' => $invoice->id, 'journal_id' => $journal, 'actor_id' => $this->admin->id,
+                'credit_note_number' => 'SIM-CN-'.$key, 'amount_minor' => 6, 'tax_minor' => $component === 'tax_minor' ? 6 : 0,
+                'commission_minor' => $component === 'commission_minor' ? 6 : 0, 'vendor_minor' => 0, 'reason' => 'Synthetic imported reversal',
+                'evidence' => 'SIMULATED', 'created_at' => now(),
+            ]);
+            if ($index === 1) {
+                $this->getJson($base.$scope)->assertOk()->assertJsonPath('totals.refunded_minor', 6);
+            }
+        }
+        $count = DB::table('finance_journals')->count();
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->assertSame($count, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_refunds', 2);
+    }
+
+    public function test_balanced_orphan_journal_is_not_silently_omitted(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'orphan', false);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 0);
+
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'cohort-orphan-payment',
+            'fingerprint' => hash('sha256', 'cohort-orphan-payment'),
+            'currency' => 'AED', 'amount_minor' => 30, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 30, 'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'receivable:user:'.$this->customer->id, 'debit_minor' => 0, 'credit_minor' => 30, 'created_at' => now()],
+        ]);
+        $count = DB::table('finance_entries')->count();
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->assertSame($count, DB::table('finance_entries')->count());
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_mixed_posting_provenance_is_not_reported_as_simulated_finance(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $this->invoice(100, 'simulated-only', true);
+        $this->travelTo(Carbon::parse('2026-11-11 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'mixed-source', false);
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'cohort-mixed-source-payment',
+            'fingerprint' => hash('sha256', 'cohort-mixed-source-payment'),
+            'currency' => 'AED', 'amount_minor' => 30, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 30, 'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'receivable:user:'.$this->customer->id, 'debit_minor' => 0, 'credit_minor' => 30, 'created_at' => now()],
+        ]);
+        // A synthetic non-simulator evidence marker; no provider is contacted.
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $this->customer->id, 'amount_minor' => 30,
+            'evidence' => 'PROVIDER_VERIFIED', 'created_at' => now(),
+        ]);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $mixed = '?currency=AED&from=2026-11-10&to=2026-11-11';
+        $this->actingAs($this->vendor)->getJson($base.$mixed)->assertConflict();
+        $this->get($base.'/export'.$mixed)->assertConflict();
+        $this->getJson($base.'?currency=AED&from=2026-11-10&to=2026-11-10')->assertOk()
+            ->assertJsonPath('evidence', 'SIMULATED_CANONICAL_FINANCE')
+            ->assertJsonPath('totals.paid_minor', 100);
+        $this->assertDatabaseCount('finance_payments', 2);
     }
 
     public function test_owner_only_scope_validation_and_no_financial_writes(): void
