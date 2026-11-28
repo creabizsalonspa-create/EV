@@ -226,6 +226,84 @@ class LicensedSample {
   }
 }
 
+class FederatedNearbyResult {
+  final int publishedTotal;
+  final List<({String name, bool partner})> published;
+  final LicensedSample? licensed;
+
+  FederatedNearbyResult._(this.publishedTotal, this.published, this.licensed);
+
+  factory FederatedNearbyResult.fromJson(dynamic body) {
+    const invalid = FormatException('Invalid federated nearby results.');
+    if (body is! Map ||
+        body['evidence'] != 'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY' ||
+        body['distance_basis'] != 'great_circle' ||
+        body['complete_geographic_coverage'] != false ||
+        body['live_status_verified'] != false ||
+        !body.containsKey('combined_total') ||
+        body['combined_total'] != null) {
+      throw invalid;
+    }
+    final page = body['published'];
+    final source = body['licensed'];
+    if (page is! Map ||
+        page['data'] is! List ||
+        page['per_page'] != 25 ||
+        page['current_page'] != 1 ||
+        page['last_page'] is! int ||
+        (page['last_page'] as int) < 1 ||
+        page['total'] is! int ||
+        source is! Map ||
+        !source.containsKey('sample')) {
+      throw invalid;
+    }
+    final rows = page['data'] as List;
+    final total = page['total'] as int;
+    if (rows.length > 25 || rows.length > total) throw invalid;
+
+    final results = <({String name, bool partner})>[];
+    final seen = <String>{};
+    for (final row in rows) {
+      if (row is! Map) throw invalid;
+      final kind = row['kind'];
+      final station = row['station'];
+      final location = row['location'];
+      final id = kind == 'catalog' && station is Map
+          ? station['id']
+          : row['record_id'];
+      if (id is! int ||
+          id < 1 ||
+          row['key'] != '$kind:$id' ||
+          !seen.add('$kind:$id')) {
+        throw invalid;
+      }
+      if (kind == 'catalog' && station is Map && station['name'] is String) {
+        results.add((name: station['name'] as String, partner: false));
+      } else if (kind == 'partner' &&
+          location is Map &&
+          row['evidence'] == 'PARTNER_REPORTED_UNVERIFIED' &&
+          row['availability'] == 'unknown' &&
+          row['reservable'] == false &&
+          row['remote_control'] == false) {
+        final name = location['name'];
+        final label = name is String && name.trim().isNotEmpty
+            ? name
+            : location['id'];
+        if (label is! String) throw invalid;
+        results.add((name: label, partner: true));
+      } else {
+        throw invalid;
+      }
+    }
+    final licensed = switch (source['state']) {
+      'observed' => LicensedSample.fromJson(source['sample']),
+      'unavailable' when source['sample'] == null => null,
+      _ => throw invalid,
+    };
+    return FederatedNearbyResult._(total, List.unmodifiable(results), licensed);
+  }
+}
+
 class LicensedDiscoveryScreen extends StatefulWidget {
   final EvApi api;
   final VoidCallback? onExpired;
@@ -273,6 +351,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
   int generation = 0;
   String? error;
   LicensedSample? sample;
+  FederatedNearbyResult? nearby;
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
@@ -302,6 +381,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
   void clear({bool all = false}) {
     generation++;
     sample = null;
+    nearby = null;
     showMap = false;
     error = null;
     busy = false;
@@ -369,6 +449,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       setState(() {
         busy = false;
         sample = null;
+        nearby = null;
         error = e is FormatException
             ? t(
                 'Source response is unsupported. No reports displayed.',
@@ -390,6 +471,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       showMap = false;
       error = null;
       sample = null;
+      nearby = null;
       consent = false;
     });
     try {
@@ -430,6 +512,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       busy = true;
       showMap = false;
       sample = null;
+      nearby = null;
       error = null;
     });
     try {
@@ -453,7 +536,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
     }
   }
 
-  Future<void> search() async {
+  Future<void> search({bool federated = false}) async {
     if (!consent || enabled != true || busy || !foreground || !ownSession())
       return;
     final input = <String, dynamic>{
@@ -476,6 +559,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
           (key == 'radius_km' && n < 1)) {
         setState(() {
           sample = null;
+          nearby = null;
           error = t(
             'Enter valid coordinates and a radius from 1 to 200 km.',
             'أدخل إحداثيات صالحة ونطاقاً من 1 إلى 200 كم.',
@@ -516,6 +600,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       if (!valid) {
         setState(() {
           sample = null;
+          nearby = null;
           error = t(
             'Check the optional country, power and report-age filters.',
             'تحقق من مرشحات الدولة والقدرة وعمر التقرير الاختيارية.',
@@ -524,25 +609,55 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         return;
       }
     }
+    final country = input['country'];
+    const commonFilters = {
+      'consent',
+      'latitude',
+      'longitude',
+      'radius_km',
+      'country',
+    };
+    if (federated &&
+        (input.keys.any((key) => !commonFilters.contains(key)) ||
+            (country != null && !['AE', 'US', 'CA'].contains(country)))) {
+      setState(() {
+        clear();
+        error = t(
+          'Clear crowd-report filters and use AE, US or CA (or leave country blank).',
+          'امسح مرشحات تقارير المجتمع واستخدم AE أو US أو CA (أو اترك الدولة فارغة).',
+        );
+      });
+      return;
+    }
     final api = widget.api;
     final ticket = ++generation;
     setState(() {
       busy = true;
       showMap = false;
       sample = null;
+      nearby = null;
       error = null;
     });
     try {
       final result = await api.request(
-        'discovery/open-charge-map/search',
+        federated
+            ? 'discovery/federated-nearby'
+            : 'discovery/open-charge-map/search',
         method: 'POST',
         body: input,
       );
       if (!current(ticket) || !consent) return;
-      final parsed = LicensedSample.fromJson(result);
+      final combined = federated
+          ? FederatedNearbyResult.fromJson(result)
+          : null;
+      final parsed = federated
+          ? combined?.licensed
+          : LicensedSample.fromJson(result);
       setState(() {
+        nearby = combined;
         sample = parsed;
         busy = false;
+        if (federated) consent = false;
       });
     } catch (e) {
       failure(e, ticket, api);
@@ -696,8 +811,10 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                             ? 80
                             : entry.key == 'address_contains'
                             ? 150
-                            : ['operator_contains', 'access_contains']
-                                  .contains(entry.key)
+                            : [
+                                'operator_contains',
+                                'access_contains',
+                              ].contains(entry.key)
                             ? 120
                             : 32,
                         onChanged: edited,
@@ -759,7 +876,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                       ),
                     FilledButton(
                       key: const Key('licensed-search'),
-                      onPressed: consent && !busy ? search : null,
+                      onPressed: consent && !busy ? () => search() : null,
                       child: Text(
                         t(
                           'Search licensed reports',
@@ -767,6 +884,52 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                         ),
                       ),
                     ),
+                  ],
+                  if (enabled == true)
+                    OutlinedButton(
+                      key: const Key('federated-nearby-search'),
+                      onPressed: consent && !busy
+                          ? () => search(federated: true)
+                          : null,
+                      child: Text(
+                        t(
+                          'Search nearby across published and licensed sources',
+                          'البحث عن المواقع القريبة في المصادر المنشورة والمرخصة',
+                        ),
+                      ),
+                    ),
+                  if (nearby case final result?) ...[
+                    Text(
+                      t(
+                        'Published nearby locations',
+                        'المواقع القريبة المنشورة',
+                      ),
+                    ),
+                    Text(
+                      t(
+                        'Showing ${result.published.length} of ${result.publishedTotal} published results. Physical availability is unverified.',
+                        'عرض ${result.published.length} من ${result.publishedTotal} نتيجة منشورة. التوفر الفعلي غير مؤكد.',
+                      ),
+                    ),
+                    for (final row in result.published)
+                      Text(
+                        row.partner
+                            ? t(
+                                'Partner report · ${row.name}',
+                                'تقرير الشريك · ${row.name}',
+                              )
+                            : t(
+                                'Platform catalog · ${row.name}',
+                                'كتالوج المنصة · ${row.name}',
+                              ),
+                      ),
+                    if (result.licensed == null)
+                      Text(
+                        t(
+                          'Licensed crowd reports are unavailable.',
+                          'تقارير المجتمع المرخصة غير متاحة.',
+                        ),
+                      ),
                   ],
                   if (sample case final result?) ...[
                     Text(
