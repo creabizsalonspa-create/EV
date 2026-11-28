@@ -121,3 +121,40 @@ test('mismatched cancellation receipt clears stale cancel grant without acceptin
  assert.equal(button(ui,'Cancel this block'),undefined);
  assert.match(ui.root.textContent,/Action not confirmed/);
 });
+
+for (const action of ['publish', 'cancel']) {
+ test(`confirmed ${action} is retained if the subsequent authoritative list read fails`, async () => {
+  const ui = fixture();
+  const block = {station_id:7,id:'11111111-1111-4111-8111-111111111111',
+   scope:'STATION_WIDE_OPERATOR_POLICY',physical_availability_verified:false,
+   cancelled:false,revision:1,starts_at:'2026-11-24T09:00:00Z',
+   ends_at:'2026-11-24T10:00:00Z',reason_en:'Scheduled',reason_ar:'مجدولة'};
+  let reads = 0, writes = 0;
+  ui.mount(ui.root, {stationId:7,current:()=>true,api:async(path,method)=>{
+   if(method === 'POST'){
+    writes++;
+    return action === 'publish' ? block : {...block,cancelled:true,revision:2};
+   }
+   if(++reads === 2) throw Error('PRIVATE_SOURCE_ERROR');
+   return {station_id:7,data:reads === 1 && action === 'cancel' ? [block] : []};
+  }});
+  await tick();
+  if (action === 'publish') {
+   const form = find(ui.root,n=>n.tag==='form')[0];
+   for (const name of ['starts_at','ends_at','reason_en','reason_ar']) input(form,name).value=block[name];
+   submit(form);
+  } else {
+   button(ui,'Cancel this block').onclick();
+  }
+  await tick();
+  assert.match(ui.root.textContent, action === 'publish' ? /Station block published/ : /Station block cancelled/);
+  assert.match(ui.root.textContent, /block list is unavailable/);
+  assert.doesNotMatch(ui.root.textContent, /Action not confirmed|PRIVATE_SOURCE_ERROR/);
+  assert.equal(button(ui,'Retry same block request'),undefined);
+  assert.equal(button(ui,'Cancel this block'),undefined);
+  button(ui,'Refresh station blocks').onclick();
+  await tick();
+  assert.equal(reads,3);
+  assert.equal(writes,1);
+ });
+}
