@@ -190,6 +190,12 @@
       "test_result": "passed",
       "merge_sha": "a3eb37c1595bd37d05a7607fdb8a2961921a8633",
       "evidence": "docs/evidence/integrated-checkpoints-20261128/pr443-station-policy.json"
+    },
+    "pr432-precharge-consent": {
+      "source_sha": "8ad31f1ce65617ca45ee64b746f45530457e28a6",
+      "test_result": "passed",
+      "merge_sha": "9285aa1646b91c6d47b72d047285510edf1ab530",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr432-precharge-consent.json"
     }
   },
   "production_acceptance": null,
@@ -399,9 +405,9 @@
     {
       "prd": "2.4",
       "requirement": "Location/connector details and pricing terms",
-      "implemented_code_scope": "Source/capability labels, reported connector/status timestamps, versioned tariff and invoice snapshots; vendor-edited hours, amenities and accessibility consumed by public web and canonical native station details.",
+      "implemented_code_scope": "Source/capability labels, reported connector/status timestamps, versioned tariff and invoice snapshots; vendor-edited hours, amenities and accessibility consumed by public web and canonical native station details. Customer web and Flutter use a shared server-authoritative pre-charge quote and fee acceptance.",
       "automated_evidence_scope": "FinanceTest, ConnectorTopologyTest, OcpiIntegrationTest; tariffs/topology clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Customer pre-charge estimate/fee acceptance, complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity.",
+      "remaining_scope": "Complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity.",
       "atoms": [
         {
           "id": "2.4.1",
@@ -448,9 +454,9 @@
         {
           "id": "2.4.7",
           "software_atom": "Customer pre-charge estimate/fee acceptance",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr432-precharge-consent",
+          "note": "Customer quote and fee acceptance validated across its required software surfaces."
         },
         {
           "id": "2.4.8",
