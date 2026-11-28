@@ -173,6 +173,78 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('protocols')]
+    public function test_stale_failed_poll_cannot_replace_new_zero_event_station_identity(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $calls = 0;
+        Http::fake(function ($request) use ($f, &$calls) {
+            $calls++;
+            if ($calls === 1) {
+                // The outer poll captured no cursor; an independently
+                // completed poll pins station 42 without advancing event ID.
+                $result = (new ContinuousFaultObserver)->observe($f['binding']);
+                $this->assertSame('caught_up', $result['state']);
+
+                return Http::response([], 503);
+            }
+            if (str_contains($request['query'], 'ChargingStations')) {
+                return Http::response(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => $f['protocol']]]]]);
+            }
+
+            return Http::response(['data' => ['StatusNotifications' => [], 'newest' => []]]);
+        });
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('The stale failing poll must not commit.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'binding_id' => $f['binding'], 'last_event_id' => 0, 'source_station_id' => 42,
+            'revision' => 1, 'state' => 'caught_up', 'review_pending' => false,
+        ]);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_outage_review_survives_paginated_catchup_and_notifies_once(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f, [], newest: 250);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('An empty page behind the watermark must fail.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', ['revision' => 1, 'review_pending' => true]);
+        $this->source($f, $this->events(1, 101), newest: 250);
+        $this->assertSame('catching_up', (new ContinuousFaultObserver)->observe($f['binding'])['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['revision' => 2, 'last_event_id' => 100, 'review_pending' => true]);
+        $this->source($f, [], newest: 250);
+        try {
+            (new ContinuousFaultObserver)->observe($f['binding']);
+            $this->fail('A second missing page must fail.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
+        $this->source($f, $this->events(101, 201), newest: 250);
+        $this->assertSame('catching_up', (new ContinuousFaultObserver)->observe($f['binding'])['state']);
+        $this->assertSame(0, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->source($f, $this->events(201, 250), newest: 250);
+        $this->assertSame('caught_up', (new ContinuousFaultObserver)->observe($f['binding'])['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['revision' => 5, 'last_event_id' => 250, 'review_pending' => false]);
+        $this->source($f, [], newest: 250);
+        (new ContinuousFaultObserver)->observe($f['binding']);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->assertDatabaseCount('charging_status_observations', 250);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
     {
         $f = $this->fixture();
