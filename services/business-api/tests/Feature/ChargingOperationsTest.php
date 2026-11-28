@@ -14,6 +14,7 @@ use App\Services\Charging\SourceConsumer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ChargingOperationsTest extends TestCase
@@ -353,6 +354,70 @@ class ChargingOperationsTest extends TestCase
         $this->assertDatabaseHas('charging_operational_cases', [
             'command_id' => $command->id, 'state' => 'open',
         ]);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    #[TestWith(['suspended', 403])]
+    #[TestWith(['epoch', 409])]
+    #[TestWith(['password', 409])]
+    #[TestWith(['promoted', 403])]
+    public function test_changed_operator_credentials_cannot_read_or_modify_recovery_cases(string $change, int $status): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $uri = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($uri.'/case', [
+            'note' => 'Open authorized recovery case before credential change',
+        ])->assertCreated();
+        DB::table('users')->where('id', $vendor->id)->update(match ($change) {
+            'suspended' => ['account_status' => 'suspended'],
+            'epoch' => ['auth_epoch' => $vendor->auth_epoch + 1],
+            'password' => ['password' => 'changed-private-hash'],
+            'promoted' => ['role' => 'admin'],
+        });
+        $consumer = \Mockery::mock(SourceConsumer::class);
+        $consumer->shouldNotReceive('consume');
+        $this->app->instance(SourceConsumer::class, $consumer);
+        $this->getJson('/api/charging-operations')->assertStatus($status);
+        $this->getJson($uri.'/case')->assertStatus($status);
+        $this->postJson($uri.'/case', ['note' => 'Stale open replay blocked'])->assertStatus($status);
+        $this->patchJson($uri.'/case', ['state' => 'investigating', 'note' => 'Stale case review blocked'])->assertStatus($status);
+        $this->postJson($uri.'/inspect-source')->assertStatus($status);
+        $this->assertDatabaseCount('charging_operational_case_events', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_individual_bearer_revoked_during_inspection_blocks_case_followup(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $uri = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($uri.'/case', [
+            'note' => 'Open case before individual bearer revocation',
+        ])->assertCreated();
+        $token = $vendor->createToken('operator-recovery')->accessToken;
+        $snapshot = $vendor->fresh()->withAccessToken($token);
+        $request = \Illuminate\Http\Request::create($uri.'/inspect-source', 'POST');
+        $request->setUserResolver(fn () => $snapshot);
+        $consumer = \Mockery::mock(SourceConsumer::class);
+        $consumer->shouldReceive('consume')->once()->andReturnUsing(function () use ($token): int {
+            $token->delete();
+
+            return 0;
+        });
+        $reconciler = \Mockery::mock(CommandReconciler::class);
+        $reconciler->shouldNotReceive('forSession');
+        try {
+            app(\App\Http\Controllers\ChargingOperationsController::class)->inspect($request, $command, $consumer, $reconciler);
+            $this->fail('Revoked bearer was allowed to continue inspecting a recovery case.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_operational_case_events', 1);
+        $this->assertDatabaseCount('command_source_observations', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();
     }
