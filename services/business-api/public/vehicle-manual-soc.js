@@ -11,7 +11,8 @@
   // Display only an explicit source instant or documented Laravel UTC clock.
   // Invalid timestamps must never appear as a real observation time.
   const reportTime = (value, language) =>
-    window.EvStationTime?.displayStationTime(value, "UTC", language) ||
+    (typeof value==="string" && value===value.trim()
+      ? window.EvStationTime?.displayStationTime(value, "UTC", language) : null) ||
     (language === "ar" ? "وقت التقرير غير متاح" : "Report time unavailable");
   const button = (en,ar,action) => {
     const el=document.createElement("button");
@@ -60,9 +61,13 @@
         "قيم البطارية تقديرات منك وليست قياسات الهاتف أو واجهة المركبة أو الشاحن. لا تستخدم التقارير لبدء أو إيقاف الشحن أو السماح بالحجز أو احتساب الفواتير.","p"));
       if (!vehicles.length)root.append(tr("Add a vehicle before reporting battery state.",
         "أضف مركبة أولاً لتقديم تقرير عن البطارية.","p"));
-      for (const vehicle of vehicles)
-        root.append(button("Report battery for "+vehicle.name,"تسجيل بطارية "+vehicle.name,
-          ()=>open(vehicle)));
+      const owner=account, authSession=session;
+      for (const vehicle of vehicles) {
+        const control=button("Report battery for "+vehicle.name,"تسجيل بطارية "+vehicle.name,
+          ()=>{if(root.contains(control)&&account===owner&&session===authSession&&
+              actor()===owner&&epoch()===authSession)return open(vehicle);});
+        root.append(control);
+      }
       if (previousStatus) root.append(previousStatus);
       if (previousPanel) root.append(previousPanel);
     }
@@ -132,7 +137,9 @@
           throw Error("Unexpected manual battery response; refresh before reporting.");
         latest=response;
         await loadHistory(1);
-      }catch(e){if(alive(token))status(String(e.message||e));}
+      }catch(e){if(alive(token))status(ar()
+        ?"استجابة البطارية غير متوقعة؛ حدّث قبل تقديم تقرير."
+        :"Unexpected manual battery response; refresh before reporting.");}
     }
     async function loadHistory(target=page) {
       if(actor()!==account||session!==epoch()){clear();return false;}
@@ -186,7 +193,8 @@
       panel.append(tr("Battery may have changed since the report. Not an actual measurement.",
         "قد تكون حالة البطارية تغيرت منذ التقرير. هذه ليست قراءة فعلية.","p"));
       const formTicket=generation, formVehicleId=chosen.id;
-      const editable=()=>alive(formTicket)&&chosen?.id===formVehicleId&&latest!==null;
+      const editable=()=>alive(formTicket)&&chosen?.id===formVehicleId&&latest!==null&&
+        root.querySelector("[data-manual-soc-panel]")===panel;
       const form=document.createElement("form");
       form.className="vehicle-manual-soc-form";
       const field=document.createElement("input");
@@ -241,7 +249,12 @@
       if(page<history.last_page)panel.append(button("Next","التالي",()=>{if(editable())return loadHistory(page+1);}));
       panel.append(button("Refresh source and history","تحديث المصدر والسجل",
         ()=>{if(editable())return open(chosen);}));
-      panel.append(button("Close","إغلاق",()=>panel.remove()));
+      const close=button("Close","إغلاق",()=>{
+        if(!editable()||submitting)return;
+        generation++;latest=history=null;panel.remove();status("");
+      });
+      close.disabled=submitting;
+      panel.append(close);
       root.append(panel);
     }
     async function submitReport() {
@@ -289,7 +302,7 @@
         if(!alive(token))return;
         submitting=false;
         status(ar()?"تعذرت معرفة النتيجة. راجع السجل أو أعد نفس التقرير." :
-          "Result uncertain. Check history or retry the identical report. "+String(e.message||e));
+          "Result uncertain. Check history or retry the identical report.");
         render();
       }finally{
         if(submitAttempt===attempt && account===actor() && session===epoch() && chosen?.id===vehicleId){

@@ -13,7 +13,8 @@ class Element {
   replaceChildren(...nodes){this.children=[];this.append(...nodes);}
   setAttribute(k,v){this.attributes[k]=v;}
   removeAttribute(k){delete this.attributes[k];}
-  remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);}
+  remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);this.parent=null;}
+  contains(other){return this===other||this.children.some(n=>n.contains(other));}
   querySelector(selector){
     const check=node=>selector==='[data-manual-soc-status]'&&node.dataset.manualSocStatus==='yes'||
       selector==='[data-manual-soc-panel]'&&node.dataset.manualSocPanel==='yes';
@@ -496,5 +497,49 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   view.setActor(account);
   assert.equal(root.children.length,0);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'),/\.innerHTML\s*=/);
+  // Closed panels and same-generation replacements must retire their
+  // callbacks, even when an old DOM event is invoked programmatically.
+  const retiredRoot=document.createElement('section');
+  let retiredActor={id:101,role:'customer'},retiredEpoch=1,reads=0,mutations=0,privateFailure=false;
+  const retiredVehicle={id:23,name:'Retired controls'};
+  const retiredView=window.VehicleManualSoc.create({root:retiredRoot,actor:()=>retiredActor,epoch:()=>retiredEpoch,
+    api:async(p,m)=>{
+      if(m==='POST'){mutations++;throw Error('PRIVATE_OPERATION_SECRET');}
+      reads++;
+      if(privateFailure)throw Error('PRIVATE_SOURCE_SECRET');
+      return p.includes('/history')?{current_page:1,last_page:1,data:[]}:
+        {vehicle_id:23,revision:0,battery_percent:null,reported_at:null,source:'CUSTOMER_MANUAL_SELF_REPORT',
+         measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false};
+    }});
+  retiredView.setActor(retiredActor);retiredView.renderGarage([retiredVehicle]);
+  const oldGarage=find(retiredRoot,n=>n.tag==='button'&&visible(n).includes('Report battery for'));
+  await oldGarage.onclick();
+  const closedForm=find(retiredRoot,n=>n.tag==='form');
+  find(closedForm,n=>n.name==='battery_percent').value='32';
+  find(retiredRoot,n=>n.tag==='button'&&visible(n).trim()==='Close').onclick();
+  await closedForm.onsubmit({preventDefault(){}});
+  assert.equal(mutations,0);
+  assert.equal(retiredRoot.querySelector('[data-manual-soc-panel]'),null);
+  await retiredView.open(retiredVehicle);
+  const submittedForm=find(retiredRoot,n=>n.tag==='form');
+  find(submittedForm,n=>n.name==='battery_percent').value='33';
+  await submittedForm.onsubmit({preventDefault(){}});
+  assert.equal(mutations,1);
+  assert.doesNotMatch(visible(retiredRoot),/PRIVATE_OPERATION_SECRET/);
+  const clearPending=find(retiredRoot,n=>n.tag==='button'&&visible(n).includes('Clear pending'));
+  clearPending.onclick();
+  await submittedForm.onsubmit({preventDefault(){}});
+  assert.equal(mutations,1,'Retired same-generation form cannot send another report');
+  retiredEpoch++;
+  retiredActor={id:102,role:'customer'};
+  retiredView.setActor(retiredActor);retiredView.renderGarage([retiredVehicle]);
+  const count=reads;
+  await oldGarage.onclick();
+  assert.equal(reads,count,'Retired garage button cannot read under replacement credentials');
+  privateFailure=true;
+  await retiredView.open(retiredVehicle);
+  assert.doesNotMatch(visible(retiredRoot),/PRIVATE_SOURCE_SECRET/);
+  assert.match(visible(retiredRoot),/Unexpected manual battery response/);
+  retiredView.clear();
   console.log('PASS: manual SOC source, uncertain retry, stale form/refresh isolation across vehicles and accounts.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
