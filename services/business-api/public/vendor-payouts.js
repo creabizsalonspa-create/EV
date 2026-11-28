@@ -18,16 +18,6 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         }
     });
     observer.observe(container.parentNode || container, { childList: true });
-    const localizeDates = () => {
-        if (!alive()) return;
-        for (const time of container.querySelectorAll("time[data-payout-date]"))
-            time.textContent = new Date(time.dateTime).toLocaleString(
-                document.documentElement.lang === "ar" ? "ar" : "en",
-            );
-    };
-    window.addEventListener("ev:locale", localizeDates, {
-        signal: controller.signal,
-    });
     function t(tag, en, ar) {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
@@ -198,30 +188,30 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         parent.append(line);
     }
     function parseDate(raw) {
-        if (
-            typeof raw === "string" &&
-            /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
-        )
-            raw = raw.replace(" ", "T") + "Z";
-        return new Date(raw);
+        // Validate the exact server calendar/offset before parsing. Invalid
+        // or timezone-less ISO clocks must not enable a provider replay.
+        if (typeof raw !== "string" || raw !== raw.trim() ||
+            !window.EvStationTime?.displayStationTime(raw, "UTC", "en"))
+            return new Date(NaN);
+        const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(raw);
+        return new Date(sql ? raw.replace(" ", "T") + "Z" : raw);
+    }
+    function clock(raw) {
+        const d = parseDate(raw);
+        const time = literal("time", "");
+        const display = language => window.EvStationTime?.serverEventTime(raw, language)
+            || (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
+        time.dataset.en = display("en");
+        time.dataset.ar = display("ar");
+        time.textContent = document.documentElement.lang === "ar" ? time.dataset.ar : time.dataset.en;
+        if (!Number.isNaN(d.getTime())) time.dateTime = d.toISOString();
+        time.dataset.payoutDate = "true";
+        return time;
     }
     function date(parent, en, ar, raw) {
-        if (!raw) return;
-        const d = parseDate(raw);
+        if (raw == null) return;
         const line = document.createElement("p");
-        const time = literal(
-            "time",
-            Number.isNaN(d.getTime())
-                ? raw
-                : d.toLocaleString(
-                      document.documentElement.lang === "ar" ? "ar" : "en",
-                  ),
-        );
-        if (!Number.isNaN(d.getTime())) {
-            time.dateTime = d.toISOString();
-            time.dataset.payoutDate = "true";
-        }
-        line.append(t("span", en, ar), literal("span", " · "), time);
+        line.append(t("span", en, ar), literal("span", " · "), clock(raw));
         parent.append(line);
     }
     function amount(row) {
@@ -593,7 +583,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
             const item = document.createElement("p");
             item.append(
                 literal("span", event.kind || event.action),
-                literal("span", " · " + (event.created_at || "")),
+                literal("span", " · "), clock(event.created_at),
             );
             history.append(item);
         }

@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:crypto/crypto.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 Map<String, dynamic> parseDiagnosticLogPage(dynamic value) {
   if (value is! Map ||
@@ -391,7 +392,7 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
                     ),
                     Text(stateLabel(row['dispatch_state'])),
                     Text(
-                      '${tr('Upload expires', 'تنتهي صلاحية الرفع')}: ${row['expires_at']}',
+                      '${tr('Upload expires', 'تنتهي صلاحية الرفع')}: ${serverEventTime(context, row['expires_at'])}',
                     ),
                     if (row['expired'] == true)
                       Text(tr('Upload expired', 'انتهت صلاحية الرفع')),
@@ -420,10 +421,17 @@ class _LogState extends State<ChargerLogsView> with WidgetsBindingObserver {
                       Text(
                         '${tr('Correlated source status', 'حالة المصدر المنسوبة')}: ${row['device_status']}',
                       ),
-                    if (row['file_received_at'] != null)
+                    if (row['file_received_at'] != null) ...[
                       Text(
-                        '${tr('File received', 'تم استلام الملف')}: ${row['file_size']} B · ${row['file_expires_at']}',
+                        '${tr('File received', 'تم استلام الملف')}: ${serverEventTime(context, row['file_received_at'])}',
                       ),
+                      Text(
+                        '${tr('File size', 'حجم الملف')}: ${row['file_size']} B',
+                      ),
+                      Text(
+                        '${tr('File retention expires', 'تنتهي مدة الاحتفاظ بالملف')}: ${serverEventTime(context, row['file_expires_at'])}',
+                      ),
+                    ],
                     if (data?['can_manage'] == true)
                       TextButton(
                         onPressed: busy || row['cancelled_at'] != null

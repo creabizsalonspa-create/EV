@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'charger_logs.dart';
 import 'strings.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 class ChargerRepairsView extends StatefulWidget {
   final EvApi api;
@@ -400,7 +401,7 @@ class _HistoryState extends State<_RepairHistory> {
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
           for (final row in data['data'] as List? ?? []) ...[
-            Text('#${row['version']} · ${row['created_at']}'),
+            Text('#${row['version']} · ${serverEventTime(context, row['created_at'])}'),
             Text(row['note'] as String),
           ],
           if (data['current_page'] != null)

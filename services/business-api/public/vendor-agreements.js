@@ -14,12 +14,23 @@ window.EvVendorAgreements = {
             if (text !== undefined) n.textContent = text;
             return n;
         };
+        // Locale-bound receipt clocks use only calendar-validated server
+        // instants. Do not translate IDs, hashes or immutable agreement text.
+        function dated(raw, before, after) {
+            const n = node('p');
+            const label = language => window.EvStationTime?.serverEventTime(raw, language)
+                || (language === 'ar' ? 'وقت الحدث غير متاح' : 'Event time unavailable');
+            n.dataset.en = before('en') + label('en') + after;
+            n.dataset.ar = before('ar') + label('ar') + after;
+            n.textContent = ar() ? n.dataset.ar : n.dataset.en;
+            return n;
+        }
         const base = `vendor-ops/companies/${company.id}/agreement`;
         const error = () => root.append(node('p', t('Unable to complete this request. Refresh the recorded state before continuing.', 'تعذر إكمال الطلب. حدّث الحالة المسجلة قبل المتابعة.')));
         function button(label, action) {
             const b = node('button', label); b.type = 'button';
             b.onclick = async () => {
-                if (busy || !current()) return;
+                if (busy || !current() || !root.isConnected || !b.isConnected || b.disabled) return;
                 busy = true; b.disabled = true;
                 try { await action(); } catch (e) { if (current() && root.isConnected) { error(); notice(e); } }
                 finally { busy = false; if (b.isConnected) b.disabled = false; }
@@ -40,7 +51,9 @@ window.EvVendorAgreements = {
             button(t('Refresh', 'تحديث'), () => load(page));
             if (data.version) {
                 version(data.version);
-                if (data.acceptance) root.append(node('p', `${t('Accepted', 'تمت الموافقة')} · ${data.acceptance.created_at} · ${data.acceptance.id}`));
+                if (data.acceptance) root.append(dated(data.acceptance.created_at,
+                    language => (language === 'ar' ? 'تمت الموافقة' : 'Accepted') + ' · ',
+                    ' · ' + data.acceptance.id));
                 if (data.can_accept) {
                     const label = node('label'), consent = node('input'); consent.type = 'checkbox';
                     label.append(consent, document.createTextNode(t('I reviewed this exact version and am authorized to accept for this company.', 'راجعت هذه النسخة بالتحديد وأنا مخول بالموافقة عن هذه الشركة.')));
@@ -56,13 +69,14 @@ window.EvVendorAgreements = {
             } else root.append(node('p', t('No agreement is published for this country. Contact the administrator.', 'لا توجد اتفاقية منشورة لهذا البلد. تواصل مع المسؤول.')));
             root.append(node('h4', t('Acceptance history', 'سجل الموافقات')));
             for (const record of data.history.data) {
-                root.append(node('p', `${record.country} · ${record.revision} · ${record.created_at}`));
+                root.append(dated(record.created_at, () => `${record.country} · ${record.revision} · `, ''));
                 button(t('Read immutable receipt', 'قراءة الإيصال الثابت'), async () => {
                     const receipt = await api(`${base}/receipts/${record.id}`);
                     if (!valid(epoch)) return;
                     root.replaceChildren(node('h3', t('Agreement receipt', 'إيصال الاتفاقية')));
                     version(receipt.version);
-                    root.append(node('p', `${receipt.receipt.id} · ${receipt.receipt.created_at} · ${receipt.receipt.version_sha256}`));
+                    root.append(dated(receipt.receipt.created_at, () => receipt.receipt.id + ' · ',
+                        ' · ' + receipt.receipt.version_sha256));
                     button(t('Back', 'رجوع'), () => load(page));
                 });
             }

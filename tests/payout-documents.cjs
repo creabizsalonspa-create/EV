@@ -168,11 +168,40 @@ const assert = require("node:assert/strict");
     await cp
       .locator(`[data-payout-record="${payout.id}"] [data-payout-state="paid"]`)
       .waitFor();
+    const historyResponse = checker.waitForResponse(r =>
+      r.url().endsWith("/api/commercial/payouts/" + payout.id) && r.request().method() === "GET");
     await cp
       .locator(`[data-payout-record="${payout.id}"]`)
       .getByRole("button", { name: "Inspect payout history", exact: true })
       .click();
-    await cp.locator("[data-payout-history]").waitFor();
+    const historyData = await (await historyResponse).json();
+    const history = cp.locator("[data-payout-history]");
+    await history.waitFor();
+    assert(historyData.events.length > 0);
+    for (const event of historyData.events) {
+      const instant = await checker.evaluate(raw => {
+        const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(raw);
+        return new Date(sql ? raw.replace(" ", "T") + "Z" : raw).toISOString();
+      }, event.created_at);
+      assert(await history.locator('time[datetime="' + instant + '"]').count() > 0);
+    }
+    // Existing mounted timestamps must switch language without a provider request.
+    const mounted = history.locator("time[data-payout-date]");
+    assert(await mounted.count() > 0);
+    for (const language of ["en", "ar", "en"]) {
+      await checker.evaluate(lang => window.EvLocale.set(lang), language);
+      const clocks = await mounted.evaluateAll(nodes => nodes.map(n => ({
+        text:n.textContent, raw:n.dateTime,
+      })));
+      for (const item of clocks) {
+        if (!item.raw) continue;
+        const expected = await checker.evaluate(({raw,language}) =>
+          new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {
+            timeZone:"UTC",dateStyle:"medium",timeStyle:"short",hourCycle:"h23",
+          }).format(new Date(raw))+" (UTC)", {raw:item.raw,language});
+        assert.equal(item.text, expected);
+      }
+    }
     assert((await cp.innerText()).includes("MOCK · no bank transfer"));
     const config = maker.locator("[data-financial-documents]");
     await config
