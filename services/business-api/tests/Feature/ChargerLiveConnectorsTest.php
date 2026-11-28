@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerLiveConnectorsController;
+use App\Http\Controllers\ChargerResetController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Station;
@@ -10,10 +12,13 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerLiveConnectorsTest extends TestCase
@@ -115,8 +120,17 @@ class ChargerLiveConnectorsTest extends TestCase
                 if ($case === 'malformed_source_id') {
                     $row['id'] = '42';
                 }
+                if ($case === 'source_endpoint_changed') {
+                    config(['csms.graphql_url' => 'https://replacement.test/graphql']);
+                }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
+            }
+            if ($case === 'source_secret_changed') {
+                config(['csms.graphql_secret' => str_repeat('r', 64)]);
+            }
+            if ($case === 'bearer_revoked_during_read') {
+                $fixture['owner']->tokens()->delete();
             }
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
@@ -145,6 +159,21 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'NoError', 'timestamp' => now()->subMinute()->toISOString(),
                 ],
             ];
+            if ($case === 'evse_null') {
+                $events[1]['evseId'] = null;
+            }
+            if ($case === 'evse_missing') {
+                unset($events[1]['evseId']);
+            }
+            if ($case === 'evse_string') {
+                $events[1]['evseId'] = (string) $events[1]['evseId'];
+            }
+            if ($case === 'evse_wrong_protocol') {
+                $events[1]['evseId'] = $fixture['protocol'] === '1.6' ? 1 : 0;
+            }
+            if ($case === 'evse_negative') {
+                $events[1]['evseId'] = -1;
+            }
             if ($case === 'unknown_connector') {
                 $events[0]['connectorDatabaseId'] = 999;
             }
@@ -171,6 +200,28 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'GroundFailure',
                     'timestamp' => $events[1]['timestamp'],
                 ];
+            }
+            if (in_array($case, ['deep_clock_regressed', 'deep_clock_contradiction', 'deep_history_valid'], true)) {
+                // An older pair must be validated even though both times
+                // precede the latest status of connector 1. Interleave
+                // connector 2 to ensure the chronology is target-specific.
+                $older = now()->subMinutes(3);
+                $events[] = array_replace($events[1], [
+                    'id' => 10, 'timestamp' => $older->toISOString(),
+                ]);
+                $events[] = array_replace($events[0], [
+                    'id' => 9, 'timestamp' => now()->subMinutes(2)->toISOString(),
+                ]);
+                $events[] = array_replace($events[1], [
+                    'id' => 8,
+                    'timestamp' => match ($case) {
+                        'deep_clock_regressed' => $older->copy()->addSecond()->toISOString(),
+                        'deep_clock_contradiction' => $older->toISOString(),
+                        default => $older->copy()->subSecond()->toISOString(),
+                    },
+                    'connectorStatus' => $case === 'deep_clock_contradiction' ? 'Faulted' : 'Available',
+                    'errorCode' => $case === 'deep_clock_contradiction' ? 'GroundFailure' : 'NoError',
+                ]);
             }
             if ($case === 'wrong_protocol_status') {
                 $events[0]['connectorStatus'] = $fixture['protocol'] === '1.6' ? 'Occupied' : 'Charging';
@@ -232,6 +283,32 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
         }
+    }
+
+    public function test_live_connector_projection_requires_protocol_exact_evse_identity(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['evse_missing', 'evse_string', 'evse_wrong_protocol', 'evse_negative', 'evse_null'] as $case) {
+                $this->source($f, $case);
+                $response = $this->actingAs($f['owner'])->getJson($f['url']);
+                if ($protocol === '1.6' && $case === 'evse_null') {
+                    $response->assertOk()
+                        ->assertJsonPath('source_topology_matches_local', true)
+                        ->assertJsonPath('connectors.0.source_evse_number', 0)
+                        ->assertJsonPath('connectors.0.reported_status', 'Available')
+                        ->assertJsonPath('connectors.0.physical_available', false)
+                        ->assertJsonPath('commands_sent', false);
+                    Http::assertSentCount(3);
+                } else {
+                    $response->assertConflict()->assertDontSee('remote_control_authorized');
+                    Http::assertSentCount(2);
+                }
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
     }
 
     public function test_known_local_charging_graphql_compose_host_allows_authenticated_read_only_source(): void
@@ -352,6 +429,83 @@ class ChargerLiveConnectorsTest extends TestCase
         }
     }
 
+    public function test_all_retained_connector_status_pairs_require_consistent_chronology_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['deep_clock_regressed', 'deep_clock_contradiction'] as $case) {
+                $this->source($f, $case);
+                $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict()
+                    ->assertDontSee('remote_control_authorized');
+            }
+            $this->source($f, 'deep_history_valid');
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('source_topology_matches_local', true)
+                ->assertJsonPath('connectors.0.state', 'recent')
+                ->assertJsonPath('connectors.0.reported_status', 'Available')
+                ->assertJsonPath('connectors.1.reported_status', $protocol === '1.6' ? 'Charging' : 'Occupied')
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('commands_sent', false);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
+    public function test_live_connector_inspection_cannot_mix_source_authorities(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $fixture = $this->fixture($protocol);
+            foreach (['source_endpoint_changed' => 1, 'source_secret_changed' => 2] as $case => $requests) {
+                config(['csms.graphql_url' => 'https://source.test/graphql', 'csms.graphql_secret' => str_repeat('x', 64)]);
+                $this->source($fixture, $case);
+                $this->actingAs($fixture['owner'])->getJson($fixture['url'])->assertServiceUnavailable()
+                    ->assertJsonMissingPath('connectors');
+                Http::assertSentCount($requests);
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_captured_bearer_revocation_fences_live_connector_disclosure_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $token = $f['owner']->createToken('live-fleet', ['*'], now()->addHour())->accessToken;
+            $snapshot = $f['owner']->fresh()->withAccessToken($token);
+            $request = Request::create($f['url'], 'GET');
+            $request->setUserResolver(fn () => $snapshot);
+            $read = fn () => app(ChargerLiveConnectorsController::class)(
+                $request, $f['company'], $f['charger'], app(ChargerResetController::class), app(RemoteSessionAuthorization::class)
+            );
+            $this->source($f);
+            $this->assertSame(200, $read()->getStatusCode());
+            Http::assertSentCount(3);
+
+            $this->source($f, 'bearer_revoked_during_read');
+            try {
+                $read();
+                $this->fail('A revoked captured token received live source evidence.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertSentCount(3);
+
+            $this->source($f);
+            try {
+                $read();
+                $this->fail('A revoked captured token initiated source reads.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertNothingSent();
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+        }
+    }
+
     public function test_missing_canonical_target_digest_prevents_any_source_request(): void
     {
         $f = $this->fixture();
@@ -369,6 +523,8 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->source($f);
         foreach ([
             'http://source.test/graphql',
+            'http://charging-graphql:8080/other-path',
+            'http://charging-graphql.evil.test:8080/v1/graphql',
             'http://user:secret@source.test/graphql',
             'https://user:secret@source.test/graphql',
             'https://source.test/graphql?secret=unsafe',

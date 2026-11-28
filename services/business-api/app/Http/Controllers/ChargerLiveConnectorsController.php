@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
+use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -15,29 +18,17 @@ use Illuminate\Support\Facades\DB;
  */
 final class ChargerLiveConnectorsController extends Controller
 {
-    private function approvedSourceEndpoint(): bool
+    private function sourceAuthority(): array
     {
-        $url = config('csms.graphql_url');
-        if (! is_string($url) || strlen($url) > 512) {
-            return false;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts) ||
-            ! in_array($parts['scheme'] ?? null, ['http', 'https'], true) ||
-            ! is_string($parts['host'] ?? null) || $parts['host'] === '' ||
-            isset($parts['user']) || isset($parts['pass']) ||
-            isset($parts['query']) || isset($parts['fragment'])) {
-            return false;
-        }
+        $endpoint = config('csms.graphql_url');
+        $secret = config('csms.graphql_secret');
+        abort_unless(app()->environment(['local', 'testing']) &&
+            config('csms.session_bridge_enabled') &&
+            app(CsmsGraphqlTransport::class)->approved($endpoint) &&
+            is_string($secret) && strlen($secret) >= 32, 503,
+            'Local source connector monitoring is disabled.');
 
-        // Never deliver a privileged Hasura secret over plaintext to a
-        // hostname other than a fixed local loopback / sandbox service.
-        return $parts['scheme'] === 'https' ||
-            in_array(strtolower($parts['host']), [
-                'localhost', '127.0.0.1', '[::1]',
-                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
-                'charging-graphql',
-            ], true);
+        return [$endpoint, $secret];
     }
 
     private function inventory(object $binding, VendorCharger $charger): array
@@ -83,9 +74,9 @@ final class ChargerLiveConnectorsController extends Controller
         return $projection;
     }
 
-    private function sourceStation(RemoteSessionAuthorization $source, object $binding, VendorCharger $charger): array
+    private function sourceStation(Closure $graph, object $binding, VendorCharger $charger): array
     {
-        $rows = $source->graph(
+        $rows = $graph(
             'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
             ['name' => $binding->identifier]
         )['ChargingStations'] ?? null;
@@ -115,18 +106,22 @@ final class ChargerLiveConnectorsController extends Controller
         ChargerResetController $guard,
         RemoteSessionAuthorization $source
     ) {
-        abort_unless(app()->environment(['local', 'testing']) &&
-            config('csms.session_bridge_enabled') &&
-            $this->approvedSourceEndpoint() &&
-            strlen((string) config('csms.graphql_secret')) >= 32, 503,
-            'Local source connector monitoring is disabled.');
+        $authority = $this->sourceAuthority();
+        $graph = function (string $query, array $variables) use ($authority, $source): array {
+            abort_unless($this->sourceAuthority() === $authority, 503, 'Connector source authority changed during inspection.');
+            $result = $source->graph($query, $variables);
+            abort_unless($this->sourceAuthority() === $authority, 503, 'Connector source authority changed during inspection.');
+
+            return $result;
+        };
         $binding = $guard->scope($r, $company, $charger);
+        app(MaintenanceActor::class)->checkBearer($r->user());
         $local = $this->inventory($binding, $charger);
-        $station = $this->sourceStation($source, $binding, $charger);
+        $station = $this->sourceStation($graph, $binding, $charger);
 
         // Query at most 100 connectors and 1000 events. Missing per-target
         // evidence remains unknown; no stale or truncated source is healthy.
-        $data = $source->graph(
+        $data = $graph(
             'query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId evseId connectorId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
@@ -145,6 +140,7 @@ final class ChargerLiveConnectorsController extends Controller
         }
 
         $latest = [];
+        $previousByTarget = [];
         $sourceTargets = [];
         $sourceConnectorTargets = [];
         $lastEvent = PHP_INT_MAX;
@@ -161,8 +157,10 @@ final class ChargerLiveConnectorsController extends Controller
                 is_int($event['connectorDatabaseId'] ?? null) &&
                 isset($known[$event['connectorDatabaseId']]) &&
                 is_int($event['connectorId'] ?? null) && $event['connectorId'] > 0 &&
-                ($binding->protocol === '1.6' || (is_int($event['evseId'] ?? null) &&
-                    $event['evseId'] > 0)) &&
+                array_key_exists('evseId', $event) &&
+                ($binding->protocol === '1.6'
+                    ? in_array($event['evseId'], [null, 0], true)
+                    : (is_int($event['evseId']) && $event['evseId'] > 0)) &&
                 in_array($event['connectorStatus'] ?? null, $statusValues, true) &&
                 (! isset($event['errorCode']) || (is_string($event['errorCode']) &&
                     strlen($event['errorCode']) <= 80)), 409, 'Malformed current connector source evidence.');
@@ -183,29 +181,33 @@ final class ChargerLiveConnectorsController extends Controller
             }
             $sourceTargets[$target] = $sourceId;
             $at = SourceStatusTime::parse($event['timestamp'] ?? null);
-            if (! isset($latest[$target])) {
-                $latest[$target] = [
-                    'reported_status' => $event['connectorStatus'],
-                    'error_code' => $event['errorCode'] ?? null,
-                    'observed_at' => $at,
-                ];
-            } else {
-                abort_unless(! $at->gt($latest[$target]['observed_at']), 409,
+            $observation = [
+                'reported_status' => $event['connectorStatus'],
+                'error_code' => $event['errorCode'] ?? null,
+                'observed_at' => $at,
+            ];
+            // Rows are sorted by descending source event ID. Compare every
+            // consecutive pair per target, not only against its newest row.
+            // Otherwise a regression or contradiction deeper in the retained
+            // history can appear to be complete, trusted source evidence.
+            $previous = $previousByTarget[$target] ?? null;
+            if ($previous !== null) {
+                abort_unless(! $at->gt($previous['observed_at']), 409,
                     'Source connector observation clock regressed.');
-                // Equal timestamps with contradictory states cannot establish
-                // an unambiguous latest report, regardless of event ID.
-                if ($at->eq($latest[$target]['observed_at'])) {
-                    abort_unless($event['connectorStatus'] === $latest[$target]['reported_status'] &&
-                        ($event['errorCode'] ?? null) === $latest[$target]['error_code'], 409,
+                if ($at->eq($previous['observed_at'])) {
+                    abort_unless($observation['reported_status'] === $previous['reported_status'] &&
+                        $observation['error_code'] === $previous['error_code'], 409,
                         'Contradictory source states at the same instant.');
                 }
             }
+            $latest[$target] ??= $observation;
+            $previousByTarget[$target] = $observation;
         }
 
         // The same station must still be the uniquely authenticated source
         // after the inventory read; a silent disconnect invalidates a recent
         // status despite any earlier "online" flag.
-        $after = $this->sourceStation($source, $binding, $charger);
+        $after = $this->sourceStation($graph, $binding, $charger);
         abort_unless($after['id'] === $station['id'] &&
             $after['protocol'] === $station['protocol'] &&
             $after['firmwareVersion'] === $station['firmwareVersion'] &&
@@ -223,6 +225,7 @@ final class ChargerLiveConnectorsController extends Controller
             $this->inventory($fresh, VendorCharger::findOrFail($charger->id)) === $local,
             409, 'Owned local connector topology changed during inspection.');
 
+        app(MaintenanceActor::class)->checkBearer($r->user());
         $localTargets = array_fill_keys(array_column($local, 'target'), true);
         $sourceTopologyMatches = count($local) === count($known) &&
             count($sourceTargets) === count($known) &&
