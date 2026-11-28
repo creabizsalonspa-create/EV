@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
+use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -102,16 +103,17 @@ class ChargerConfigurationController extends Controller
         if (! $op->observed_at && $op->attempted_at && $op->status !== 'not_dispatched') {
             $station = $source->station($b, false);
             $action = $b->protocol === '1.6' ? 'GetConfiguration' : 'GetVariables';
-            $requests = $source->messages($source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after,_lte:$until},payload:{_eq:$match}},limit:2){id createdAt}}', ['station' => $station, 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'until' => CarbonImmutable::parse($op->attempted_at)->addSeconds(30)->toISOString(), 'match' => $op->request_payload ? json_decode($op->request_payload, true, flags: JSON_THROW_ON_ERROR) : $source->payload($b->protocol)]), false);
+            $requests = $source->messages($source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$until:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},timestamp:{_gte:$after,_lte:$until},payload:{_eq:$match}},limit:2){id timestamp createdAt}}', ['station' => $station, 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'until' => CarbonImmutable::parse($op->attempted_at)->addSeconds(30)->toISOString(), 'match' => $op->request_payload ? json_decode($op->request_payload, true, flags: JSON_THROW_ON_ERROR) : $source->payload($b->protocol)]), false);
             if (count($requests) === 1) {
-                $replies = $source->messages($source->graph('query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload createdAt}}', ['station' => $station, 'request' => $requests[0]['id']]), true);
+                $replies = $source->messages($source->graph('query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload timestamp createdAt}}', ['station' => $station, 'request' => $requests[0]['id']]), true);
                 if (count($replies) === 1 && ($replies[0]['type'] === 4 || is_array($replies[0]['payload']))) {
                     $reply = $replies[0];
                     $state = $reply['type'] === 3 ? 'source_observed' : 'device_rejected';
-                    $observedAt = CarbonImmutable::parse($reply['createdAt'])->utc();
-                    if ($observedAt->lessThan(CarbonImmutable::parse($requests[0]['createdAt']))) {
-                        abort(409);
-                    }
+                    // CitrineOS persists inbound and outbound frames asynchronously.
+                    // Their database insertion times can invert even for an exact reply.
+                    $requestedAt = SourceStatusTime::parse($requests[0]['timestamp'] ?? null, 300);
+                    $observedAt = SourceStatusTime::parse($reply['timestamp'] ?? null, 300);
+                    abort_if($observedAt->lt($requestedAt), 409, 'Configuration reply predates its request on the wire.');
                     try {
                         $snapshot = $reply['type'] === 3 ? $source->snapshot($b->protocol, $reply['payload']) : [];
                     } catch (Throwable) {
