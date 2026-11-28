@@ -198,3 +198,44 @@ test('out-of-scope and repeated cursor rows are rejected before rendering',async
     form.onsubmit({preventDefault(){}});
     assert.equal(ui.root.children.length,0);
 });
+
+test('failed pagination retains applied scope and a single retry; invalid draft does not read', async()=>{
+    const ui=fixture(), calls=[];
+    let failing=false;
+    ui.setActor({role:'admin'},async p=>{
+        calls.push(p);
+        if(failing)throw Error('private failure');
+        return p.includes('before_id=17')?page([{...event,id:16}]):page([event],true,17);
+    });
+    await tick();
+    const form=nodes(ui.root,'form')[0], input=nodes(form,'input')[0];
+    input.value='0007';form.onsubmit({preventDefault(){}});await tick();
+    assert.match(calls[1],/target_user_id=7/);
+    input.value='999';failing=true;
+    await nodes(ui.root,'button').find(n=>n.textContent==='Load older role changes').onclick();
+    for(let i=0;i<2;i++){
+        const retry=nodes(ui.root,'button').filter(n=>n.textContent==='Retry');
+        assert.equal(retry.length,1);
+        await retry[0].onclick();
+    }
+    assert.ok(calls.slice(2).every(p=>p.includes('before_id=17')&&p.includes('target_user_id=7')));
+    failing=false;
+    await nodes(ui.root,'button').find(n=>n.textContent==='Retry').onclick();
+    assert.equal(nodes(ui.root,'article').length,2);
+    const count=calls.length;
+    input.value='1.5';form.onsubmit({preventDefault(){}});await tick();
+    assert.equal(calls.length,count);
+    assert.equal(nodes(ui.root,'article').length,0);
+    assert.match(ui.root.textContent,/Enter a valid positive account ID/);
+});
+test('Arabic role controls and records are localized without translating source identifiers',async()=>{
+    const ui=fixture('ar');
+    ui.setActor({role:'admin'},async()=>page());
+    await tick();
+    assert.match(ui.root.textContent,/بحث سجل الأدوار/);
+    assert.match(ui.root.textContent,/الدور المعين/);
+    assert.match(ui.root.textContent,/عميل ← مورد/);
+    assert.match(ui.root.textContent,/SEC-2026:17/);
+    assert.ok(nodes(ui.root,'option').every(n=>n.dataset.en&&n.dataset.ar));
+    assert.ok(nodes(ui.root,'label').every(n=>n.dataset.en===undefined));
+});
