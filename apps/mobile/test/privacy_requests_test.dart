@@ -92,8 +92,6 @@ void main() {
     testWidgets('privacy request progress is announced in $language', (tester) async {
       final api = _PrivacyApi()..holdGet = Completer<void>();
       addTearDown(api.close);
-      final semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
       final ar = language == 'ar';
       final loading = ar ? 'جارٍ تحميل طلبات الخصوصية' : 'Loading privacy requests';
       final updating = ar ? 'جارٍ تحديث طلبات الخصوصية' : 'Updating privacy requests';
