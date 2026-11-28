@@ -1,7 +1,41 @@
 /* Authenticated recovery records; no client assertion or blind charge/refund retry. */
+function recoveryScope(container, actor, redact) {
+    const initial = actor(), identity = initial?.id, role = initial?.role;
+    let retired = false, generation = 0, controller = new AbortController();
+    const owned = () => container.isConnected && actor()?.id === identity && actor()?.role === role;
+    const active = () => !retired && identity != null && owned() && !document.hidden;
+    function invalidate() {
+        generation++;
+        controller.abort();
+        controller = new AbortController();
+        redact();
+    }
+    function retire() {
+        if (retired) return;
+        retired = true;
+        invalidate();
+        observer.disconnect();
+        document.removeEventListener("visibilitychange", visibility);
+    }
+    function visibility() {
+        if (!owned()) retire();
+        else if (document.hidden) invalidate();
+    }
+    const observer = new MutationObserver(() => { if (!owned()) retire(); });
+    observer.observe(document.documentElement, {childList:true, subtree:true});
+    document.addEventListener("visibilitychange", visibility);
+    return {
+        active,
+        begin() { if (!active()) return null; invalidate(); return generation; },
+        current(epoch) { return active() && generation === epoch; },
+        signal() { return controller.signal; },
+    };
+}
+function recoveryEventClock(node, raw) {
+    return window.EvStationTime.bindServerEventTime(node, raw);
+}
 window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
-    const identity = actor().id,
-        alive = () => container.isConnected && actor()?.id === identity;
+    let scope;
     function t(tag, en, ar) {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
@@ -25,30 +59,48 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
     container.append(state);
     const list = document.createElement("div");
     container.append(list);
-    function button(parent, en, ar, fn) {
+    scope = recoveryScope(container, actor, () => {
+        list.replaceChildren();
+        state.textContent = "";
+    });
+    function button(parent, en, ar, fn, valid = scope.active) {
         const b = t("button", en, ar);
         b.type = "button";
         parent.append(b);
         b.onclick = async () => {
+            if (!valid() || b.disabled || !b.isConnected) return;
             b.disabled = true;
             try {
                 await fn();
             } catch (e) {
                 if (
-                    alive() &&
+                    valid() &&
                     !["SessionChangedError", "AbortError"].includes(e.name)
                 )
-                    state.textContent = e.message;
+                    state.replaceChildren(t("span", "Unable to read recovery status. Refresh before another action.", "تعذر قراءة حالة الاسترداد. حدّث قبل أي إجراء آخر."));
             } finally {
-                b.disabled = false;
+                if (valid() && b.isConnected) b.disabled = false;
             }
         };
         return b;
     }
     async function load(page = 1) {
+        if (!Number.isSafeInteger(page) || page < 1) return;
+        const epoch = scope.begin();
+        if (epoch === null) return;
+        const current = () => scope.current(epoch);
         state.replaceChildren(t("span", "Loading…", "جار التحميل…"));
-        const rows = await api("commercial/payment-recovery?page=" + page);
-        if (!alive()) return;
+        let rows;
+        try {
+            rows = await api("commercial/payment-recovery?page=" + page, "GET", undefined, scope.signal());
+            if (!current()) return;
+            if (!Array.isArray(rows?.data) || rows.current_page !== page ||
+                !Number.isSafeInteger(rows.last_page) || rows.last_page < page) throw Error("Invalid page");
+        } catch (e) {
+            if (current() && !["SessionChangedError","AbortError"].includes(e.name))
+                state.replaceChildren(t("span", "Unable to read recovery status. Refresh before another action.", "تعذر قراءة حالة الاسترداد. حدّث قبل أي إجراء آخر."));
+            return;
+        }
         state.textContent = "";
         list.replaceChildren();
         if (!rows.data.length)
@@ -105,15 +157,14 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                     "Check provider outcome",
                     "التحقق من نتيجة مزود الدفع",
                     async () => {
-                        await api(
-                            "commercial/payment-recovery/" +
-                                row.id +
-                                "/reconcile",
-                            "POST",
-                            {},
-                        );
-                        await load(page);
-                    },
+                        if (!current() || !card.isConnected) return;
+                        const ar = document.documentElement.lang === "ar";
+                        if (!confirm(ar ? "قراءة حالة المزود لهذه العملية؟ لن ينشئ ذلك دفعة أو استرداداً جديداً." : "Read provider status for this operation? This does not create a new payment or refund.")) return;
+                        if (!current() || !card.isConnected) return;
+                        await api("commercial/payment-recovery/" + row.id + "/reconcile",
+                            "POST", {}, scope.signal());
+                        if (current()) await load(page);
+                    }, current,
                 );
             button(
                 card,
@@ -122,27 +173,29 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                 async () => {
                     const history = await api(
                         "commercial/payment-recovery/" + row.id + "/events",
+                        "GET", undefined, scope.signal(),
                     );
-                    if (!alive()) return;
+                    if (!current() || !card.isConnected) return;
+                    if (!Array.isArray(history?.data)) throw Error("Invalid history");
                     card.querySelector("[data-recovery-history]")?.remove();
                     const ul = document.createElement("ul");
                     ul.dataset.recoveryHistory = "";
-                    for (const event of history.data)
-                        ul.append(
-                            literal(
-                                "li",
-                                event.created_at + " · " + event.status,
-                            ),
-                        );
+                    for (const event of history.data) {
+                        const li = literal("li", "");
+                        li.append(recoveryEventClock(literal("span", ""), event.created_at),
+                            literal("span", " · "),
+                            t("span", ...(labels[event.status] || [event.status, event.status])));
+                        ul.append(li);
+                    }
                     card.append(ul);
-                },
+                }, current,
             );
             list.append(card);
         }
         if (rows.current_page > 1)
-            button(list, "Previous", "السابق", () => load(page - 1));
+            button(list, "Previous", "السابق", () => load(page - 1), current);
         if (rows.current_page < rows.last_page)
-            button(list, "Next", "التالي", () => load(page + 1));
+            button(list, "Next", "التالي", () => load(page + 1), current);
     }
     button(
         container,
@@ -155,9 +208,7 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
 // Scheduled in-app notices share canonical invoices; no payment action here.
 window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
     container.dataset.subscriptionNotices = "true";
-    const identity = actor().id;
-    let generation = 0;
-    const alive = () => container.isConnected && actor()?.id === identity;
+    let scope;
     const text = (tag, en, ar) => {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
@@ -177,14 +228,19 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
     );
     const list = document.createElement("div");
     container.append(list);
+    scope = recoveryScope(container, actor, () => list.replaceChildren());
     async function load(page = 1) {
-        const epoch = ++generation;
+        if (!Number.isSafeInteger(page) || page < 1) return;
+        const epoch = scope.begin();
+        if (epoch === null) return;
         list.replaceChildren(text("p", "Loading…", "جار التحميل…"));
         try {
             const result = await api(
-                "commercial/subscription-notices?page=" + page,
+                "commercial/subscription-notices?page=" + page, "GET", undefined, scope.signal(),
             );
-            if (!alive() || epoch !== generation) return;
+            if (!scope.current(epoch)) return;
+            if (!Array.isArray(result?.data) || result.current_page !== page ||
+                !Number.isSafeInteger(result.last_page) || result.last_page < page) throw Error("Invalid page");
             list.replaceChildren();
             if (!result.data.length)
                 list.append(
@@ -220,14 +276,14 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
                                 Number(row.minor_units),
                             ),
                     ),
-                    literal("p", row.created_at),
+                    recoveryEventClock(literal("p", ""), row.created_at),
                 );
                 list.append(card);
             }
             function button(en, ar, next) {
                 const b = text("button", en, ar);
                 b.type = "button";
-                b.onclick = () => load(next);
+                b.onclick = () => { if (scope.current(epoch) && b.isConnected) return load(next); };
                 list.append(b);
             }
             if (result.current_page > 1)
@@ -244,7 +300,7 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
                 );
             button("Refresh notices", "تحديث التنبيهات", page);
         } catch (_) {
-            if (!alive() || epoch !== generation) return;
+            if (!scope.current(epoch)) return;
             list.replaceChildren(
                 text(
                     "p",
@@ -254,9 +310,13 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
             );
             const retry = text("button", "Retry", "إعادة المحاولة");
             retry.type = "button";
-            retry.onclick = () => load(page);
+            retry.onclick = () => { if (scope.current(epoch) && retry.isConnected) return load(page); };
             list.append(retry);
         }
     }
+    const refresh = text("button", "Load subscription notices", "تحميل تنبيهات الاشتراك");
+    refresh.type = "button";
+    refresh.onclick = () => { if (scope.active() && refresh.isConnected) return load(); };
+    container.append(refresh);
     load();
 };
