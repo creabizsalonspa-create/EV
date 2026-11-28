@@ -188,6 +188,73 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         }
     }
 
+    public function test_contract_review_fences_registration_rotation_and_preserves_unregistration(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $provider->forceFill(['authorized' => true])->save();
+        config(['ocpi.contract_review_authorization_required' => true,
+            'ocpi.connections.contract-evidence-test' => [
+                'managed_credentials' => true, 'origin' => 'https://partner.example',
+                'authorization_token' => base64_encode('SYNTHETIC-BOOTSTRAP'),
+                'party_country' => 'NL', 'party_id' => 'ABC', 'party_role' => 'CPO',
+            ],
+            'ocpi.local_credentials' => ['url' => 'https://platform.example/api/roaming-protocol/versions',
+                'roles' => [['role' => 'EMSP', 'country_code' => 'AE', 'party_id' => 'EVX',
+                    'business_details' => ['name' => 'Synthetic eMSP']]]]]);
+        $this->actingAs($admin);
+        $url = '/api/ocpi/providers/'.$provider->id.'/credentials';
+        $intent = ['action' => 'register', 'reason' => 'Synthetic internal credential approval.',
+            'idempotency_key' => 'contract-register-001'];
+        $this->postJson($url, $intent)->assertConflict();
+        Http::assertNothingSent();
+        $this->postJson($path, $this->review())->assertCreated();
+
+        $mutate = true;
+        $methods = [];
+        Http::fake(function ($request) use ($provider, &$mutate, &$methods) {
+            $methods[] = $request->method();
+            $envelope = fn ($data) => ['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $data];
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                if ($mutate) {
+                    DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+                        ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+                }
+                return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+            }
+            if (str_ends_with($request->url(), '/ocpi/2.2.1')) {
+                return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
+                    ['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials'],
+                ]]));
+            }
+            return Http::response($envelope($request->method() === 'DELETE' ? null : [
+                'token' => 'SYNTHETIC-PEER-TOKEN', 'url' => 'https://partner.example/ocpi/versions',
+                'roles' => [['role' => 'CPO', 'country_code' => 'NL', 'party_id' => 'ABC',
+                    'business_details' => ['name' => 'Synthetic peer']]],
+            ]));
+        });
+        $this->postJson($url, $intent)->assertConflict();
+        $this->assertSame(['GET'], $methods);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => $this->review()['valid_until']]);
+        $mutate = false;
+        $this->postJson($url, $intent)->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame(['GET', 'GET', 'GET', 'POST'], $methods);
+
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->postJson($url, array_replace($intent, ['action' => 'rotate',
+            'idempotency_key' => 'contract-rotate-001']))->assertConflict();
+        $this->assertCount(4, $methods);
+        $this->postJson($url, array_replace($intent, ['action' => 'unregister',
+            'idempotency_key' => 'contract-unregister-001']))->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame(['GET', 'GET', 'GET', 'POST', 'GET', 'GET', 'DELETE'], $methods);
+        $this->assertDatabaseCount('ocpi_credential_operations', 2);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'unregistered']);
+    }
+
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
