@@ -169,7 +169,10 @@ class CampaignService
             }
             abort_unless(in_array($action, ['approve', 'reject', 'suspend', 'reinstate'], true) ? $admin : ! $admin, 403, 'Vendor controls and administrator review are separate.');
             if ($row->status === $to) {
-                abort_unless(DB::table('commercial_campaign_events')->where('campaign_id', $id)->where('action', $action)->where('reason', $reason)->exists(), 409, 'Repeated campaign decision reason changed.');
+                $currentEvent = DB::table('commercial_campaign_events')->where('campaign_id', $id)
+                    ->orderByDesc('id')->first(['action', 'reason']);
+                abort_unless($currentEvent && $currentEvent->action === $action && $currentEvent->reason === $reason,
+                    409, 'Repeated campaign decision does not match the current event.');
 
                 return $row;
             }
@@ -248,6 +251,8 @@ class CampaignService
                 if ($v['kind'] === 'click') {
                     $parent = DB::table('commercial_campaign_deliveries')->where('event_id', $v['parent_event_id'] ?? '')->where('campaign_id', $c->id)->where('kind', 'delivery')->first();
                     abort_unless($parent && CarbonImmutable::parse($parent->occurred_at)->lte($occurred), 409, 'A click must reference a prior verified server delivery for this campaign.');
+                    abort_unless(CarbonImmutable::parse($parent->occurred_at)->gte(CarbonImmutable::parse($activation->created_at)),
+                        409, 'The parent delivery predates the current approved campaign window.');
                     abort_if(DB::table('commercial_campaign_deliveries')->where('parent_delivery_id', $parent->id)->exists(), 409, 'This server delivery already has a click attribution.');
                 }
                 DB::table('commercial_campaign_deliveries')->insert(['parent_delivery_id' => $parent?->id, 'campaign_id' => $c->id, 'event_id' => $v['event_id'], 'fingerprint' => $fingerprint, 'kind' => $v['kind'], 'occurred_at' => $occurred, 'created_at' => now()]);
