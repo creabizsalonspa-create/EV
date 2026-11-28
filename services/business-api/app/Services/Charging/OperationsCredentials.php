@@ -38,7 +38,8 @@ class OperationsCredentials
                 $this->url($operationsBase, false);
                 $r = Http::connectTimeout(3)->timeout(5)->withoutRedirecting()->post(rtrim($operationsBase, '/').'/dev/token', ['roles' => ['admin'], 'tenantId' => 1]);
                 $this->requireAuthority($authority);
-                $token = $r->json('accessToken');
+                abort_unless($r->successful() && strlen($r->body()) <= 32768, 503);
+                $token = $this->jwtObject($r->body())['accessToken'] ?? null;
                 abort_unless($r->successful() && is_string($token) && $token !== '' && strlen($token) <= 16384 && ! preg_match('/[\x00-\x20\x7f]/', $token), 503);
 
                 return $token;
@@ -52,10 +53,15 @@ class OperationsCredentials
             $secret = $authority['secret'];
             $scope = $authority['scope'];
             abort_unless(is_string($client) && preg_match('/^[A-Za-z0-9._-]{1,200}$/D', $client) && is_string($secret) && strlen($secret) >= 32 && strlen($secret) <= 4096 && ! preg_match('/[\x00-\x20\x7f]/', $secret) && is_string($scope) && preg_match('/^[A-Za-z0-9:._-]{1,100}$/D', $scope), 503);
+            // Never send the client secret when the complete pinned trust policy is invalid.
+            abort_unless(OperationsTrustPolicy::keys($authority['keys']) && is_string($authority['issuer']), 503);
+            $this->url($authority['issuer'], true);
             $r = Http::connectTimeout(3)->timeout(5)->withoutRedirecting()->asForm()->withBasicAuth($client, $secret)->post($endpoint, ['grant_type' => 'client_credentials', 'scope' => $scope]);
             $this->requireAuthority($authority);
-            abort_unless($r->successful() && strlen($r->body()) <= 32768 && is_string($r->json('token_type')) && strcasecmp($r->json('token_type'), 'Bearer') === 0, 503);
-            $token = $r->json('access_token');
+            abort_unless($r->successful() && strlen($r->body()) <= 32768, 503);
+            $envelope = $this->jwtObject($r->body());
+            abort_unless(is_string($envelope['token_type'] ?? null) && strcasecmp($envelope['token_type'], 'Bearer') === 0, 503);
+            $token = $envelope['access_token'] ?? null;
             abort_unless(is_string($token), 503);
             $this->verify($token, $operationsBase, $scope, $authority);
             $this->requireAuthority($authority);
@@ -89,7 +95,7 @@ class OperationsCredentials
         return $raw;
     }
 
-    /** Reject ambiguous JSON members before trusting a signed JWT's claims. */
+    /** Reject ambiguous JSON members in token envelopes and signed JWT claims. */
     private function jwtObject(string $json): array
     {
         $value = json_decode($json, true, 16, JSON_THROW_ON_ERROR);
@@ -135,7 +141,7 @@ class OperationsCredentials
         abort_unless(strlen($token) <= 16384 && count($pieces = explode('.', $token)) === 3, 503);
         $header = $this->jwtObject($this->decode($pieces[0]));
         $claims = $this->jwtObject($this->decode($pieces[1]));
-        abort_unless(is_array($header) && ($header['alg'] ?? null) === 'RS256' && ($header['typ'] ?? null) === 'JWT' && is_string($header['kid'] ?? null) && ! array_key_exists('crit', $header) && ! array_key_exists('jku', $header) && ! array_key_exists('jwk', $header) && ! array_key_exists('x5u', $header) && is_array($claims), 503);
+        abort_unless(is_array($header) && ($header['alg'] ?? null) === 'RS256' && ($header['typ'] ?? null) === 'JWT' && OperationsTrustPolicy::keyId($header['kid'] ?? null) && ! array_key_exists('crit', $header) && ! array_key_exists('jku', $header) && ! array_key_exists('jwk', $header) && ! array_key_exists('x5u', $header) && is_array($claims), 503);
         $keys = $authority['keys'];
         $pem = is_array($keys) ? ($keys[$header['kid']] ?? null) : null;
         abort_unless(is_string($pem) && strlen($pem) <= 16384, 503);
@@ -144,6 +150,6 @@ class OperationsCredentials
         abort_unless($details && $details['type'] === OPENSSL_KEYTYPE_RSA && $details['bits'] >= 2048 && openssl_verify($pieces[0].'.'.$pieces[1], $this->decode($pieces[2]), $key, OPENSSL_ALGO_SHA256) === 1, 503);
         $now = now()->getTimestamp();
         $issuer = $authority['issuer'];
-        abort_unless(is_string($issuer) && $issuer !== '' && ($claims['iss'] ?? null) === $issuer && ($claims['aud'] ?? null) === $audience && ($claims['sub'] ?? null) === $authority['client'] && ($claims['tenantId'] ?? null) === 1 && is_int($claims['iat'] ?? null) && is_int($claims['exp'] ?? null) && $claims['iat'] <= $now && $claims['iat'] >= $now - 900 && $claims['exp'] > $now + 10 && $claims['exp'] <= $claims['iat'] + 900 && (! array_key_exists('nbf', $claims) || (is_int($claims['nbf']) && $claims['nbf'] <= $now)) && is_array($claims['roles'] ?? null) && array_is_list($claims['roles']) && count($claims['roles']) <= 32 && in_array('admin', $claims['roles'], true) && is_string($claims['scope'] ?? null) && in_array($scope, explode(' ', $claims['scope']), true), 503);
+        abort_unless(is_string($issuer) && $issuer !== '' && ($claims['iss'] ?? null) === $issuer && ($claims['aud'] ?? null) === $audience && ($claims['sub'] ?? null) === $authority['client'] && ($claims['tenantId'] ?? null) === 1 && is_int($claims['iat'] ?? null) && is_int($claims['exp'] ?? null) && $claims['iat'] <= $now && $claims['iat'] >= $now - 900 && $claims['exp'] > $now + 10 && $claims['exp'] <= $claims['iat'] + 900 && (! array_key_exists('nbf', $claims) || (is_int($claims['nbf']) && $claims['nbf'] <= $now)) && OperationsTrustPolicy::grants($claims['roles'] ?? null, $claims['scope'] ?? null, $scope), 503);
     }
 }
