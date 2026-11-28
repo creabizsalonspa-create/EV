@@ -47,6 +47,26 @@ final class ContractAuthorizationGate
         ], JSON_THROW_ON_ERROR));
     }
 
+    /** Capture the same evidence for credential establishment/rotation.
+     * Unregister is cleanup and intentionally retains existing authority. */
+    public static function credentialAuthority(OcpiProvider $provider, string $action): ?string
+    {
+        if ($action === 'unregister') {
+            return null;
+        }
+        try {
+            return self::negotiationAuthority($provider);
+        } catch (OcpiException) {
+            abort(409, 'A current internal contract review is required for credential establishment or rotation.');
+        }
+    }
+
+    public static function assertCredentialAuthority(OcpiProvider $provider, string $action, ?string $expected): void
+    {
+        abort_unless(self::credentialAuthority($provider, $action) === $expected, 409,
+            'Internal contract evidence changed; credential exchange was fenced.');
+    }
+
     public static function validReview(?object $row, OcpiProvider $provider, User $owner, CarbonImmutable $at): bool
     {
         if (! $row || (int) $provider->owner_id !== (int) $owner->id
