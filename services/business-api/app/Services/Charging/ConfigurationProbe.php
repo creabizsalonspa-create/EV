@@ -34,7 +34,11 @@ class ConfigurationProbe
         // This public helper must remain safe even when a future caller
         // forgets to invoke the stricter dispatch-only enabled() gate.
         $url = app(CsmsGraphqlTransport::class)->requireApproved();
-        $r = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, compact('query', 'variables'));
+        $key = (string) config('csms.graphql_secret');
+        abort_unless(strlen($key) >= 32, 503);
+        $r = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, compact('query', 'variables'));
+        abort_unless(app(CsmsGraphqlTransport::class)->requireApproved() === $url
+            && hash_equals($key, (string) config('csms.graphql_secret')), 503, 'Configuration source authority changed.');
         if (! $r->successful() || $r->json('errors') || ! is_array($r->json('data'))) {
             throw new RuntimeException('Authenticated source is unavailable.');
         }
@@ -84,11 +88,11 @@ class ConfigurationProbe
         return $station['id'];
     }
 
-    public function serviceToken(string $operationsBase): string
+    public function dispatchCredential(string $operationsBase): \Closure
     {
         $this->requireOperationsBase($operationsBase);
 
-        return app(OperationsCredentials::class)->token($operationsBase);
+        return app(OperationsCredentials::class)->tokenForDispatch($operationsBase);
 
     }
 
@@ -98,10 +102,11 @@ class ConfigurationProbe
         abort_unless(rtrim((string) config('csms.operations_base_url'), '/') === $operationsBase, 409, 'Operations authority changed before configuration dispatch.');
     }
 
-    public function submit(object $binding, string $token, array $payload, string $operationsBase): bool
+    public function submit(object $binding, \Closure $credential, array $payload, string $operationsBase): bool
     {
         $this->requireOperationsBase($operationsBase);
         $path = $binding->protocol === '1.6' ? 'configuration/getConfiguration' : 'monitoring/getVariables';
+        $token = $credential();
         $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post($operationsBase.'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
 
         $reply = $r->json();

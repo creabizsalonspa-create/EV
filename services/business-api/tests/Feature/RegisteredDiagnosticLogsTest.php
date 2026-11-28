@@ -40,6 +40,10 @@ class RegisteredDiagnosticLogsTest extends TestCase
 
     private mixed $onConfirmation = null;
 
+    private mixed $afterTokenStation = null;
+
+    private bool $tokenIssued = false;
+
     private bool $loseDispatchAck = false;
 
     private int $reportingAttempts = 0;
@@ -71,6 +75,8 @@ class RegisteredDiagnosticLogsTest extends TestCase
                 ($this->onToken)();
             }
 
+            $this->tokenIssued = true;
+
             return Http::response(['token_type' => 'Bearer', 'access_token' => $this->jwt()]);
         }, 'https://operations.test/*' => function (HttpRequest $request) {
             $this->assertTrue($request->hasHeader('Authorization', 'Bearer '.$this->jwt()));
@@ -89,6 +95,9 @@ class RegisteredDiagnosticLogsTest extends TestCase
                 return Http::response(['data' => ['insert_ChargingStations_one' => $this->station]]);
             }
             if (str_contains($query, 'ChargingStations')) {
+                if ($this->tokenIssued && $this->afterTokenStation) {
+                    ($this->afterTokenStation)();
+                }
                 $row = $this->station;
                 if ($this->ready) {
                     $row['isOnline'] = true;
@@ -280,6 +289,22 @@ class RegisteredDiagnosticLogsTest extends TestCase
         $this->assertSame(0, $this->reportingAttempts);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'replacement.example.test'));
         $this->assertDatabaseCount('charger_diagnostic_logs', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_signing_key_rotation_after_token_before_diagnostic_wire_blocks_replay(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $keys = config('csms.operations_oauth_public_keys');
+        $this->afterTokenStation = fn () => config(['csms.operations_oauth_public_keys' => []]);
+        $intent = ['request_key' => (string) Str::uuid(), 'reason' => 'Reject revoked signing key after token issuance'];
+        $id = $this->postJson($f['path'], $intent)->assertCreated()->assertJsonPath('dispatch_state', 'not_dispatched')->json('id');
+        config(['csms.operations_oauth_public_keys' => $keys]);
+        $this->postJson($f['path'], $intent)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('dispatch_state', 'not_dispatched');
+        $this->assertSame(0, $this->reportingAttempts);
+        $this->assertCount(1, Http::recorded(fn ($r) => $r->url() === 'https://identity.test/token'));
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_journals', 0);
     }

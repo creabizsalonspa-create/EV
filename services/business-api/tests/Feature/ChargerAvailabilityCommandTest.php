@@ -63,6 +63,24 @@ class ChargerAvailabilityCommandTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/changeAvailability?'));
     }
 
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_credential_policy_changes_after_token_during_watermark_read_block_dispatch(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        config(['csms.operations_auth_mode' => 'development']);
+        $payload = $protocol === '1.6' ? ['connectorId' => 0, 'type' => 'Inoperative'] : ['operationalStatus' => 'Inoperative'];
+        $this->source($f, $payload, onWatermark: fn () => config(['csms.operations_auth_mode' => 'oauth2']));
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $this->body())->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+        config(['csms.operations_auth_mode' => 'development']);
+        $this->postJson($f['path'], $this->body())->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'not_dispatched');
+        $this->assertDatabaseHas('charger_availability_operations', ['id' => $id, 'attempted_at' => null]);
+        $this->assertCount(1, Http::recorded(fn ($r) => str_ends_with($r->url(), '/dev/token')));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/configuration/changeAvailability?'));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_live_dispatch_cannot_be_observed_but_interrupted_dispatch_can_recover(): void
     {
         $f = $this->fixture('2.0.1');
@@ -172,11 +190,11 @@ class ChargerAvailabilityCommandTest extends TestCase
         return compact('owner', 'binding', 'connector', 'identifier', 'path', 'protocol');
     }
 
-    private function source(array $fixture, array $payload, string $reply = 'Accepted', ?callable $onToken = null, ?callable $onConfirmation = null): void
+    private function source(array $fixture, array $payload, string $reply = 'Accepted', ?callable $onToken = null, ?callable $onConfirmation = null, ?callable $onWatermark = null): void
     {
         Http::preventStrayRequests();
         $stationId = 9;
-        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken, $onConfirmation, &$stationId) {
+        Http::fake(function ($request) use ($fixture, $payload, $reply, $onToken, $onConfirmation, $onWatermark, &$stationId) {
             if (str_ends_with($request->url(), '/dev/token')) {
                 $onToken?->__invoke();
 
@@ -207,6 +225,7 @@ class ChargerAvailabilityCommandTest extends TestCase
                     $rows[] = ['id' => 94, 'createdAt' => $time, 'payload' => $payload, 'correlationId' => 'other'];
                 }
             } else {
+                $onWatermark?->__invoke();
                 $rows = [['id' => 90, 'createdAt' => $time]];
             }
 
