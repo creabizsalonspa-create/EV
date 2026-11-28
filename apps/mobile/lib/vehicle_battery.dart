@@ -253,8 +253,18 @@ class _VehicleBatteryViewState extends State<VehicleBatteryView> with WidgetsBin
           'تفضيلات البطارية · تنبيهات محاكاة فقط',
         ),
       ),
-      if (loading) const LinearProgressIndicator(),
-      if (error != null) Text('$error'),
+      if (loading) Semantics(
+        key: const Key('battery-progress'),
+        liveRegion: true,
+        child: LinearProgressIndicator(
+          semanticsLabel: t('Battery request in progress', 'طلب البطارية قيد التنفيذ'),
+        ),
+      ),
+      if (error != null) Semantics(
+        key: const Key('battery-error'),
+        liveRegion: true,
+        child: Text('$error'),
+      ),
       TextButton(
         onPressed: loading ? null : guard(() { load(); }),
         child: Text(t('Refresh preferences', 'تحديث التفضيلات')),
@@ -311,7 +321,10 @@ class _VehicleBatteryViewState extends State<VehicleBatteryView> with WidgetsBin
           ),
         ],
         if (report != null)
-          Text(
+          Semantics(
+            key: const Key('battery-observation-result'),
+            liveRegion: true,
+            child: Text(
             report!['alerted'] == true
                 ? t(
                     'Simulated alert saved in Notifications.',
@@ -321,6 +334,7 @@ class _VehicleBatteryViewState extends State<VehicleBatteryView> with WidgetsBin
                     'Simulator observation saved; current preferences did not trigger an alert.',
                     'تم حفظ قراءة المحاكاة؛ لم تؤد التفضيلات الحالية إلى تنبيه.',
                   ),
+            ),
           ),
         TextButton(
           onPressed: loading

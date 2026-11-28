@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/vehicle_battery.dart';
@@ -19,6 +20,7 @@ class BatteryApi extends FixtureApi {
   Map<String, dynamic>? saved;
   bool loseFirst = false, corruptReceipt = false;
   int epoch=0, reads=0;
+  Completer<void>? heldRead;
   final changes=StreamController<int>.broadcast(sync:true);
   @override
   Stream<int> get sessionEvents=>changes.stream;
@@ -54,6 +56,7 @@ class BatteryApi extends FixtureApi {
       };
     }
     reads++;
+    if (heldRead != null) await heldRead!.future;
     return prefs;
   }
 }
@@ -71,6 +74,44 @@ Widget page(EvApi api, {ValueChanged<String>? discover}) => MaterialApp(
   ),
 );
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('localized battery progress and observation announcements ($ar)', (tester) async {
+      final api = BatteryApi()..heldRead = Completer<void>();
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Scaffold(body: SingleChildScrollView(child: VehicleBatteryView(
+          api: api, vehicleId: 3, onExpired: () {}, onDiscover: (_) {},
+        ))),
+      ));
+      await tester.pump();
+      final progress = find.byKey(const Key('battery-progress'));
+      expect(tester.widget<Semantics>(progress).properties.liveRegion, isTrue);
+      expect(tester.widget<LinearProgressIndicator>(
+        find.descendant(of: progress, matching: find.byType(LinearProgressIndicator)),
+      ).semanticsLabel, ar ? 'طلب البطارية قيد التنفيذ' : 'Battery request in progress');
+      api.heldRead!.complete();
+      await tester.pumpAndSettle();
+      expect(progress, findsNothing);
+      final record = find.text(ar ? 'تسجيل قراءة محاكاة' : 'Record simulator observation');
+      await tester.ensureVisible(record);
+      await tester.tap(record);
+      await tester.pumpAndSettle();
+      final result = find.byKey(const Key('battery-observation-result'));
+      expect(tester.widget<Semantics>(result).properties.liveRegion, isTrue);
+      expect(find.descendant(of: result, matching: find.text(ar
+        ? 'تم حفظ تنبيه المحاكاة في الإشعارات.'
+        : 'Simulated alert saved in Notifications.')), findsOneWidget);
+      expect(api.observations, hasLength(1));
+      expect(api.saved, isNull);
+      api.rotate();
+      await tester.pumpAndSettle();
+      expect(result, findsNothing);
+    });
+  }
   testWidgets(
     'persist preferences with server version and launch compatible discovery',
     (tester) async {

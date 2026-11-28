@@ -8,6 +8,11 @@
     return el;
   };
   const ar = () => document.documentElement.lang==="ar";
+  // Display only an explicit source instant or documented Laravel UTC clock.
+  // Invalid timestamps must never appear as a real observation time.
+  const reportTime = (value, language) =>
+    window.EvStationTime?.displayStationTime(value, "UTC", language) ||
+    (language === "ar" ? "وقت التقرير غير متاح" : "Report time unavailable");
   const button = (en,ar,action) => {
     const el=document.createElement("button");
     el.type="button";el.append(tr(en,ar));el.onclick=action;
@@ -65,22 +70,23 @@
     // and absence of phone/vehicle telemetry or verified charging capability.
     // Reject mismatched responses instead of presenting another vehicle's
     // state as a manual estimate or mislabeling live charger measurements.
-    const validCurrent=(value,vehicleId)=>value &&
+    const sourceQualified=(value,vehicleId)=>value &&
       value.vehicle_id===vehicleId &&
       value.source==="CUSTOMER_MANUAL_SELF_REPORT" &&
       value.measured_by_phone===false &&
       value.measured_by_vehicle_api===false &&
-      value.charging_capability_verified===false &&
-      Number.isInteger(value.revision) && value.revision>=0 &&
-      (value.battery_percent===null ||
-        (Number.isInteger(value.battery_percent) &&
-         value.battery_percent>=0 && value.battery_percent<=100));
-    const validHistory=(value,vehicleId)=>value && Array.isArray(value.data) &&
-      value.data.every(row=>row.vehicle_id===vehicleId &&
-        row.source==="CUSTOMER_MANUAL_SELF_REPORT" &&
-        Number.isInteger(row.revision) && row.revision>0 &&
-        Number.isInteger(row.battery_percent) &&
-        row.battery_percent>=0 && row.battery_percent<=100);
+      value.charging_capability_verified===false;
+    const percentValid=value=>Number.isInteger(value)&&value>=0&&value<=100;
+    const revisionValid=value=>Number.isInteger(value)&&value>=0&&value<=2147483647;
+    const validCurrent=(value,vehicleId)=>sourceQualified(value,vehicleId) &&
+      revisionValid(value.revision) &&
+      (value.revision===0?value.battery_percent===null:percentValid(value.battery_percent));
+    const validHistory=(value,vehicleId,target)=>value &&
+      value.current_page===target && Number.isInteger(value.last_page) &&
+      value.last_page>=target && Array.isArray(value.data) && value.data.length<=25 &&
+      value.data.every(row=>sourceQualified(row,vehicleId) &&
+        revisionValid(row.revision) && row.revision>0 && percentValid(row.battery_percent)) &&
+      new Set(value.data.map(row=>row.revision)).size===value.data.length;
     const reportState=(request,current,history,vehicleId)=>{
       if(!request||!current||!history||
           !Number.isInteger(request.expected_revision))return null;
@@ -133,10 +139,15 @@
       if(!chosen||!account)return false;
       const token=++generation;
       page=target;
+      // A new history read retires the old page and its write affordances.
+      // Preserve only the pending idempotency key for explicit recovery.
+      history=null;
+      root.querySelector("[data-manual-soc-panel]")?.remove();
+      status(ar()?"جارٍ تحميل سجل البطارية...":"Loading manual battery history…");
       try {
         const result=await api("vehicles/"+chosen.id+"/manual-soc/history?page="+page);
         if(!alive(token))return;
-        if(!validHistory(result,chosen.id))
+        if(!validHistory(result,chosen.id,target))
           throw Error("Unexpected manual battery history; refresh before reporting.");
         history=result;
         const recorded=pending?reportState(pending,latest,history,chosen.id):null;
@@ -155,7 +166,10 @@
             : "");
         }
         return true;
-      }catch(e){if(alive(token))status(String(e.message||e));return false;}
+      }catch(e){
+        if(alive(token))status(ar()?"سجل البطارية غير متوقع؛ حدّث قبل تقديم تقرير.":"Unexpected manual battery history; refresh before reporting.");
+        return false;
+      }
     }
     function render() {
       root.querySelector("[data-manual-soc-panel]")?.remove();
@@ -166,9 +180,9 @@
       panel.append(tr("Source: CUSTOMER_MANUAL_SELF_REPORT (unverified).",
         "المصدر: تقرير يدوي من العميل (غير متحقق منه).","p"));
       panel.append(tr(latest.battery_percent===null?"No report yet.":
-        "Latest self-reported battery: "+latest.battery_percent+"% · "+(latest.reported_at||""),
+        "Latest self-reported battery: "+latest.battery_percent+"% · "+reportTime(latest.reported_at,"en"),
         latest.battery_percent===null?"لا يوجد تقرير بعد.":
-        "آخر تقدير للبطارية: "+latest.battery_percent+"٪ · "+(latest.reported_at||""),"p"));
+        "آخر تقدير للبطارية: "+latest.battery_percent+"٪ · "+reportTime(latest.reported_at,"ar"),"p"));
       panel.append(tr("Battery may have changed since the report. Not an actual measurement.",
         "قد تكون حالة البطارية تغيرت منذ التقرير. هذه ليست قراءة فعلية.","p"));
       const formTicket=generation, formVehicleId=chosen.id;
@@ -177,12 +191,12 @@
       form.className="vehicle-manual-soc-form";
       const field=document.createElement("input");
       field.type="number";field.min="0";field.max="100";field.step="1";field.required=true;
-      field.name="battery_percent";field.setAttribute("aria-label","Self-reported battery % / تقدير البطارية");
+      field.name="battery_percent"; // The enclosing localized label supplies the accessible name.
       const label=document.createElement("label");
       label.append(tr("My battery estimate (0–100%)","تقديري للبطارية (٠–١٠٠٪)"),field);
       form.append(label);
       const submit=document.createElement("button");submit.type="submit";
-      submit.disabled=submitting;
+      submit.disabled=submitting||(pending===null&&latest.revision>=2147483647);
       submit.append(tr("Save manual report","حفظ التقرير اليدوي"));form.append(submit);
       const retry=button("Retry the same report","إعادة إرسال نفس التقرير",
         ()=>{if(editable())return submitReport();});
@@ -201,8 +215,9 @@
         event.preventDefault();
         if(!editable()||submitting)return;
         if(pending)return submitReport();
+        if(latest.revision>=2147483647)return;
         const number=Number(field.value);
-        if(!Number.isInteger(number)||number<0||number>100) {
+        if(!String(field.value).trim()||!percentValid(number)) {
           status(ar()?"اختر نسبة بين 0 و100.":"Choose 0–100%.");return;
         }
         if(!crypto?.randomUUID){status("Secure operation identity unavailable.");return;}
@@ -219,11 +234,11 @@
         "لا يوجد سجل تقارير يدوي بعد.","p"));
       const list=document.createElement("ul");
       for(const item of history.data||[])list.append(tr(
-        item.battery_percent+"% · "+item.reported_at+" · Revision "+item.revision,
-        item.battery_percent+"٪ · "+item.reported_at+" · النسخة "+item.revision,"li"));
+        item.battery_percent+"% · "+reportTime(item.reported_at,"en")+" · Revision "+item.revision,
+        item.battery_percent+"٪ · "+reportTime(item.reported_at,"ar")+" · النسخة "+item.revision,"li"));
       panel.append(list);
-      if(page>1)panel.append(button("Previous","السابق",()=>loadHistory(page-1)));
-      if(page<history.last_page)panel.append(button("Next","التالي",()=>loadHistory(page+1)));
+      if(page>1)panel.append(button("Previous","السابق",()=>{if(editable())return loadHistory(page-1);}));
+      if(page<history.last_page)panel.append(button("Next","التالي",()=>{if(editable())return loadHistory(page+1);}));
       panel.append(button("Refresh source and history","تحديث المصدر والسجل",
         ()=>{if(editable())return open(chosen);}));
       panel.append(button("Close","إغلاق",()=>panel.remove()));
@@ -251,7 +266,8 @@
         if(!alive(reloadTicket)||chosen?.id!==vehicleId)return;
         if(!loaded){
           submitting=false;
-          render(); // Restore the same-key retry control after history failure.
+          // No editable panel until a fresh, valid history read. The garage
+          // vehicle button reopens the same source without discarding pending.
           status(ar()?"تعذّر تحديث السجل. راجع السجل أو أعد نفس التقرير." :
             "History refresh uncertain. Check history or retry the identical report.");
           return;
