@@ -131,7 +131,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
 
     public function test_negotiation_fails_closed_before_dispatch_and_after_review_changes(): void
     {
-        foreach (['missing', 'expiry', 'replacement', 'policy-toggle', 'stable'] as $scenario) {
+        foreach (['missing', 'expiry', 'replacement', 'policy-toggle', 'final-expiry', 'stable'] as $scenario) {
             [$owner, $admin, $provider, $path] = $this->fixture();
             // Unique connection key for each iteration.
             $provider->forceFill(['connection_key' => 'negotiation-'.$scenario, 'authorized' => true])->save();
@@ -144,6 +144,8 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 $this->postJson($path, $this->review())->assertCreated();
             }
             $requests = 0;
+            Http::swap(new \Illuminate\Http\Client\Factory());
+            Http::preventStrayRequests();
             Http::fake(function ($request) use ($provider, $scenario, &$requests) {
                 $requests++;
                 if ($requests === 1) {
@@ -158,6 +160,10 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                     }
                     return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
                         'data' => [['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]]);
+                }
+                if ($scenario === 'final-expiry') {
+                    DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+                        ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
                 }
                 return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
                     'data' => ['version' => '2.2.1', 'endpoints' => [
@@ -174,7 +180,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                     $client->negotiate($provider->fresh());
                     $this->fail('Retired contractual evidence must not publish negotiated modules.');
                 } catch (\App\Services\Ocpi\OcpiException $error) {
-                    $this->assertSame($scenario === 'missing' ? 0 : 1, $requests);
+                    $this->assertSame($scenario === 'missing' ? 0 : ($scenario === 'final-expiry' ? 2 : 1), $requests);
                     $this->assertNull($provider->fresh()->version);
                     $this->assertNull($provider->fresh()->endpoints);
                 }
