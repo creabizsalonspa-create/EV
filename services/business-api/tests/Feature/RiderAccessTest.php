@@ -377,6 +377,50 @@ class RiderAccessTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function revokedRiderBearerCases(): array
+    {
+        return [['deleted'], ['expired'], ['maximum_age']];
+    }
+
+    #[DataProvider('revokedRiderBearerCases')]
+    public function test_individual_revoked_rider_bearer_cannot_publish_or_retire_source(string $change): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        $issued = $owner->createToken('rider-source-fixture');
+        $snapshot = $owner->fresh()->withAccessToken($issued->accessToken);
+        match ($change) {
+            'deleted' => $issued->accessToken->delete(),
+            'expired' => $issued->accessToken->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'maximum_age' => $issued->accessToken->forceFill(['created_at' => now()->subMinutes(2)])->save(),
+        };
+        if ($change === 'maximum_age') {
+            config(['sanctum.expiration' => 1]);
+        }
+        Http::preventStrayRequests();
+        Http::fake();
+        $before = RiderAccessToken::findOrFail($id);
+        try {
+            app(RiderSourceProvisioner::class)->publish($snapshot, $company, $id);
+            $this->fail('Revoked individual bearer may not publish source authority.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        $after = $before->fresh();
+        $this->assertSame($before->provisioning_state, $after->provisioning_state);
+        $this->assertNull($after->provision_lease);
+        $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        try {
+            app(RiderSourceProvisioner::class)->retire($snapshot, $company, $id);
+            $this->fail('Revoked individual bearer may not retire source authority.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+        $this->assertNull($after->fresh()->provision_lease);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_station_approval_is_operator_scoped_expiry_bounded_and_private(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
