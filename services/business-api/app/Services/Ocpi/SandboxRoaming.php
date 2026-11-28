@@ -16,12 +16,38 @@ class SandboxRoaming
 {
     public const TERMS = 'sandbox-roaming-v1';
 
+    /**
+     * Advertise a configured sandbox Sender before negotiation without
+     * suggesting that negotiated, credential or customer authority exists.
+     * The request policy independently enforces all of those current gates.
+     */
+    public function configuredTokenSender(OcpiProvider $provider): bool
+    {
+        [$connection, $local] = app(CredentialExchange::class)->configuration($provider);
+
+        return $this->tokenSenderContract($connection, $local, app(CredentialExchange::class)->receiverModules($provider));
+    }
+
+    private function tokenSenderContract(array $connection, array $local, array $receivers): bool
+    {
+        return app()->environment(['local', 'testing'])
+            && config('ocpi.test_commands_enabled') === true
+            && ($connection['test_commands'] ?? false) === true
+            && ($connection['managed_credentials'] ?? false) === true
+            && ($connection['environment'] ?? null) === 'sandbox'
+            && ($connection['party_role'] ?? null) === 'CPO'
+            && ($local['roles'][0]['role'] ?? null) === 'EMSP'
+            && is_string($connection['test_command_contract'] ?? null)
+            && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $connection['test_command_contract']) === 1
+            && in_array('sessions', $receivers, true)
+            && in_array('cdrs', $receivers, true);
+    }
+
     public function policy(OcpiProvider $provider): array
     {
         abort_unless(app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && $provider->authorized && $provider->version === '2.2.1' && User::whereKey($provider->owner_id)->where('role', 'vendor')->exists(), 409, 'Approved sandbox roaming is unavailable.');
         [$c,$local] = app(CredentialExchange::class)->configuration($provider);
-        abort_unless(($c['test_commands'] ?? false) === true && ($c['managed_credentials'] ?? false) === true && ($c['environment'] ?? null) === 'sandbox' && $c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP' && is_string($c['test_command_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_command_contract']), 409, 'An approved sandbox contract is required.');
-        abort_unless(in_array('sessions', app(CredentialExchange::class)->receiverModules($provider), true) && in_array('cdrs', app(CredentialExchange::class)->receiverModules($provider), true), 409, 'Approved session and CDR reception is required.');
+        abort_unless($this->tokenSenderContract($c, $local, app(CredentialExchange::class)->receiverModules($provider)), 409, 'An approved sandbox contract and session/CDR reception are required.');
         foreach (['locations', 'tariffs', 'sessions', 'cdrs', 'commands_receiver', 'tokens_receiver'] as $module) {
             $url = $provider->endpoints[$module] ?? null;
             abort_unless(is_string($url) && parse_url($url, PHP_URL_QUERY) === null, 409, 'Required negotiated partner modules are unavailable.');
@@ -40,6 +66,7 @@ class SandboxRoaming
     {
         $policy = $this->policy($provider);
         $this->assertNewWorkReadScope($policy[0]);
+        ContractAuthorizationGate::credentialAuthority($provider, 'new_roaming');
 
         return $policy;
     }
@@ -95,6 +122,12 @@ class SandboxRoaming
             }
         }
         $target = ['country_code' => $location->country_code, 'party_id' => $location->party_id, 'location_id' => $location->external_id, 'evse_uid' => $evseUid, 'connector_id' => $connectorId, 'location_name' => $location->normalized['name'], 'tariff_id' => $tariff->external_id, 'tariff' => $tariff->normalized, 'location_hash' => $location->content_hash, 'tariff_hash' => $tariff->content_hash];
+        $review = ContractAuthorizationGate::credentialAuthority($p, 'new_roaming');
+        if ($review !== null) {
+            // The private encrypted target and its existing offer hash bind
+            // new consent to the exact review; legacy default hashes stay stable.
+            $target['contract_review_authority'] = $review;
+        }
         $hash = hash('sha256', json_encode([$p->id, $p->authorization_revision, $link->generation, $c['test_command_contract'], $target, self::TERMS], JSON_THROW_ON_ERROR));
 
         return ['provider' => $p, 'configuration' => $c, 'local' => $local, 'link' => $link, 'tariff' => $tariff, 'target' => $target, 'hash' => $hash];
@@ -211,6 +244,9 @@ class SandboxRoaming
             abort_unless($p->authorization_revision === $order->provider_revision && $link->generation === $order->credential_generation, 409, 'Review current credentials and terms before starting.');
             if ($order->authorized_at === null) {
                 $target = json_decode(Crypt::decryptString($order->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+                $expectedReview = $target['contract_review_authority'] ?? null;
+                abort_unless($expectedReview === null || (is_string($expectedReview) && preg_match('/^[a-f0-9]{64}$/D', $expectedReview)), 409);
+                ContractAuthorizationGate::assertCredentialAuthority($p, 'new_roaming', $expectedReview);
                 abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $order->tariff_record_id)->where('content_hash', $target['tariff_hash'] ?? '')->exists(), 409, 'The consented tariff was withdrawn; a new charging request requires fresh review.');
             }
         }

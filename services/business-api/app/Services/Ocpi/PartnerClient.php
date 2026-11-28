@@ -126,7 +126,7 @@ class PartnerClient
 
     /** In-memory fingerprint of the exact connection and managed generation
      * used for one read operation. Never serialize it to a response or log. */
-    private function readAuthority(OcpiProvider $provider): string
+    private function readAuthority(OcpiProvider $provider, bool $requireReview = false): string
     {
         $connection = $this->connection($provider);
         $link = ($connection['managed_credentials'] ?? false)
@@ -135,17 +135,26 @@ class PartnerClient
 
         $current = OcpiProvider::findOrFail($provider->id);
 
-        return hash('sha256', json_encode([$connection, $current->connection_key, $current->version, $current->endpoints, $link ? [
+        $reviewAuthority = $requireReview ? ContractAuthorizationGate::negotiationAuthority($current) : null;
+
+        return hash('sha256', json_encode([$connection, $current->connection_key, $current->version, $current->endpoints, $reviewAuthority, $link ? [
             $link->id, $link->owner_id, $link->generation, $link->state, $link->configuration_hash,
             $link->bootstrap_hash, $link->local_token_digest, $link->local_token_ciphertext, $link->remote_token_ciphertext,
         ] : null], JSON_THROW_ON_ERROR));
     }
 
-    private function assertReadAuthority(OcpiProvider $provider, string $expected): void
+    private function assertReadAuthority(OcpiProvider $provider, string $expected, bool $requireReview = false): void
     {
-        if (! hash_equals($expected, $this->readAuthority($provider))) {
+        if (! hash_equals($expected, $this->readAuthority($provider, $requireReview))) {
             throw new OcpiException('Operator connection authority changed; discard the incomplete read and negotiate again.');
         }
+    }
+
+    /** Catalog admission is new network work; historical session/CDR
+     * retrieval retains its existing independently authorized cleanup scope. */
+    private function requiresReviewForRead(?string $module): bool
+    {
+        return $module === null || in_array($module, ['locations', 'tariffs'], true);
     }
 
     private function get(OcpiProvider $provider, string $url, string $authority, ?string $module = null): array
@@ -153,13 +162,13 @@ class PartnerClient
         // An already dispatched read cannot be cancelled, but a revoked or superseded
         // operation cannot dispatch another page or commit a stale result.
         $this->assertCurrent($provider);
-        $this->assertReadAuthority($provider, $authority);
+        $this->assertReadAuthority($provider, $authority, $this->requiresReviewForRead($module));
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
         if ($module !== null && ! PartnerReadProfile::allows($c, $module)) {
             throw new OcpiException('Requested module is outside the approved network read scope.');
         }
-        $this->assertReadAuthority($provider, $authority);
+        $this->assertReadAuthority($provider, $authority, $this->requiresReviewForRead($module));
         try {
             $trace = ['X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()];
             $response = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token']] + $trace)->get($url);
@@ -189,7 +198,7 @@ class PartnerClient
             }
 
             $this->assertCurrent($provider);
-            $this->assertReadAuthority($provider, $authority);
+            $this->assertReadAuthority($provider, $authority, $this->requiresReviewForRead($module));
 
             return ['data' => $body['data'], 'next' => $this->next($response->header('Link'))];
         } catch (OcpiException $e) {
@@ -267,7 +276,7 @@ REGEX;
 
     public function negotiate(OcpiProvider $provider): array
     {
-        $authority = $this->readAuthority($provider);
+        $authority = $this->readAuthority($provider, true);
         $c = $this->connection($provider);
         // Versions and version details are single-response OCPI discovery
         // resources. A continuation cannot establish a complete capability set.
@@ -341,7 +350,7 @@ REGEX;
                 || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
                 throw new OcpiException('Operator authorization or owner activity changed; stale negotiation was discarded.');
             }
-            $this->assertReadAuthority($locked, $authority);
+            $this->assertReadAuthority($locked, $authority, true);
             if ($locked->authorization_revision >= PHP_INT_MAX) {
                 throw new OcpiException('Operator authorization revision is exhausted.');
             }
@@ -466,11 +475,11 @@ REGEX;
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }
-        $authority = $this->readAuthority($provider);
+        $authority = $this->readAuthority($provider, $this->requiresReviewForRead($module));
         if (! PartnerReadProfile::allows($this->connection($provider), $module)) {
             throw new OcpiException('Requested module is outside the approved network read scope.');
         }
-        $this->assertReadAuthority($provider, $authority);
+        $this->assertReadAuthority($provider, $authority, $this->requiresReviewForRead($module));
         $window = $this->pullWindow($requestedWindow);
         $url = $this->guardedUrl($provider, $provider->endpoints[$module]);
         $path = parse_url($url, PHP_URL_PATH) ?? '/';
@@ -519,7 +528,7 @@ REGEX;
             }
             if ($result['next'] === null) {
                 $this->assertCurrent($provider);
-                $this->assertReadAuthority($provider, $authority);
+                $this->assertReadAuthority($provider, $authority, $this->requiresReviewForRead($module));
 
                 return $records;
             }
@@ -540,7 +549,7 @@ REGEX;
         if ($consent !== null && ! $consent()) {
             throw new OcpiException('Source synchronization consent changed.');
         }
-        $authority = $this->readAuthority($provider);
+        $authority = $this->readAuthority($provider, $this->requiresReviewForRead($module));
         $records = $this->pull($provider, $module, [], $consent);
 
         return DB::transaction(function () use ($provider, $module, $synchronizer, $authority, $records, $consent) {
@@ -549,11 +558,11 @@ REGEX;
             }
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $this->assertCurrent($provider);
-            $this->assertReadAuthority($current, $authority);
+            $this->assertReadAuthority($current, $authority, $this->requiresReviewForRead($module));
             $counts = $synchronizer->ingest($current, $module, $records);
             // A changed in-process configuration must also roll back a batch
             // that has already started canonical ingestion.
-            $this->assertReadAuthority($current, $authority);
+            $this->assertReadAuthority($current, $authority, $this->requiresReviewForRead($module));
             if ($consent !== null && ! $consent()) {
                 throw new OcpiException('Source synchronization consent changed.');
             }

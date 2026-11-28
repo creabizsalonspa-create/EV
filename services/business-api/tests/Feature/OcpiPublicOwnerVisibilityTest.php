@@ -9,6 +9,7 @@ use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -77,6 +78,77 @@ class OcpiPublicOwnerVisibilityTest extends TestCase
 
         $this->deleteJson($favoriteUrl)->assertOk();
         $this->assertDatabaseCount('partner_location_favorites', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_contract_review_hides_unapproved_catalog_before_pagination_and_redacts_favorites(): void
+    {
+        $f = $this->fixture();
+        $favoriteUrl = '/api/roaming/favorites/'.$f['location']->id;
+        $reviewUrl = '/api/ocpi/providers/'.$f['provider']->id.'/contract-review';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($f['customer'])->putJson($favoriteUrl)->assertOk();
+        config(['ocpi.contract_review_authorization_required' => true]);
+        $this->publicPages(0);
+        $this->getJson('/api/roaming/favorites')->assertOk()
+            ->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null)->assertDontSee('TEST public road');
+        $this->putJson($favoriteUrl)->assertNotFound();
+        $review = ['decision' => 'review', 'reference_id' => 'REVIEW-FIXTURE-01',
+            'evidence_sha256' => str_repeat('a', 64), 'valid_until' => now('UTC')->addYear()->toDateString(),
+            'expected_revision' => 0, 'idempotency_key' => 'visibility-review-001',
+            'reason' => 'Synthetic evidence for public catalog review only.'];
+        $this->actingAs($admin)->postJson($reviewUrl, $review)->assertCreated();
+        $this->actingAs($f['customer']);
+        $this->publicPages(1);
+        $this->getJson('/api/roaming/favorites')->assertJsonPath('data.0.location_available', true);
+        $this->putJson($favoriteUrl)->assertOk();
+
+        $rows = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $f['provider']->id);
+        foreach ([
+            ['valid_until' => now('UTC')->subDay()->toDateString()],
+            ['evidence_sha256' => str_repeat('z', 64)],
+            ['reference_id' => 'bad reference'],
+            ['connection_key' => 'former-connection'],
+        ] as $corruption) {
+            $rows->update($corruption);
+            $this->publicPages(0);
+            $this->getJson('/api/roaming/favorites')->assertJsonPath('data.0.location', null);
+            $this->putJson($favoriteUrl)->assertNotFound();
+            $rows->update(['valid_until' => $review['valid_until'], 'reference_id' => $review['reference_id'],
+                'evidence_sha256' => $review['evidence_sha256'], 'connection_key' => 'visibility-fixture']);
+        }
+
+        // A later invalid review must never fall back to the earlier approved row.
+        $this->actingAs($admin)->postJson($reviewUrl, array_replace($review, [
+            'expected_revision' => 1, 'idempotency_key' => 'visibility-review-002',
+        ]))->assertCreated();
+        $rows->where('revision', 2)->update(['decision' => 'revoke']);
+        $this->actingAs($f['customer']);
+        $this->publicPages(0);
+        $this->deleteJson($favoriteUrl)->assertOk();
+        $this->assertDatabaseCount('ocpi_records', 1);
+        $this->assertDatabaseCount('partner_location_favorites', 0);
+        // Opt-in gate is reversible, and never alters historical source records.
+        config(['ocpi.contract_review_authorization_required' => false]);
+        $this->publicPages(1);
+        Http::assertNothingSent();
+    }
+
+    public function test_direct_catalog_ingestion_cannot_bypass_contract_review(): void
+    {
+        $f = $this->fixture();
+        config(['ocpi.contract_review_authorization_required' => true]);
+        $service = app(RecordSynchronizer::class);
+        foreach (['locations', 'tariffs'] as $module) {
+            try {
+                $service->ingest($f['provider'], $module, []);
+                $this->fail('An unreviewed catalog must not be ingested.');
+            } catch (OcpiException) {
+                $this->assertNull($f['provider']->fresh()->last_synced_at);
+            }
+        }
+        $this->assertDatabaseCount('ocpi_records', 1);
         Http::assertNothingSent();
     }
 

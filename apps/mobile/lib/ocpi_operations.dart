@@ -3,6 +3,7 @@ import 'ocpi_sync_plans.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'ocpi_credentials.dart';
+import 'ocpi_contract_review.dart';
 import 'sandbox_roaming.dart';
 import 'partner_billing.dart';
 
@@ -553,6 +554,15 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
                           ),
                         ),
                     ],
+                    TextButton(
+                      onPressed: busy || uncertain ? null : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (_) => OcpiContractReviewView(
+                          api: widget.api, providerId: p['id'] as int, admin: widget.admin,
+                          providerAuthorized: p['authorized'] == true, onExpired: widget.onExpired,
+                        )),
+                      ),
+                      child: Text(tr('Partner contract review', 'مراجعة عقد الشريك')),
+                    ),
                     TextButton(
                       onPressed: busy
                           ? null
