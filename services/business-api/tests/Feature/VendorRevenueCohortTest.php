@@ -197,6 +197,36 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertSame($count, DB::table('finance_entries')->count());
     }
 
+    public function test_balanced_payment_posting_without_receipt_cannot_appear_as_zero_collection(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'orphan-payment', false);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 0);
+        $this->travel(2)->seconds();
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'cohort-orphan-legacy-payment',
+            'fingerprint' => hash('sha256', 'cohort-orphan-legacy-payment'),
+            'currency' => 'AED', 'amount_minor' => 100, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 100,
+                'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'customer_receivable', 'debit_minor' => 0,
+                'credit_minor' => 100, 'created_at' => now()],
+        ]);
+
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:01', 'UTC'));
+        $this->getJson($base.$scope)->assertOk()->assertJsonPath('totals.paid_minor', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
     public function test_owner_only_scope_validation_and_no_financial_writes(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
