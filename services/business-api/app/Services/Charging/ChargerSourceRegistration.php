@@ -140,9 +140,15 @@ final class ChargerSourceRegistration
         $url = $this->attemptUrl($generation, $secret);
         $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, compact('query', 'variables'));
         $this->attemptUrl($generation, $secret);
-        abort_unless($response->successful() && strlen($response->body()) <= 32768 && ! $response->json('errors') && is_array($response->json('data')), 503, 'Authenticated source registration requires inspection.');
+        $body = $response->body();
+        abort_unless($response->successful() && strlen($body) <= 32768, 503, 'Authenticated source registration requires inspection.');
+        // Preserve JSON object/list types. Associative decoding turns an empty
+        // object into [], which must never authorize an upstream insert.
+        $envelope = json_decode($body, false, 32, JSON_THROW_ON_ERROR);
+        abort_unless($envelope instanceof \stdClass && ! property_exists($envelope, 'errors')
+            && ($envelope->data ?? null) instanceof \stdClass, 503, 'Authenticated source registration requires inspection.');
 
-        return $response->json('data');
+        return (array) $envelope->data;
     }
 
     private function lookup(string $identity, string $generation, #[\SensitiveParameter] string $secret): array
@@ -155,7 +161,9 @@ final class ChargerSourceRegistration
 
     private function verify(mixed $row, array $object): array
     {
-        abort_unless(is_array($row) && is_int($row['id'] ?? null) && $row['id'] > 0, 409, 'Typed source registration identity is required.');
+        abort_unless($row instanceof \stdClass, 409, 'Typed source registration identity is required.');
+        $row = (array) $row;
+        abort_unless(is_int($row['id'] ?? null) && $row['id'] > 0, 409, 'Typed source registration identity is required.');
         foreach (['tenantId', 'ocppConnectionName', 'protocol', 'isOnline', 'chargePointVendor', 'chargePointModel'] as $field) {
             abort_unless(array_key_exists($field, $row) && $row[$field] === $object[$field], 409, 'Source registration differs from the owned request.');
         }
@@ -185,6 +193,37 @@ final class ChargerSourceRegistration
         } catch (Throwable) {
             return false;
         }
+    }
+
+    public function recoverInterruptedAttempts(): int
+    {
+        // The three source requests each have an eight-second timeout. Allow
+        // extra time for database locks before treating a claim as interrupted.
+        $cutoff = now()->subMinutes(5)->format('Y-m-d H:i:s.u');
+        $pending = DB::table('charger_source_registrations')
+            ->where('state', 'registering')
+            ->where('attempted_at', '<=', $cutoff);
+        $claims = (clone $pending)->orderBy('attempted_at')->orderBy('id')->limit(100)->get(['id', 'actor_id']);
+        $recovered = 0;
+
+        foreach ($claims as $claim) {
+            $changed = DB::transaction(function () use ($pending, $claim) {
+                // Recheck after waiting for any in-flight source transaction.
+                // A committed receipt always takes precedence over the scan.
+                $changed = (clone $pending)->where('id', $claim->id)
+                    ->update(['state' => 'requires_inspection', 'updated_at' => now()]);
+                if ($changed) {
+                    $attemptActor = DB::table('audit_events')->where('subject', (string) $claim->id)
+                        ->where('action', 'charger.source_registration_attempted')->latest('id')->value('actor_id');
+                    $this->event($attemptActor ?? $claim->actor_id, $claim->id, 'charger.source_registration_interrupted');
+                }
+
+                return $changed;
+            }, 3);
+            $recovered += $changed;
+        }
+
+        return $recovered;
     }
 
     public function register(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array

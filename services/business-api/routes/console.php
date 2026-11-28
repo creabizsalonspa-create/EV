@@ -7,6 +7,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\ChargerSourceRegistration;
 use App\Services\Charging\CsmsPreflight;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
@@ -231,6 +232,8 @@ Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-t
     return 0;
 })->purpose('Bounded, owner-only, simulator in-app fault reminders; never hardware/external delivery');
 
+Schedule::call(fn () => app(ChargerSourceRegistration::class)->recoverInterruptedAttempts())
+    ->name('charger-source-registration-inspection')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();
 if (app()->environment(['local', 'testing'])) {
     Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
