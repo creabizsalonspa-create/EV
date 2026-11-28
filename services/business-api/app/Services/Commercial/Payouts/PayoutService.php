@@ -212,6 +212,30 @@ class PayoutService
         return [$payout, $settlement];
     }
 
+    /** Only current verified recipient terms authorize new payout decisions. */
+    private function requireRecipient(object $settlement, ?object $account, ?object $payout = null): void
+    {
+        abort_unless($account && $account->status === 'active'
+            && $account->consented_at && $account->verified_at
+            && (int) $account->consented_by === (int) $settlement->vendor_id
+            && $account->consent_version === config('payouts.consent_version')
+            && (int) $account->vendor_id === (int) $settlement->vendor_id
+            && $account->currency === $settlement->currency
+            && (string) $account->minor_units === (string) $settlement->minor_units
+            && in_array($account->provider, ['mock', 'stripe_test'], true),
+            409, 'Current verified vendor consent and matching payout denomination are required.');
+        if ($payout) {
+            abort_unless((int) $payout->account_id === (int) $account->id
+                && (int) $payout->settlement_id === (int) $settlement->id
+                && (int) $payout->vendor_id === (int) $settlement->vendor_id
+                && $payout->provider === $account->provider
+                && $payout->currency === $settlement->currency
+                && (string) $payout->minor_units === (string) $settlement->minor_units
+                && (string) $payout->amount_minor === (string) $settlement->amount_minor,
+                409, 'Payout recipient or reserved settlement terms require reconciliation.');
+        }
+    }
+
     public function create(int $settlementId, int $accountId, int $actor, string $key): object
     {
         $this->enabled();
@@ -230,7 +254,7 @@ class PayoutService
             }
             abort_if(DB::table('commercial_payouts')->where('settlement_id', $settlementId)->exists(), 409, 'This settlement already has a payout; use its existing recovery/retry workflow.');
             $account = DB::table('commercial_payout_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            abort_unless($account && $account->status === 'active' && (int) $account->vendor_id === (int) $settlement->vendor_id && $account->currency === $settlement->currency && (int) $account->minor_units === (int) $settlement->minor_units, 409, 'An active consenting vendor account with matching currency is required.');
+            $this->requireRecipient($settlement, $account);
             $this->eligible($settlement);
             $id = DB::table('commercial_payouts')->insertGetId(['reference' => (string) Str::ulid(), 'settlement_id' => $settlementId, 'account_id' => $accountId, 'vendor_id' => $settlement->vendor_id, 'provider' => $account->provider, 'currency' => $settlement->currency, 'minor_units' => $settlement->minor_units, 'amount_minor' => $settlement->amount_minor, 'request_key' => $requestKey, 'status' => 'prepared', 'created_by' => $actor, 'evidence' => $account->provider === 'mock' ? 'MOCK_PAYOUT' : 'STRIPE_TEST_HTTP', 'created_at' => now(), 'updated_at' => now()]);
             $this->event($id, $accountId, $actor, 'payout.prepared');
@@ -251,6 +275,8 @@ class PayoutService
                 return $row;
             }
             abort_unless($row->status === 'prepared', 409);
+            $this->requireRecipient($settlement, DB::table('commercial_payout_accounts')
+                ->where('id', $row->account_id)->lockForUpdate()->first(), $row);
             $this->eligible($settlement);
             DB::table('commercial_payouts')->where('id', $id)->update(['status' => 'approved', 'approved_by' => $actor, 'approved_at' => now(), 'updated_at' => now()]);
             $this->event($id, $row->account_id, $actor, 'payout.approved');
@@ -308,7 +334,8 @@ class PayoutService
                 $this->currentAdmin($actor);
                 [$row, $settlement] = $this->lock($id);
                 $this->eligible($settlement);
-                abort_unless(DB::table('commercial_payout_accounts')->where('id', $row->account_id)->where('status', 'active')->exists(), 409, 'Payout account has been revoked.');
+                $this->requireRecipient($settlement, DB::table('commercial_payout_accounts')
+                    ->where('id', $row->account_id)->lockForUpdate()->first(), $row);
                 $changed = DB::table('commercial_payout_attempts')->where('id', $attempt->id)->where('lease', $lease)->where('lease_until', '>', now())->update(['request_sent' => true, 'updated_at' => now()]);
                 abort_unless($changed, 409, 'Payout request lease expired; reconcile before retrying.');
             }, 3);
@@ -420,6 +447,8 @@ class PayoutService
             $this->currentAdmin($actor);
             [$row, $settlement] = $this->lock($id);
             abort_unless(in_array($row->status, ['failed', 'reversed'], true), 409, 'Only a known failed or reversed payout may create a replacement attempt.');
+            $this->requireRecipient($settlement, DB::table('commercial_payout_accounts')
+                ->where('id', $row->account_id)->lockForUpdate()->first(), $row);
             $this->eligible($settlement);
             DB::table('commercial_payouts')->where('id', $id)->update(['status' => 'prepared', 'created_by' => $actor, 'approved_by' => null, 'approved_at' => null, 'updated_at' => now()]);
             $this->event($id, $row->account_id, $actor, 'payout.retry_prepared');
