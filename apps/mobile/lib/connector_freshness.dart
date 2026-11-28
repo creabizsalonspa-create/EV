@@ -42,10 +42,18 @@ DateTime? strictUtcConnectorTime(dynamic raw) {
 String connectorReportedState(Object? value, Duration elapsed) =>
     _observation(value, elapsed).state;
 
-String connectorFreshnessText(Object? value, Duration elapsed, bool arabic) {
+String connectorFreshnessText(
+  Object? value,
+  Duration elapsed,
+  bool arabic, {
+  String Function(String)? formatObservedAt,
+}) {
   final observation = _observation(value, elapsed);
   final state = connectorStatusLabel(observation.state, arabic);
-  final observed = observation.observedAt ?? connectorStatusLabel('unknown', arabic);
+  final timestamp = observation.observedAt;
+  final observed = timestamp == null
+      ? connectorStatusLabel('unknown', arabic)
+      : formatObservedAt?.call(timestamp) ?? timestamp;
   return arabic
       ? 'حالة مصدر المحاكاة: $state. التوفر الفعلي غير مؤكد. وقت الرصد: $observed'
       : 'Simulated source status: $state. Physical availability is unverified. Observed: $observed';
