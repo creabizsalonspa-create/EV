@@ -528,6 +528,31 @@ class OcpiReservationTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_reservation_closure_requires_intact_nonfuture_location_evidence(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->postJson($url.'/cancel-reservation', ['request_key' => (string) Str::uuid(), 'consent' => true])->assertOk();
+        $this->partnerCallback($order, 'CANCEL_RESERVATION', 'ACCEPTED');
+        $this->freshAvailable($f);
+        $location = $f[4]->fresh();
+        foreach ([
+            'content_hash' => str_repeat('a', 64),
+            'received_at' => now()->addDay(),
+        ] as $field => $invalid) {
+            DB::table('ocpi_records')->where('id', $location->id)->update([$field => $invalid]);
+            $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+            $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+            DB::table('ocpi_records')->where('id', $location->id)->update([$field => $location->getRawOriginal($field)]);
+        }
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+        $this->assertNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+        $this->assertCount(3, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_reservation_closure_requires_acknowledged_deactivation_and_later_connector_evidence(): void
     {
         $f = $this->setupReservation();

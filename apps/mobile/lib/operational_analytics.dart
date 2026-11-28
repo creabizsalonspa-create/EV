@@ -46,6 +46,14 @@ const operationalLabels = {
     'Reported unavailable seconds without a fault',
     'ثواني عدم التوفر المبلغ عنها دون عطل',
   ],
+  'reported_downtime_seconds': [
+    'Reported fault or unavailable seconds',
+    'ثواني الأعطال أو عدم التوفر المبلغ عنها',
+  ],
+  'other_known_status_seconds': [
+    'Other known status seconds (not verified uptime)',
+    'ثواني الحالات الأخرى المعروفة (ليست وقت تشغيل مؤكداً)',
+  ],
   'maximum_observed_site_interval_average_w': [
     'Maximum sum of observed interval averages (W), not grid peak',
     'أقصى مجموع لمتوسطات الفترات المرصودة (واط)، وليس ذروة الشبكة',
@@ -241,7 +249,18 @@ class _OperationalState extends State<OperationalAnalyticsView>
       }
       // Uptime is never inferred from unknown evidence, and reported fault
       // duration cannot exceed known source status coverage.
-      if (row['status_known_seconds'] +
+      if (row['mapped_connectors'] > 1000 ||
+          row['mapped_evses'] > 500 ||
+          row['possible_connector_seconds'] !=
+              row['mapped_connectors'] * result['window_seconds'] ||
+          row['possible_evse_seconds'] !=
+              row['mapped_evses'] * result['window_seconds'] ||
+          row['reported_downtime_seconds'] !=
+              row['reported_fault_seconds'] +
+                  (row['reported_non_fault_unavailable_seconds'] ?? 0) ||
+          row['other_known_status_seconds'] + row['reported_downtime_seconds'] !=
+              row['status_known_seconds'] ||
+          row['status_known_seconds'] +
               row['status_unknown_seconds'] !=
               row['possible_connector_seconds'] ||
           row['reported_fault_seconds'] > row['status_known_seconds'] ||

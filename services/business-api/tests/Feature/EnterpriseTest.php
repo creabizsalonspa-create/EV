@@ -27,6 +27,46 @@ class EnterpriseTest extends TestCase
         $this->putJson('/api/regions/SA', $v)->assertUnprocessable();
     }
 
+    public function test_regional_configuration_requires_reviewed_revision_and_preserves_independent_feature_gate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'admin']);
+        $path = '/api/regions/OM';
+        $original = ['currency' => 'OMR', 'minor_units' => 3, 'timezone' => 'Asia/Muscat',
+            'tax_bps' => 0, 'expected_revision' => 0, 'commerce_enabled' => true];
+        $this->actingAs($admin)->putJson($path, $original)->assertOk()
+            ->assertJsonPath('configuration_revision', 1)
+            ->assertJsonPath('commerce_enabled', fn ($value) => $value === false || $value === 0)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->actingAs($other)->putJson($path, array_replace($original, ['tax_bps' => 500]))
+            ->assertConflict();
+        $this->putJson($path.'/review-intake', ['enabled' => false, 'expected_revision' => 0])
+            ->assertOk()->assertJsonPath('review_intake_revision', 1);
+        $updated = array_replace($original, ['tax_bps' => 500, 'expected_revision' => 1]);
+        $this->putJson($path, $updated)->assertOk()->assertJsonPath('configuration_revision', 2)
+            ->assertJsonPath('tax_bps', 500)
+            ->assertJsonPath('review_intake_enabled', fn ($value) => $value === false || $value === 0)
+            ->assertJsonPath('review_intake_revision', 1);
+        $this->actingAs($admin)->putJson($path, $updated)->assertConflict();
+        $this->putJson($path, array_replace($updated, ['expected_revision' => 2]))
+            ->assertOk()->assertJsonPath('configuration_revision', 2);
+        $this->putJson($path, array_replace($updated, ['expected_revision' => 2, 'currency' => '12A']))
+            ->assertUnprocessable();
+        $this->putJson($path, array_replace($updated, ['expected_revision' => 2, 'tax_bps' => null]))
+            ->assertOk()->assertJsonPath('configuration_revision', 3)->assertJsonPath('tax_bps', null);
+        $this->assertSame(3, DB::table('audit_events')->where('action', 'region.configured')
+            ->where('subject', 'OM')->count());
+        $this->assertDatabaseHas('regions', [
+            'country' => 'OM', 'configuration_revision' => 3, 'currency' => 'OMR',
+            'minor_units' => 3, 'commerce_enabled' => false,
+            'review_intake_enabled' => false, 'review_intake_revision' => 1,
+        ]);
+        $regions = $this->getJson('/api/regions')->assertOk()->json();
+        $om = collect($regions)->firstWhere('country', 'OM');
+        $this->assertSame(3, $om['configuration_revision']);
+        $this->assertSame(1, collect($regions)->firstWhere('country', 'AE')['configuration_revision']);
+    }
+
     public function test_customer_fleet_pages_are_stable_private_and_complete(): void
     {
         $owner = User::factory()->create();

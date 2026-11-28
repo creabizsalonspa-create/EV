@@ -511,6 +511,8 @@ void main() {
         'country': 'ae',
         'min_reported_power_kw': '50',
         'max_source_age_hours': '24',
+        'address_contains': 'Dubai',
+        'access_contains': 'Membership',
       }.entries) {
         await tester.ensureVisible(find.byKey(Key('licensed-${entry.key}')));
         await tester.enterText(
@@ -530,6 +532,8 @@ void main() {
       expect(api.submitted!['country'], 'AE');
       expect(api.submitted!['min_reported_power_kw'], 50.0);
       expect(api.submitted!['max_source_age_hours'], 24);
+      expect(api.submitted!['address_contains'], 'Dubai');
+      expect(api.submitted!['access_contains'], 'Membership');
       expect(api.submitted!['reported_membership_required'], true);
     },
   );

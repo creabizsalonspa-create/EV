@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
 import 'financial_operation_store.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 import 'loyalty_actions.dart';
 import 'noncash_capabilities.dart';
@@ -369,14 +370,17 @@ class _LoyaltyState extends State<LoyaltyView>
           title: Text(
             '${t(['earn', 'reversal', 'expiry', 'redemption', 'release'].contains(kind) ? kind as String : 'unknownKind')}: ${n(row['points'] as int)}',
           ),
-          subtitle: Text('${row['created_at'] ?? ''}'),
+          subtitle: Text(serverEventTime(context, row['created_at'])),
         ),
       );
     }
     return Card(
       child: ListTile(
         title: Text('#${n(row['id'] as int)} · ${status(row['status'])}'),
-        subtitle: Text('${t('cost')}: ${n(row['points_cost'] as int)}'),
+        subtitle: Text(
+          '${t('cost')}: ${n(row['points_cost'] as int)}\n'
+          '${serverEventTime(context, row['created_at'])}',
+        ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () {
           if (!scoped(api, fence)) return;
@@ -670,7 +674,9 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView>
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Text('${row['created_at'] ?? ''}\n${row['reason']}'),
+                  child: Text(
+                    '${serverEventTime(c, row['created_at'])}\n${row['reason']}',
+                  ),
                 ),
               ),
           ],
@@ -1011,21 +1017,90 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
     final op = operation;
     final api = widget.api;
     final fence = ownsSession;
-    if (op == null || busy || !scoped(api, fence)) return;
+    final saved = pending;
+    final ownerId = owner;
+    final savedBody = draft;
+    if (op == null || busy || !scoped(api, fence) ||
+        saved == null || ownerId == null || savedBody == null) return;
+    final key = saved['key'];
+    final coupon = savedBody['coupon'];
+    final codeHash = savedBody['code_hash'];
+    final entered = code.text.trim().toUpperCase();
+    if (key is! String ||
+        !(coupon is int && coupon > 0 && codeHash == null ||
+            coupon == null && codeHash is String)) return;
+    if (coupon == null &&
+        (!RegExp(r'^[A-Z0-9-]{12,40}$').hasMatch(entered) ||
+            digest(entered) != codeHash)) {
+      setState(() => message = label(
+        'Re-enter the original code to cancel the saved claim.',
+        'أعد إدخال الرمز الأصلي لإلغاء المطالبة المحفوظة.',
+      ));
+      return;
+    }
     final epoch = ++generation;
     bool current() => generation == epoch && scoped(api, fence);
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      message = null;
+    });
     try {
+      final request = digest('coupon-claim:$ownerId:$key');
+      final binding = digest(coupon == null
+          ? '$codeHash:$request'
+          : 'coupon-cancel-v1:$coupon:$request');
+      final result = await api.request('commercial/coupons/claim-intents/cancel',
+        method: 'POST', body: {
+          'idempotency_key': key,
+          if (coupon == null) 'code': entered else 'coupon_id': coupon,
+        });
+      if (!current()) return;
+      if (result['request_binding'] != binding ||
+          (coupon != null && result['coupon_id'] != coupon)) {
+        throw const FormatException('Invalid coupon cancellation binding');
+      }
+      final Map<String, dynamic>? accepted;
+      if (result['state'] == 'accepted') {
+        accepted = receipt(result['claim']);
+        if ((coupon != null && accepted['coupon_id'] != coupon) ||
+            (coupon == null && accepted['request_binding'] != binding)) {
+          throw const FormatException('Invalid accepted coupon identity');
+        }
+      } else if (result['state'] == 'cancelled' &&
+          result.containsKey('claim') && result['claim'] == null) {
+        accepted = null;
+      } else {
+        throw const FormatException('Invalid coupon cancellation state');
+      }
       await op.confirmed();
-      if (current()) code.clear();
-    } catch (_) {
+      if (!current()) return;
+      setState(() {
+        clearRecords();
+        code.clear();
+        if (accepted != null) {
+          receipts = [accepted];
+        } else {
+          message = label('Saved claim cancelled by the server.',
+              'ألغى الخادم المطالبة المحفوظة.');
+        }
+      });
+    } catch (error) {
       if (current()) {
-        setState(
-          () => message = label(
-            'Could not clear coupon draft.',
-            'تعذر مسح مسودة القسيمة.',
-          ),
-        );
+        if (error is ApiException && error.endsCurrentSession) {
+          setState(() {
+            operation = null;
+            owner = null;
+            code.clear();
+            clearRecords();
+            message = null;
+          });
+          widget.onExpired();
+        } else {
+          setState(() => message = label(
+            'Cancellation not confirmed. Keep the same saved claim.',
+            'لم يتأكد الإلغاء. احتفظ بالمطالبة المحفوظة نفسها.',
+          ));
+        }
       }
     } finally {
       if (current()) setState(() => busy = false);
@@ -1074,7 +1149,7 @@ class _CouponState extends State<_CouponView> with WidgetsBindingObserver {
         TextField(
           controller: code,
           enabled:
-              !busy && capability?.enabled == true && draft?['coupon'] == null,
+              !busy && (capability?.enabled == true || draft?['code_hash'] != null) && draft?['coupon'] == null,
           maxLength: 40,
           textCapitalization: TextCapitalization.characters,
           textDirection: TextDirection.ltr,

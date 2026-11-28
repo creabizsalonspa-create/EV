@@ -72,6 +72,63 @@ class DeferredDiscoveryApi extends EvApi {
 }
 
 void main() {
+  testWidgets('retired route stop callbacks cannot change a revised itinerary or catalog', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900,1600));
+    addTearDown(()=>tester.binding.setSurfaceSize(null));
+    final first=station();
+    final second=Station.fromJson({
+      'id':2,'name':'Replacement stop','connector_type':'CCS2',
+      'power_kw':50,'evidence':'DISCOVERY_ONLY','latitude':25.3,'longitude':55.4,
+    });
+    Widget view(List<Station> stations)=>MaterialApp(home:RoutePlannerView(stations:stations));
+    await tester.pumpWidget(view([first]));
+    await tester.pumpAndSettle();
+    final expand=find.text('Add charging stops from results');
+    await tester.ensureVisible(expand);
+    await tester.tap(expand);
+    await tester.pumpAndSettle();
+    final firstKey=find.byKey(const Key('route-stop-1'));
+    final old=tester.widget<CheckboxListTile>(firstKey).onChanged!;
+    await tester.pumpWidget(view([second]));
+    await tester.pumpAndSettle();
+    old(true);
+    await tester.pumpAndSettle();
+    expect(find.text('1. Synthetic stop'),findsNothing);
+    final key=find.byKey(const Key('route-stop-2'));
+    final choose=tester.widget<CheckboxListTile>(key).onChanged!;
+    choose(true);
+    choose(true);
+    await tester.pumpAndSettle();
+    expect(find.text('1. Replacement stop'),findsOneWidget);
+    expect(find.text('2. Replacement stop'),findsNothing);
+    final remove=tester.widget<IconButton>(find.byWidgetPredicate((widget) =>
+        widget is IconButton && widget.tooltip == 'Remove stop')).onPressed!;
+    remove();
+    remove();
+    await tester.pumpAndSettle();
+    expect(find.text('1. Replacement stop'),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('route coordinate inputs distinguish origin and destination in their labels', (tester) async {
+    await tester.pumpWidget(MaterialApp(home:RoutePlannerView(stations:[])));
+    await tester.pumpAndSettle();
+    for (final entry in {
+      'origin-lat':'Origin: Latitude',
+      'origin-lng':'Origin: Longitude',
+      'destination-lat':'Destination: Latitude',
+      'destination-lng':'Destination: Longitude',
+    }.entries) {
+      final field=find.byKey(Key(entry.key));
+      await tester.scrollUntilVisible(field,150,
+        scrollable:find.descendant(of:find.byType(ListView),matching:find.byType(Scrollable)).first);
+      final textField=find.descendant(of:field,matching:find.byType(TextField));
+      expect(tester.widget<TextField>(textField).decoration!.labelText,
+        startsWith(entry.value));
+    }
+    expect(tester.takeException(),isNull);
+  });
+
   test(
     'current expiry clears the owning native session; stale-generation conflicts never sign it out',
     () async {
@@ -409,6 +466,9 @@ void main() {
         await tester.ensureVisible(find.byKey(Key(field.key)));
         await tester.enterText(find.byKey(Key(field.key)), field.value);
       }
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byKey(const Key('route-provider-consent')),
         240,
@@ -469,6 +529,9 @@ void main() {
         );
       }
       expect(find.textContaining('Synthetic stop'), findsNothing);
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.byKey(const Key('route-provider-consent')),
         240,
@@ -520,6 +583,9 @@ void main() {
         await tester.ensureVisible(find.byKey(Key(entry.key)));
         await tester.enterText(find.byKey(Key(entry.key)), entry.value);
       }
+      // Render the newly edited itinerary before re-authorizing its consent.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       final consent = find.byKey(const Key('route-provider-consent'));
       await tester.ensureVisible(consent);
       await tester.tap(consent);

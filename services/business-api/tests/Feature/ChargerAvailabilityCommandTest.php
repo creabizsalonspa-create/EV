@@ -121,6 +121,31 @@ class ChargerAvailabilityCommandTest extends TestCase
         $this->assertCount(1, Http::recorded(fn ($request) => str_contains($request->url(), '/configuration/changeAvailability?')));
     }
 
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_source_key_change_during_confirmation_preserves_unresolved_command(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $payload = $protocol === '1.6' ? ['connectorId' => 0, 'type' => 'Inoperative'] : ['operationalStatus' => 'Inoperative'];
+        $change = true;
+        $this->source($f, $payload, onConfirmation: function () use (&$change) {
+            if ($change) {
+                config(['csms.graphql_secret' => str_repeat('y', 32)]);
+            }
+        });
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $this->body())
+            ->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+        $this->travel(1)->seconds();
+        $path = $f['path'].'/'.$id.'/observe';
+        $this->postJson($path)->assertServiceUnavailable();
+        $this->assertDatabaseHas('charger_availability_operations', ['id' => $id, 'status' => 'transport_submitted', 'source_reply_id' => null, 'observed_at' => null]);
+        config(['csms.graphql_secret' => str_repeat('x', 32)]);
+        $change = false;
+        $this->postJson($path)->assertOk()->assertJsonPath('status', 'accepted')->assertJsonPath('physical_availability_verified', false);
+        $this->assertCount(1, Http::recorded(fn ($request) => str_contains($request->url(), '/configuration/changeAvailability?')));
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     private function body(): array
     {
         return ['requested_state' => 'Inoperative', 'reason' => 'PRIVATE data for simulator', 'idempotency_key' => 'sim-availability'];

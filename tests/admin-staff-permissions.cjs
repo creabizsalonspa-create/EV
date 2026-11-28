@@ -50,11 +50,22 @@ function nodes(root, tag) {
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const grant = {
   id:17, company_id:2, user_id:3, status:'active', invitation_version:4,
+  admin_emergency_hold:false,
   permissions:['company.read', 'inventory.write'],
   company:{id:2,name:'<script>Company</script>',country:'AE'},
   user:{id:3,name:'Staff Member',email:'private-staff@example.test',account_status:'active'},
 };
-const page = (data = [grant]) => ({current_page:1,last_page:2,total:30,data});
+function page(data = [grant], url = '') {
+  const params = new URLSearchParams(url.split('?')[1]);
+  return {
+    current_page:Number(params.get('page') || 1), last_page:2, total:30, data,
+    filters:{company_id:params.has('company_id') ? Number(params.get('company_id')) : null,
+      status:params.get('status'), hold:params.get('hold')},
+  };
+}
+function historyPage(data, currentPage = 1, membershipId = 17) {
+  return {membership_id:membershipId, current_page:currentPage, last_page:2, total:26, data};
+}
 
 test('guest/vendor never fetch permissions; logout discards records', async () => {
   const ui=fixture(),calls=[];
@@ -83,9 +94,9 @@ test('revocation requires confirmation and sends exact expected version and priv
       assert.equal(body.expected_version,4);
       assert.equal(body.reason,'Documented security investigation for company staff');
       currentStatus='revoked';
-      return {id:17,status:'revoked',invitation_version:5};
+      return {id:17,status:'revoked',invitation_version:5,admin_emergency_hold:true};
     }
-    return page([{...grant,status:currentStatus}]);
+    return page([{...grant,status:currentStatus,admin_emergency_hold:currentStatus==='revoked'}]);
   });
   await tick();
   const revoke=nodes(ui.root,'button').find(n=>n.textContent.includes('Emergency revoke'));
@@ -124,7 +135,7 @@ test('private revocation history is text-only and stale responses cannot survive
   const ui=fixture();
   let release;
   ui.setActor({role:'admin'},p=>{
-    if (p.endsWith('/revocations')) return new Promise(resolve=>{release=resolve;});
+    if (p.includes('/revocations?')) return new Promise(resolve=>{release=resolve;});
     return Promise.resolve(page());
   });
   await tick();
@@ -132,8 +143,8 @@ test('private revocation history is text-only and stale responses cannot survive
   const pending=button.onclick();
   assert.equal(typeof release,'function');
   ui.setActor({role:'vendor'}, async()=>{throw Error('not permitted');});
-  release({data:[{id:1,reason:'<img src=x onerror=alert(1)>',created_at:'2026-11-07',
-    replaced_version:4}]});
+  release(historyPage([{id:1,reason:'<img src=x onerror=alert(1)>',created_at:'2026-11-07',
+    action:'revoked',replaced_version:4}]));
   await pending;
   await tick();
   assert.equal(ui.root.textContent,'');
@@ -142,15 +153,19 @@ test('private revocation history is text-only and stale responses cannot survive
 
 test('filter scoping and pagination preserve bounded review arguments', async () => {
   const ui=fixture(),paths=[];
-  ui.setActor({role:'admin'},async p=>{paths.push(p); return page();});
+  ui.setActor({role:'admin'},async p=>{paths.push(p); return page([grant], p);});
   await tick();
   const filters=nodes(ui.root,'form')[0];
   nodes(filters,'select')[0].value='active';
+  nodes(filters,'select')[1].value='unheld';
   nodes(filters,'input')[0].value='2';
+  filters.oninput();
+  assert.equal(nodes(ui.root,'article').length,0);
   filters.onsubmit({preventDefault(){}});
   await tick();
   assert.match(paths[1],/status=active/);
   assert.match(paths[1],/company_id=2/);
+  assert.match(paths[1],/hold=unheld/);
   const next=nodes(ui.root,'button').find(n=>n.textContent.includes('Next'));
   next.onclick();
   await tick();
@@ -190,7 +205,8 @@ test('Admin security hold cannot be lifted with one click and does not silently 
       assert.equal(body.expected_version,5);
       assert.equal(body.reason,'Independent compliance review cleared security hold');
       held=false;
-      return {id:17,status:'revoked',admin_emergency_hold:false,requires_fresh_invitation:true};
+      return {id:17,status:'revoked',invitation_version:6,admin_emergency_hold:false,
+        requires_fresh_invitation:true};
     }
     return page([{...grant,status:'revoked',invitation_version:held?5:6,admin_emergency_hold:held}]);
   });
@@ -210,16 +226,16 @@ test('Admin security hold cannot be lifted with one click and does not silently 
   assert.equal(calls.filter(x=>x.p.endsWith('/release')).length,1);
   assert.match(ui.root.textContent,/Permission status: revoked/);
   assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Release Admin hold')).length,0);
-  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Emergency revoke')).length,0);
+  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Emergency revoke')).length,1);
 });
 
 test('Admin hold history distinguishes release from revoke without HTML rendering', async () => {
   const ui=fixture();
   ui.setActor({role:'admin'},async p=>{
-    if(p.endsWith('/revocations'))return {data:[
-      {action:'released',created_at:'2026-11-07',reason:'<img onerror=alert(1)>',replaced_version:5},
-      {action:'revoked',created_at:'2026-11-06',reason:'Incident review',replaced_version:4},
-    ]};
+    if(p.includes('/revocations?'))return historyPage([
+      {id:2,action:'released',created_at:'2026-11-07',reason:'<img onerror=alert(1)>',replaced_version:5},
+      {id:1,action:'revoked',created_at:'2026-11-06',reason:'Incident review',replaced_version:4},
+    ]);
     return page([{...grant,status:'revoked',admin_emergency_hold:false}]);
   });
   await tick();
@@ -229,4 +245,61 @@ test('Admin hold history distinguishes release from revoke without HTML renderin
   assert.match(ui.root.textContent,/Admin revoked/);
   assert.match(ui.root.textContent,/<img onerror=alert\(1\)>/);
   assert.equal(nodes(ui.root,'img').length,0);
+});
+
+test('legacy active held records only offer release and an unknown receipt refreshes the grant once', async () => {
+  const ui=fixture(), calls=[];
+  let complete;
+  ui.setActor({role:'admin'},async (url, method='GET')=>{
+    calls.push({url,method});
+    if (method==='POST') return new Promise(resolve=>{complete=resolve;});
+    return page([{...grant,admin_emergency_hold:true}], url);
+  });
+  await tick();
+  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Emergency revoke')).length,0);
+  nodes(ui.root,'button').find(x=>x.textContent.includes('Release Admin hold')).onclick();
+  const form=nodes(ui.root,'form').find(x=>nodes(x,'textarea').length);
+  nodes(form,'textarea')[0].value='Documented security review of legacy grant status';
+  const pending=form.onsubmit({preventDefault(){}});
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.filter(x=>x.method==='POST').length,1);
+  complete({id:18,status:'revoked',invitation_version:5,admin_emergency_hold:false,requires_fresh_invitation:true});
+  await pending;
+  assert.equal(calls.filter(x=>x.method==='GET').length,2);
+  assert.match(ui.root.textContent,/change could not be confirmed/);
+  assert.ok(nodes(ui.root,'button').some(x=>x.textContent.includes('Release Admin hold')));
+});
+
+test('history pagination is membership-bound and clears the previous private page on mismatch', async () => {
+  const ui=fixture(), paths=[];
+  ui.setActor({role:'admin'},async url=>{
+    paths.push(url);
+    if (url.endsWith('/revocations?page=1')) {
+      return historyPage([{id:3,action:'revoked',created_at:'2026-11-07',reason:'Original private reason',replaced_version:4}]);
+    }
+    if (url.endsWith('/revocations?page=2')) {
+      return historyPage([{id:2,action:'revoked',created_at:'2026-11-06',reason:'Foreign private reason',replaced_version:3}], 2, 18);
+    }
+    return page([grant], url);
+  });
+  await tick();
+  const card=nodes(ui.root,'article')[0];
+  await nodes(card,'button').find(x=>x.textContent.includes('Private revocation history')).onclick();
+  assert.match(card.textContent,/Original private reason/);
+  await nodes(card,'button').find(x=>x.textContent.includes('Next')).onclick();
+  assert.match(paths.at(-1),/permission-grants\/17\/revocations\?page=2$/);
+  assert.match(card.textContent,/Private history unavailable/);
+  assert.doesNotMatch(card.textContent,/Original private reason|Foreign private reason/);
+});
+
+test('mismatched hold scope cannot expose rows or offer a grant mutation', async () => {
+  const ui=fixture();
+  ui.setActor({role:'admin'},async url=>page([grant], url));
+  await tick();
+  const filters=nodes(ui.root,'form')[0];
+  nodes(filters,'select')[1].value='held';
+  filters.onsubmit({preventDefault(){}});
+  await tick();
+  assert.match(ui.root.textContent,/Staff permission records unavailable/);
+  assert.doesNotMatch(ui.root.textContent,/private-staff@example.test|Emergency revoke/);
 });

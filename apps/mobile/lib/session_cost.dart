@@ -1,12 +1,45 @@
 import 'package:flutter/material.dart';
 
+// Validate the canonical UTC wire format without DateTime rollover.
+bool _utcInstant(dynamic value) {
+  if (value is! String) return false;
+  final m = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.\d{6}Z$',
+  ).firstMatch(value);
+  if (m == null || m.end != value.length) return false;
+  final year = int.parse(m[1]!);
+  final month = int.parse(m[2]!);
+  final day = int.parse(m[3]!);
+  final hour = int.parse(m[4]!);
+  final minute = int.parse(m[5]!);
+  final second = int.parse(m[6]!);
+  final leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  final days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year > 0 && month >= 1 && month <= 12 &&
+      day >= 1 && day <= days[month - 1] &&
+      hour <= 23 && minute <= 59 && second <= 59;
+}
+
+bool _validMeterTime(Map v) {
+  final read = v['as_of'], at = v['source_meter_at'];
+  if (!_utcInstant(read)) return false;
+  if (v['meter_freshness_at_read'] == 'APPLICATION_SIMULATOR') {
+    return at == null;
+  }
+  if (v['meter_freshness_at_read'] == 'UNKNOWN') {
+    return at == null || _utcInstant(at);
+  }
+  // Fixed-width UTC preserves exact microsecond ordering.
+  return _utcInstant(at) && (at as String).compareTo(read as String) <= 0;
+}
+
 bool validSessionCost(dynamic v) {
   if (v is! Map || v['evidence'] != 'SIMULATED' || v['scope'] != 'CANONICAL_SESSION_QUOTE' || v['physical_charging_verified'] != false || v['real_payment_processed'] != false || v['external_fees_included'] != false || v['spending_cap'] != false || v['automatic_stop'] != false || !['estimated','invoiced'].contains(v['state'])) return false;
   if (v['currency'] is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(v['currency'] as String) || v['minor_units'] is! int || v['minor_units'] < 0 || v['minor_units'] > 3 || v['tax_bps'] is! int || v['tax_bps'] < 0 || v['tax_bps'] > 10000) return false;
   BigInt? number(String key) {final s=v[key];return s is String && RegExp(r'^(0|[1-9][0-9]{0,18})$').hasMatch(s)?BigInt.tryParse(s):null;}
   final energy=number('energy_wh'),rate=number('rate_minor_per_kwh'),subtotal=number('subtotal_minor'),tax=number('tax_minor'),total=number('total_minor');
   if (energy==null || rate==null || subtotal==null || tax==null || total==null) return false;
-  if (rate>BigInt.from(1000000) || total>BigInt.parse('9223372036854775807') || !['APPLICATION_SIMULATOR','RECENT','STALE','UNKNOWN'].contains(v['meter_freshness_at_read']) || v['as_of'] is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$').hasMatch(v['as_of'] as String)) return false;
+  if (rate>BigInt.from(1000000) || total>BigInt.parse('9223372036854775807') || !['APPLICATION_SIMULATOR','RECENT','STALE','UNKNOWN'].contains(v['meter_freshness_at_read']) || !_validMeterTime(v)) return false;
   final computed=(energy*rate+BigInt.from(500))~/BigInt.from(1000),computedTax=(subtotal*BigInt.from(v['tax_bps'] as int)+BigInt.from(5000))~/BigInt.from(10000);
   return computed==subtotal && computedTax==tax && subtotal+tax==total && (v['state']!='invoiced' || v['invoice_id'] is int && v['invoice_id']>0);
 }

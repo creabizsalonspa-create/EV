@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AccountPrivacyRequest;
 use App\Models\User;
 use App\Security\AdminTransactionAuthority;
+use App\Security\PrivacyOwnerAuthority;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -15,18 +16,22 @@ class AccountPrivacyController extends Controller
     public function mine(Request $request)
     {
         $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
-        $page = AccountPrivacyRequest::query()
-            ->where('user_id', $request->user()->id)
-            ->select(['id', 'kind', 'status', 'request_details_encrypted', 'created_at', 'updated_at'])
-            ->orderByDesc('id')->paginate(25)
-            ->through(fn (AccountPrivacyRequest $case) => [
-                'id' => $case->id, 'kind' => $case->kind, 'status' => $case->status,
-                'details' => Crypt::decryptString($case->request_details_encrypted),
-                'created_at' => $case->created_at, 'updated_at' => $case->updated_at,
-                'copy' => app(AccountDataExport::class)->metadata($case->id),
-            ]);
 
-        return response()->json($page)->header('Cache-Control', 'no-store, private');
+        return DB::transaction(function () use ($request) {
+            $owner = PrivacyOwnerAuthority::requireCurrent($request->user());
+            $page = AccountPrivacyRequest::query()
+                ->where('user_id', $owner->id)
+                ->select(['id', 'kind', 'status', 'request_details_encrypted', 'created_at', 'updated_at'])
+                ->orderByDesc('id')->paginate(25)
+                ->through(fn (AccountPrivacyRequest $case) => [
+                    'id' => $case->id, 'kind' => $case->kind, 'status' => $case->status,
+                    'details' => Crypt::decryptString($case->request_details_encrypted),
+                    'created_at' => $case->created_at, 'updated_at' => $case->updated_at,
+                    'copy' => app(AccountDataExport::class)->metadata($case->id),
+                ]);
+
+            return response()->json($page)->header('Cache-Control', 'no-store, private');
+        }, 3);
     }
 
     /**
@@ -48,7 +53,7 @@ class AccountPrivacyController extends Controller
         $actor = $request->user();
 
         return DB::transaction(function () use ($actor, $input) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $actor = PrivacyOwnerAuthority::requireCurrent($actor);
             if (isset($input['idempotency_key'])) {
                 $prior = AccountPrivacyRequest::where('user_id', $actor->id)
                     ->where('idempotency_key', $input['idempotency_key'])->lockForUpdate()->first();
@@ -98,9 +103,9 @@ class AccountPrivacyController extends Controller
         abort_unless($privacyCase->user_id === $request->user()->id, 404);
 
         return DB::transaction(function () use ($request, $privacyCase) {
-            User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            $owner = PrivacyOwnerAuthority::requireCurrent($request->user());
             $record = AccountPrivacyRequest::whereKey($privacyCase->id)->lockForUpdate()->firstOrFail();
-            abort_unless($record->user_id === $request->user()->id, 404);
+            abort_unless($record->user_id === $owner->id, 404);
             if ($record->status === 'withdrawn') {
                 return $this->receipt($record);
             }
@@ -108,7 +113,7 @@ class AccountPrivacyController extends Controller
                 409, 'A completed review cannot be withdrawn.');
             $record->update(['status' => 'withdrawn', 'withdrawn_at' => now()]);
             DB::table('audit_events')->insert([
-                'actor_id' => $request->user()->id, 'action' => 'privacy.request.withdrawn',
+                'actor_id' => $owner->id, 'action' => 'privacy.request.withdrawn',
                 'subject' => (string) $record->id, 'created_at' => now(),
             ]);
 
@@ -192,6 +197,8 @@ class AccountPrivacyController extends Controller
      */
     public function adminHistory(Request $request, AccountPrivacyRequest $privacyCase)
     {
+        $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
         return DB::transaction(function () use ($request, $privacyCase) {
             $actor = AdminTransactionAuthority::requireCurrent($this->admin($request));
 

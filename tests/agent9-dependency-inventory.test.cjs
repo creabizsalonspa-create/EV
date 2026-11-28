@@ -20,12 +20,26 @@ test('offline inventory preserves package instances, hashes and unknown licenses
 });
 test('repository inventory covers every current language lock and never infers approval',()=>{
  const result=run(path.resolve('.'));assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);assert(data.lockfiles.length>=4);assert.equal(data.file_selection,'git_index');assert.equal(data.lockfiles_match_source_commit,true);assert(data.component_count>=300);assert(data.components.some(c=>c.ecosystem==='pub'));assert(data.components.some(c=>c.ecosystem==='composer'));assert(data.components.some(c=>c.ecosystem==='npm'));assert(data.components_without_license_declarations>0);assert.equal(data.production_accepted,false);
+ assert(data.lockfiles.some(lock => lock.path === 'services/business-api/package-lock.json' && lock.matches_source_commit));
+ assert(!data.manifests_without_inventory_lock.includes('services/business-api/package.json'));
  for (const [file, kind] of [
   ['infra/staging/Dockerfile', 'container_build'],
   ['infra/staging/compose.yaml', 'container_deployment'],
   ['apps/mobile/android/gradle/wrapper/gradle-wrapper.properties', 'android_toolchain'],
   ['apps/mobile/ios/Podfile', 'ios_dependencies'],
   ['THIRD_PARTY_NOTICES.md', 'third_party_notices'],
+  ['docs/evidence/composer-licenses.json', 'composer_license_declarations'],
+  ['services/business-api/package.json', 'web_build_manifest'],
+  ['services/business-api/vite.config.js', 'web_build_configuration'],
+  ['apps/mobile/third_party/pdfium_flutter/CREABIZ_PATCH.md', 'native_dependency_provenance'],
+  ['apps/mobile/third_party/pdfium_flutter/pubspec.yaml', 'native_dependency_manifest'],
+  ['apps/mobile/third_party/pdfium_flutter/LICENSE', 'native_dependency_license'],
+  ['apps/mobile/third_party/pdfium_flutter/PDFIUM_LICENSES.txt', 'native_dependency_license'],
+  ['apps/mobile/third_party/pdfium_flutter/android/artifacts.json', 'native_binary_artifact_pins'],
+  ['apps/mobile/third_party/pdfium_flutter/android/fetch_pdfium.py', 'native_binary_fetcher'],
+  ['apps/mobile/third_party/pdfium_flutter/android/CMakeLists.txt', 'native_binary_build'],
+  ['apps/mobile/third_party/pdfium_flutter/darwin/pdfium_flutter.podspec', 'native_binary_artifact_pins'],
+  ['apps/mobile/third_party/pdfium_flutter/darwin/pdfium_flutter/Package.swift', 'native_binary_artifact_pins'],
  ]) {
   assert(data.release_inputs.some(input => input.path === file && input.kind === kind));
  }
@@ -140,4 +154,33 @@ test('npm lock inventory rejects invented package paths, versioned links and mal
  const accepted=run(root);
  assert.equal(accepted.status,0,accepted.stderr);
  assert.equal(JSON.parse(accepted.stdout).component_count,2);
+});
+
+
+test('current Composer declaration snapshot matches every runtime and development lock entry',()=>{
+ const lock=JSON.parse(fs.readFileSync('services/business-api/composer.lock','utf8'));
+ const manifest=JSON.parse(fs.readFileSync('services/business-api/composer.json','utf8'));
+ const notice=JSON.parse(fs.readFileSync('docs/evidence/composer-licenses.json','utf8'));
+ const packages=[...lock.packages,...lock['packages-dev']];
+ assert.equal(new Set(packages.map(p=>p.name)).size,packages.length);
+ const expected=Object.fromEntries(packages.map(p=>[p.name,{version:p.version,license:[...p.license].sort()}]));
+ assert.deepEqual(notice.dependencies,expected);
+ assert.equal(notice.source_lockfile,'services/business-api/composer.lock');
+ assert.equal(notice.name,manifest.name);
+ assert.equal(notice.version,manifest.version??null);
+ assert.deepEqual(notice.license,Array.isArray(manifest.license)?manifest.license:[manifest.license]);
+ assert.equal(notice.license_approval,false);
+});
+
+test('specific native binary pins and web build inputs are hashed without broad basename matching',t=>{
+ const root=fixture(t);inputs(root);
+ const native='apps/mobile/third_party/pdfium_flutter/android/artifacts.json';
+ const vite='services/business-api/vite.config.js';
+ write(root,native,'native-pin DO-NOT-EMIT');write(root,vite,'build-input DO-NOT-EMIT');
+ write(root,'unrelated/artifacts.json','ignored DO-NOT-EMIT');
+ const result=run(root);assert.equal(result.status,0,result.stderr);
+ const data=JSON.parse(result.stdout);
+ assert.deepEqual(data.release_inputs.map(({path,kind})=>[path,kind]),[[native,'native_binary_artifact_pins'],[vite,'web_build_configuration']]);
+ assert(data.release_inputs.every(x=>/^[a-f0-9]{64}$/.test(x.sha256)&&x.matches_source_commit===null));
+ assert.doesNotMatch(result.stdout,/DO-NOT-EMIT/);
 });

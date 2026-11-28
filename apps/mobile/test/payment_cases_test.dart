@@ -16,6 +16,9 @@ class CaseApi extends FixtureApi {
       closed = false,
       unpaid = false;
   int posts = 0, uploads = 0, downloads = 0;
+  String? evidenceTime = '2026-10-28';
+  bool wrongPage = false, duplicateRecords = false;
+  final requestedPages = <int>[];
   final keys = <String>[];
   final bodies = <Map<String, dynamic>>[];
   final bytes = Uint8List.fromList(
@@ -29,7 +32,7 @@ class CaseApi extends FixtureApi {
     'mime_type': 'application/pdf',
     'size_bytes': bytes.length,
     'sha256': sha256.convert(bytes).toString(),
-    'created_at': '2026-10-28',
+    'created_at': evidenceTime,
     'evidence_status': 'PRIVATE_REVIEW_ONLY',
     'provider_submitted': false,
   };
@@ -62,8 +65,8 @@ class CaseApi extends FixtureApi {
         'status': 'open',
       };
     }
-    return {
-      'data': path.endsWith('evidence')
+    requestedPages.add(int.parse(query['page'] ?? '1'));
+    final items = path.endsWith('evidence')
           ? (uploads > 0 ? [evidence] : [])
           : [
               {
@@ -75,9 +78,11 @@ class CaseApi extends FixtureApi {
                 'evidence': 'MOCK_PROVIDER',
                 'real_money_moved': false,
               },
-            ],
+            ];
+    return {
+      'data': duplicateRecords ? [...items, ...items] : items,
       'can_upload': !closed,
-      'current_page': int.parse(query['page'] ?? '1'),
+      'current_page': wrongPage ? 1 : requestedPages.last,
       'last_page': 2,
       'total': 26,
     };
@@ -136,6 +141,77 @@ Future<void> consent(WidgetTester t) async {
 }
 
 void main() {
+  for (final evidenceList in [false, true]) {
+    testWidgets('private case page binding and duplicate rejection ($evidenceList)', (
+      t,
+    ) async {
+      final api = CaseApi()
+        ..uploads = 1
+        ..closed = true;
+      final action = evidenceList ? 'View verified private file' : 'Private evidence';
+      await t.pumpWidget(app(
+        evidenceList
+            ? CaseEvidenceView(
+                api: api, onExpired: () {}, caseId: 7,
+                store: VendorOperationStore(),
+              )
+            : PaymentCasesView(api: api, onExpired: () {}),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text(action), findsOneWidget);
+      api.wrongPage = true;
+      await click(t, 'Next');
+      expect(api.requestedPages.last, 2);
+      expect(find.text(action), findsNothing);
+      api.wrongPage = false;
+      await click(t, 'Refresh');
+      expect(api.requestedPages.last, 1);
+      expect(find.text(action), findsOneWidget);
+      api.duplicateRecords = true;
+      await click(t, 'Refresh');
+      expect(find.text(action), findsNothing);
+      api.duplicateRecords = false;
+      await click(t, 'Refresh');
+      expect(find.text(action), findsOneWidget);
+      expect(api.posts, 0);
+      expect(api.downloads, 0);
+      expect(t.takeException(), isNull);
+    });
+  }
+
+  for (final ar in [false, true]) {
+    testWidgets('private evidence source UTC and invalid-clock fallback ($ar)', (
+      t,
+    ) async {
+      final api = CaseApi()
+        ..uploads = 1
+        ..closed = true
+        ..evidenceTime = '2026-10-28T23:45:00+04:00';
+      await t.pumpWidget(
+        app(
+          CaseEvidenceView(
+            api: api,
+            onExpired: () {},
+            caseId: 7,
+            store: VendorOperationStore(),
+          ),
+          ar: ar,
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining('2026-10-28T23:45:00+04:00'), findsNothing);
+      api.evidenceTime = '2026-02-30T01:02:03Z';
+      await click(t, ar ? 'تحديث' : 'Refresh');
+      expect(find.text(ar ? 'وقت الحدث غير متاح' : 'Event time unavailable'),
+          findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('UTC'), findsNothing);
+      expect(api.downloads, 0);
+      expect(t.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'leaving evidence upload during secure persistence prevents a later-session upload',
     (t) async {

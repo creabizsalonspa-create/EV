@@ -30,6 +30,21 @@ final class DiscoveryViewport
                 ->orWhere('stations.longitude', '<=', $east));
         }
 
+        [$latitude, $longitude] = $this->partnerCoordinates();
+        $partner->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
+            ->whereRaw("$latitude BETWEEN -90 AND 90")
+            ->whereRaw("$longitude BETWEEN -180 AND 180");
+        if ($west < $east) {
+            $partner->whereRaw("$longitude BETWEEN ? AND ?", [$west, $east]);
+        } else {
+            $partner->where(fn (Builder $query) => $query->whereRaw("$longitude >= ?", [$west])
+                ->orWhereRaw("$longitude <= ?", [$east]));
+        }
+    }
+
+    /** Shared bounded SQL coordinate expressions for viewport and nearby queries. */
+    public function partnerCoordinates(): array
+    {
         // OCPI normalization stores validated numeric coordinates as JSON
         // strings. SQLite CAST turns invalid text into zero, while PostgreSQL
         // CAST can throw; both drivers must reject malformed source metadata.
@@ -45,23 +60,17 @@ final class DiscoveryViewport
                 "CASE WHEN $latText ~ $safeNumber THEN $latText::double precision ELSE NULL END",
                 "CASE WHEN $lngText ~ $safeNumber THEN $lngText::double precision ELSE NULL END",
             ],
+            // CAST must wrap CASE so SQLite applies numeric affinity to PDO text-bound limits.
             'sqlite' => [
-                "CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude')) AS REAL)",
-                "CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude')) AS REAL)",
+                "CAST(CASE WHEN json_type(ocpi_records.normalized, '$.latitude') IN ('text', 'integer', 'real') THEN discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude')) ELSE NULL END AS REAL)",
+                "CAST(CASE WHEN json_type(ocpi_records.normalized, '$.longitude') IN ('text', 'integer', 'real') THEN discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude')) ELSE NULL END AS REAL)",
             ],
             default => throw new \LogicException('Discovery viewport requires PostgreSQL or SQLite.'),
         };
         if ($driver === 'sqlite') {
             SqliteGeoMath::register(DB::connection()->getPdo());
         }
-        $partner->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
-            ->whereRaw("$latitude BETWEEN -90 AND 90")
-            ->whereRaw("$longitude BETWEEN -180 AND 180");
-        if ($west < $east) {
-            $partner->whereRaw("$longitude BETWEEN ? AND ?", [$west, $east]);
-        } else {
-            $partner->where(fn (Builder $query) => $query->whereRaw("$longitude >= ?", [$west])
-                ->orWhereRaw("$longitude <= ?", [$east]));
-        }
+
+        return [$latitude, $longitude];
     }
 }

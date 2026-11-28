@@ -67,7 +67,7 @@ final class StationInformation
             // and the station's possibly unknown timezone are not trusted.
             'notice_active' => $row->notice_until !== null
                 && (trim((string) $row->notice_en) !== '' || trim((string) $row->notice_ar) !== '')
-                && CarbonImmutable::parse($row->notice_until.' 23:59:59', 'UTC')->gte(now('UTC')),
+                && CarbonImmutable::parse($row->notice_until, 'UTC')->addDay()->gt(now('UTC')),
             'weekly_hours' => json_decode($row->weekly_hours, true, 512, JSON_THROW_ON_ERROR),
             'closed_dates' => json_decode($row->closed_dates, true, 512, JSON_THROW_ON_ERROR),
             'amenities' => json_decode($row->amenities, true, 512, JSON_THROW_ON_ERROR),

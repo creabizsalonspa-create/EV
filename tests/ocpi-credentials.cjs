@@ -22,6 +22,8 @@ withCredentialsFixture(async (f) => {
   assert.equal(state.capability_matrix.partner_conformance_verified, false);
   assert.equal(state.capability_matrix.live_roaming_verified, false);
   assert.equal(state.capability_matrix.payment_authority, false);
+  assert.equal(state.capability_matrix.sandbox_command_policy_ready, false);
+  assert.equal(state.capability_matrix.sandbox_reservation_policy_ready, false);
   assert.deepEqual(state.capability_matrix.modules.map((m) => m.module), ["locations", "tariffs", "sessions", "cdrs"]);
   assert(state.capability_matrix.modules.every((m) => Object.values(m).every((v) => typeof v === "string" || typeof v === "boolean")));
   assert(!JSON.stringify(state).includes(f.local_token));

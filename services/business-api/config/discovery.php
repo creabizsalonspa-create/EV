@@ -12,6 +12,8 @@ return [
     'ocm_api_key' => env('OCM_DISCOVERY_API_KEY'),
     'ocm_quality_enabled' => (bool) env('OCM_DISCOVERY_QUALITY_ENABLED', false),
     'ocm_coverage_enabled' => (bool) env('OCM_DISCOVERY_COVERAGE_ENABLED', false),
+    // Cache-only observation; never enables provider queries or licensing.
+    'ocm_coverage_sampling_enabled' => (bool) env('OCM_DISCOVERY_COVERAGE_SAMPLING_ENABLED', false),
     'ocm_coverage_areas' => json_decode((string) env('OCM_DISCOVERY_COVERAGE_AREAS_JSON', '[]'), true),
     'requests_per_minute' => (int) env('DISCOVERY_PROVIDER_REQUESTS_PER_MINUTE', 30),
     'requests_per_day' => (int) env('DISCOVERY_PROVIDER_REQUESTS_PER_DAY', 5000),

@@ -5,7 +5,7 @@
     --ink: #153438;
     --muted: #52686b;
     --border: #dbe4e5;
-    --input-border: #819b9e;
+    --input-border: #647e81;
     --accent: #126b63;
     --accent-ink: #ffffff;
     --badge: #fff0ca;
@@ -467,7 +467,7 @@ form label {
     font-size: 0.85rem;
 }
 [aria-busy="true"] {
-    opacity: 0.55;
+    /* Keep existing content and live status readable during pending reads. */
     pointer-events: none;
 }
 .skip-link {
@@ -482,6 +482,15 @@ form label {
     top: 0.5rem;
 }
 @media (max-width: 1050px) {
+    /* At narrow/zoomed widths the header wraps into multiple rows. A fixed
+       110px scroll offset cannot reserve its variable height, so keep the
+       header in document flow and leave keyboard targets unobscured. */
+    html {
+        scroll-padding-top: 1rem;
+    }
+    header {
+        position: static;
+    }
     .workspace-nav {
         position: static;
         width: auto;

@@ -35,10 +35,27 @@ class SandboxRoaming
         return [$c, $local, $link];
     }
 
+    /** New work requires every source module used by the existing roaming policy. */
+    public function newWorkPolicy(OcpiProvider $provider): array
+    {
+        $policy = $this->policy($provider);
+        $this->assertNewWorkReadScope($policy[0]);
+
+        return $policy;
+    }
+
+    private function assertNewWorkReadScope(array $connection): void
+    {
+        abort_unless(PartnerReadProfile::modules($connection) === PartnerReadProfile::MODULES, 409,
+            'Approved source read scope is incomplete for new sandbox roaming.');
+    }
+
     public function offer(OcpiRecord $location, string $evseUid, string $connectorId, string $tariffId): array
     {
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
-        [$c,$local,$link] = $this->policy($p);
+        [$c,$local,$link] = $this->newWorkPolicy($p);
+        $integrity = app(StoredSourceIntegrity::class);
+        abort_unless($integrity->consistent($location) && $this->currentReceipt($location), 409, 'Partner location source requires review.');
         abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
         abort_unless($location->module === 'locations' && $location->country_code === $c['party_country'] && $location->party_id === $c['party_id'] && ($location->normalized['publish'] ?? false) === true && $location->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the approved partner location before requesting a test session.');
         abort_if(OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'sessions')->where('normalized->location_id', $location->external_id)->where('normalized->evse_uid', $evseUid)->where('normalized->status', 'ACTIVE')->exists(), 409, 'An active source session contradicts new availability.');
@@ -51,8 +68,9 @@ class SandboxRoaming
         $evses = array_values(array_filter($raw['evses'] ?? [], fn ($e) => is_array($e) && ($e['uid'] ?? null) === $evseUid));
         abort_unless(count($evses) === 1 && ($evses[0]['status'] ?? null) === 'AVAILABLE', 409, 'Partner does not freshly report this EVSE available.');
         $connectors = array_values(array_filter($evses[0]['connectors'] ?? [], fn ($x) => is_array($x) && ($x['id'] ?? null) === $connectorId));
-        abort_unless(count($connectors) === 1 && in_array($tariffId, $connectors[0]['tariff_ids'] ?? [], true), 409, 'An advertised connector tariff is required.');
+        abort_unless(count($connectors) === 1 && in_array($tariffId, self::advertisedTariffs($connectors[0]), true), 409, 'An advertised connector tariff is required.');
         $tariff = OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'tariffs')->where('country_code', $c['party_country'])->where('party_id', $c['party_id'])->where('external_id', $tariffId)->firstOrFail();
+        abort_unless($integrity->consistent($tariff) && $this->currentReceipt($tariff), 409, 'Partner tariff source requires review.');
         abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $tariff->id)->where('content_hash', $tariff->content_hash)->exists(), 409, 'The reported tariff was withdrawn; review a fresh offer.');
         abort_unless($tariff->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the reported tariff before consent.');
         $rawTariff = $tariff->payload;
@@ -80,6 +98,32 @@ class SandboxRoaming
         $hash = hash('sha256', json_encode([$p->id, $p->authorization_revision, $link->generation, $c['test_command_contract'], $target, self::TERMS], JSON_THROW_ON_ERROR));
 
         return ['provider' => $p, 'configuration' => $c, 'local' => $local, 'link' => $link, 'tariff' => $tariff, 'target' => $target, 'hash' => $hash];
+    }
+
+    /** The same bounded tariff list governs offer enumeration and new consent. */
+    public static function advertisedTariffs(array $connector): array
+    {
+        $ids = $connector['tariff_ids'] ?? [];
+        if (! is_array($ids) || ! array_is_list($ids) || count($ids) > 10) {
+            return [];
+        }
+        foreach ($ids as $id) {
+            if (! is_string($id) || $id === '' || strlen($id) > 64) {
+                return [];
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /** A source report cannot be used for a new grant before local ingestion. */
+    private function currentReceipt(OcpiRecord $record): bool
+    {
+        try {
+            return $record->received_at?->lte(now()) === true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function consentCurrent(object $order): bool
@@ -160,6 +204,7 @@ class SandboxRoaming
         [$c,$local,$link] = $this->policy($p);
         abort_unless($p->owner_id === $order->provider_owner_id && hash_equals($order->counterparty_hash, $link->configuration_hash) && $c['test_command_contract'] === $order->contract_reference && User::whereKey($order->user_id)->exists(), 409, 'Original roaming counterparty authority changed; source review is required.');
         if ($start) {
+            $this->assertNewWorkReadScope($c);
             $driver = User::whereKey($order->user_id)->first();
             abort_unless($driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch), 409, 'Charging consent was revoked or the customer account is unavailable.');
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
@@ -227,7 +272,7 @@ class SandboxRoaming
         try {
             $this->current($order);
             $source = $order->source_session_record_id ? OcpiRecord::find($order->source_session_record_id) : null;
-            $canStop = $driver && $order->state === 'source_active' && $source && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
+            $canStop = $driver && $order->state === 'source_active' && $source && app(StoredSourceIntegrity::class)->consistent($source) && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
         } catch (\Throwable) {
         }
 

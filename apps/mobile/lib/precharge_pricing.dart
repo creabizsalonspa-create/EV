@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -19,29 +20,32 @@ bool validQuoteExpiry(dynamic raw) {
       DateTime.tryParse(raw)!=null;
 }
 
-bool freshPrechargeEstimate(Map<String,dynamic> value) =>
+bool freshPrechargeEstimate(Map<String,dynamic> value, {DateTime? now}) =>
     validPrechargeEstimate(value) &&
     DateTime.parse(value['expires_at'] as String).toUtc()
-        .isAfter(DateTime.now().toUtc());
+        .isAfter((now ?? DateTime.now()).toUtc());
+
+String? _receiptInstant(dynamic value) {
+  if (value is! String) return null;
+  final match=RegExp(r'^(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?|T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z)$').firstMatch(value);
+  if (match == null) return null;
+  final normalized='${match.group(1)}T${match.group(2) ?? match.group(4)}.${(match.group(3) ?? match.group(5) ?? '').padRight(6,'0')}Z';
+  return validQuoteExpiry(normalized) ? normalized : null;
+}
 
 bool confirmedPrechargeReceipt(dynamic receipt, Map<String,dynamic> estimate) {
-  if(receipt is! Map || receipt['id'] is! int || receipt['id']<1 ||
-     receipt['accepted_at'] is! String ||
-     (receipt['accepted_at'] as String).length<19 ||
-     (receipt['accepted_at'] as String).length>64 ||
-     receipt['valid_until'] is! String) return false;
-  final value=receipt['valid_until'] as String;
-  final sql=RegExp(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$')
-      .firstMatch(value);
-  final normalized=sql==null ? value :
-      '${sql.group(1)!.replaceFirst(' ', 'T')}.${(sql.group(2) ?? '').padRight(6,'0')}Z';
-  return validQuoteExpiry(normalized) &&
-      DateTime.parse(normalized).toUtc() ==
-          DateTime.parse(estimate['expires_at'] as String).toUtc();
+  if(receipt is! Map || receipt['id'] is! int || receipt['id']<1) return false;
+  final accepted = _receiptInstant(receipt['accepted_at']);
+  final until = _receiptInstant(receipt['valid_until']);
+  return accepted != null && until != null &&
+      until == estimate['expires_at'] && accepted.compareTo(until) < 0;
 }
 
 bool validPrechargeEstimate(dynamic value) {
   if (value is! Map || value['version'] != 1 || value['evidence'] != 'SIMULATED' || value['currency'] is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(value['currency'] as String) || value['minor_units'] is! int || value['minor_units'] < 0 || value['minor_units'] > 3 || value['energy_wh'] is! int || value['energy_wh'] < 1 || value['energy_wh'] > 1000000 || value['tax_bps'] is! int || value['tax_bps'] < 0 || value['tax_bps'] > 10000 || value['external_fees_included'] != false || value['automatic_stop'] != false || value['final_total_depends_on_meter'] != true || value['session_fee_minor'] != '0' || value['idle_fee_minor'] != '0') return false;
+  final tariff = value['tariff_version_id'];
+  if (value['version'] is! int || !value.containsKey('tariff_version_id') ||
+      (tariff != null && (tariff is! int || tariff < 1 || tariff > 9007199254740991))) return false;
   BigInt? amount(String name) {
     final text = value[name];
     return text is String && RegExp(r'^(0|[1-9][0-9]{0,15})$').hasMatch(text) ? BigInt.tryParse(text) : null;
@@ -62,9 +66,13 @@ String prechargeAmount(String value, int digits) {
 String prechargeText(Map<String,dynamic> value, bool arabic) {
   if (!validPrechargeEstimate(value)) throw const FormatException('Unsupported pricing estimate');
   String money(String name) => '${value['currency']} ${prechargeAmount(value[name] as String, value['minor_units'] as int)}';
+  final tariff = value['tariff_version_id'];
+  final version = tariff == null
+    ? (arabic ? 'تعرفة المحاكاة الافتراضية' : 'Default simulator tariff')
+    : (arabic ? 'إصدار التعرفة #$tariff' : 'Tariff version #$tariff');
   return arabic
-    ? 'تقدير محاكاة للشحن: ${value['energy_wh']} Wh\nالسعر لكل kWh: ${money('rate_minor_per_kwh')}\nالطاقة: ${money('subtotal_minor')}\nالضريبة: ${money('tax_minor')}\nالإجمالي التقديري: ${money('total_minor')}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${value['expires_at']}'
-    : 'Simulated charging estimate: ${value['energy_wh']} Wh\nRate per kWh: ${money('rate_minor_per_kwh')}\nEnergy: ${money('subtotal_minor')}\nTax: ${money('tax_minor')}\nEstimated total: ${money('total_minor')}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${value['expires_at']}';
+    ? '$version\nتقدير محاكاة للشحن: ${value['energy_wh']} Wh\nالسعر لكل kWh: ${money('rate_minor_per_kwh')}\nالطاقة: ${money('subtotal_minor')}\nالضريبة: ${money('tax_minor')}\nالإجمالي التقديري: ${money('total_minor')}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${value['expires_at']}'
+    : '$version\nSimulated charging estimate: ${value['energy_wh']} Wh\nRate per kWh: ${money('rate_minor_per_kwh')}\nEnergy: ${money('subtotal_minor')}\nTax: ${money('tax_minor')}\nEstimated total: ${money('total_minor')}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${value['expires_at']}';
 }
 
 Future<bool> reviewPrechargePricing(BuildContext context, EvApi api, int reservation) async =>
@@ -73,7 +81,8 @@ Future<bool> reviewPrechargePricing(BuildContext context, EvApi api, int reserva
 class PrechargePricingDialog extends StatefulWidget {
   final EvApi api;
   final int reservation;
-  const PrechargePricingDialog({super.key, required this.api, required this.reservation});
+  final DateTime Function()? clock;
+  const PrechargePricingDialog({super.key, required this.api, required this.reservation, this.clock});
   @override
   State<PrechargePricingDialog> createState() => _PrechargePricingDialogState();
 }
@@ -84,7 +93,16 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
   Object? error;
   bool busy = false, recorded = false, foreground = true;
   int generation = 0;
-  late bool Function() ownSession;
+  late final bool Function() ownSession;
+  StreamSubscription<int>? sessionSubscription;
+  bool retired = false;
+  bool get active => mounted && foreground && !retired && ownSession();
+  bool get top => ModalRoute.of(context)?.isCurrent ?? true;
+  void redact() {
+    token = null; estimate = null; error = null;
+    recorded = false; busy = false;
+    energy.text = '10000';
+  }
   @override
   void initState() {
     super.initState();
@@ -92,6 +110,11 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     final lifecycle=WidgetsBinding.instance.lifecycleState;
     foreground=lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    sessionSubscription = widget.api.sessionEvents.listen((_) {
+      if (mounted && !ownSession()) {
+        setState(() { retired = true; generation++; redact(); });
+      }
+    });
   }
   @override
   void didUpdateWidget(covariant PrechargePricingDialog oldWidget) {
@@ -99,14 +122,12 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
     if (!identical(oldWidget.api,widget.api) ||
         oldWidget.reservation != widget.reservation || !ownSession()) {
       generation++;
-      ownSession = widget.api.sessionFence();
-      token = null; estimate = null; error = null;
-      recorded = false; busy = false;
-      energy.text = '10000';
+      retired = true;
+      redact();
     }
   }
   @override
-  void dispose() { generation++; WidgetsBinding.instance.removeObserver(this); energy.dispose(); token = null; estimate = null; super.dispose(); }
+  void dispose() { generation++; unawaited(sessionSubscription?.cancel()); WidgetsBinding.instance.removeObserver(this); energy.dispose(); token = null; estimate = null; super.dispose(); }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
@@ -116,25 +137,22 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
       foreground=resumed;
       if (!resumed) {
         generation++;
-        token = null; estimate = null; busy = false; error = null;
+        redact();
       }
     });
     // No automatic private pricing POST merely because the OS resumed.
   }
   Future<void> load() async {
-    if (!foreground || busy) return;
-    if (!ownSession()) {
-      setState(() { token = null; estimate = null; error = const ApiException(401,'Session changed'); });
-      return;
-    }
+    if (!active || !top || busy) return;
     final amount = decimalMinor(energy.text,0,maximum:1000000);
     if (amount == null || amount < 1) {
       setState(() => error = const ApiException(422,'Invalid energy')); return;
     }
-    final epoch = ++generation, current = ownSession;
+    final epoch = ++generation, api = widget.api, reservation = widget.reservation;
+    bool current() => active && epoch == generation;
     setState(() { busy = true; estimate = null; token = null; error = null; recorded = false; });
     try {
-      final reply = await widget.api.request('reservations/${widget.reservation}/price-estimate',method:'POST',body:{'energy_wh':amount});
+      final reply = await api.request('reservations/$reservation/price-estimate',method:'POST',body:{'energy_wh':amount});
       if (!mounted || epoch != generation || !current()) return;
       if (reply is Map && reply['start_already_recorded'] == true) { setState(() => recorded = true); return; }
       if (reply is! Map || !validPrechargeEstimate(reply['estimate']) ||
@@ -143,23 +161,19 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
           (reply['quote_token'] as String).isEmpty ||
           (reply['quote_token'] as String).length > 16384)
         throw const ApiException(503,'Invalid estimate');
-      if (!freshPrechargeEstimate(Map<String,dynamic>.from(reply['estimate'] as Map)))
+      if (!freshPrechargeEstimate(Map<String,dynamic>.from(reply['estimate'] as Map), now: widget.clock?.call()))
         throw const ApiException(409,'Price confirmation expired; request a fresh quote');
       setState(() { estimate = Map<String,dynamic>.from(reply['estimate'] as Map); token = reply['quote_token'] as String; });
     } catch (e) { if (mounted && epoch == generation && current()) setState(() => error = e); }
     finally { if (mounted && epoch == generation) setState(() => busy = false); }
   }
   Future<void> accept() async {
-    if (!foreground || busy) return;
-    if (!ownSession()) {
-      setState(() { token = null; estimate = null; error = const ApiException(401,'Session changed'); });
-      return;
-    }
+    if (!active || !top || busy) return;
     final confirmation = token;
     final reviewedEstimate = estimate;
     if (confirmation == null || reviewedEstimate == null) return;
     // Even a fully reviewed quote becomes invalid at its exact expiry.
-    if (!freshPrechargeEstimate(reviewedEstimate)) {
+    if (!freshPrechargeEstimate(reviewedEstimate, now: widget.clock?.call())) {
       generation++;
       setState(() {
         token = null; estimate = null;
@@ -167,23 +181,29 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
       });
       return;
     }
-    final epoch = ++generation, current = ownSession;
+    final epoch = ++generation, api = widget.api, reservation = widget.reservation;
+    bool current() => active && epoch == generation;
     setState(() { busy = true; error = null; });
     try {
-      final receipt=await widget.api.request('reservations/${widget.reservation}/price-consent',
+      final receipt=await api.request('reservations/$reservation/price-consent',
           method:'POST',body:{'quote_token':confirmation,'accepted':true});
       if (!mounted || epoch != generation || !current() || !foreground) return;
       if (!confirmedPrechargeReceipt(receipt,reviewedEstimate)) {
         throw const ApiException(503,'Price consent not confirmed; check session history before retrying');
       }
-      if (mounted) Navigator.of(context).pop(true);
+      if (!freshPrechargeEstimate(reviewedEstimate, now: widget.clock?.call())) {
+        throw const ApiException(409,'Price confirmation expired; request a fresh quote');
+      }
+      if (top) { Navigator.of(context).pop(true); }
+      else { setState(() { token = null; estimate = null; error = const ApiException(409,'Review current price again'); }); }
     } catch (e) { if (mounted && epoch == generation && current()) setState(() { error = e; token = null; estimate = null; }); }
     finally { if (mounted && epoch == generation) setState(() => busy = false); }
   }
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context);
-    final authorized=foreground && ownSession();
+    final authorized=active;
+    final rendered = generation, reviewed = estimate, reviewedToken = token;
     String tr(String en,String ar) => s.arabic ? ar : en;
     return AlertDialog(
       title:Text(tr('Review simulated charging price','مراجعة سعر محاكاة الشحن')),
@@ -191,7 +211,7 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
         TextField(controller:energy,enabled:authorized && !busy,
           keyboardType:TextInputType.number,maxLength:7,
           decoration:InputDecoration(labelText:tr('Estimated energy (Wh)','الطاقة المتوقعة (Wh)')),
-          onChanged:(_) { generation++; setState(() { token = null; estimate = null; error = null; }); }),
+          onChanged:(_) { if (!active || busy) return; generation++; setState(() { token = null; estimate = null; error = null; }); }),
         if (busy) const LinearProgressIndicator(),
         if (error != null) Text(s.t(errorKey(error!))),
         if (recorded) Text(tr('A session is already recorded. Refresh session history; do not submit another start.','تم تسجيل جلسة بالفعل. حدّث سجل الجلسات ولا ترسل طلب بدء آخر.')),
@@ -202,7 +222,13 @@ class _PrechargePricingDialogState extends State<PrechargePricingDialog> with Wi
         TextButton(onPressed:!authorized || busy ? null : load,
           child:Text(tr('Get estimate','عرض التقدير'))),
         FilledButton(onPressed:!authorized || busy || token == null ||
-            estimate == null ? null : accept,
+            estimate == null ? null : () {
+              if (!ownSession() && mounted) {
+                setState(() { retired = true; generation++; redact(); });
+                return;
+              }
+              if (active && top && rendered == generation && identical(reviewed,estimate) && reviewedToken == token) accept();
+            },
           child:Text(tr('Accept price','قبول السعر'))),
       ],
     );

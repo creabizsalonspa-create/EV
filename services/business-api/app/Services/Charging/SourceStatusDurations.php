@@ -20,6 +20,7 @@ final class SourceStatusDurations
         $end = $asOf->startOfSecond();
         $start = $end->subSeconds(self::WINDOW_SECONDS);
         $rows = DB::table('charging_status_observations')
+            ->where('binding_id', $binding->id)
             ->where('source_generation', FaultMonitor::generation($binding))
             ->where('occurred_at', '>=', $start->subSeconds(self::MAX_HOLD_SECONDS))
             // Preserve subsecond read precision: a real observation in the
@@ -50,13 +51,21 @@ final class SourceStatusDurations
             $lastSourceId = (int) $row->source_event_id;
         }
         $components = [];
+        $statuses = match ($binding->protocol) {
+            '1.6' => ['Available', 'Preparing', 'Charging', 'SuspendedEVSE', 'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'],
+            '2.0.1' => ['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'],
+            default => [],
+        };
         foreach ($rows as $row) {
             $key = $row->evse_number.':'.$row->connector_number;
             $time = CarbonImmutable::parse($row->occurred_at, 'UTC')->getTimestamp();
-            $status = in_array($row->status, ['Available', 'Preparing', 'Charging', 'SuspendedEVSE', 'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted', 'Occupied'], true)
-                ? $row->status : 'Unknown';
-            if (! in_array($row->error_code, [null, 'NoError'], true)) {
+            $status = in_array($row->status, $statuses, true) ? $row->status : 'Unknown';
+            if ($status !== 'Unknown' && ! in_array($row->error_code, [null, '', 'NoError'], true)) {
                 $status = 'Faulted';
+            } elseif ($binding->protocol === '1.6' && $status === 'Available' && $row->error_code !== 'NoError') {
+                // Old or imported status rows must not turn missing OCPP 1.6
+                // fault clearance into observed healthy time.
+                $status = 'Unknown';
             }
             // Conflicting observations at the same instant have no defensible
             // winner. Preserve the ambiguity rather than choosing by record ID.

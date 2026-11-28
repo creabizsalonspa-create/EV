@@ -130,13 +130,23 @@ final class ChargerAvailabilityController extends Controller
         $binding = $this->scope($request, $company, $charger);
         $row = DB::table(self::TABLE)->where('id', $operation)->where('binding_id', $binding->id)->firstOrFail();
         if ($this->canObserve($row, $binding)) {
-            $source->enabled();
-            if ($source->station($binding, false) === $row->source_station_id
-                && ($evidence = $source->confirmation($row))
-                && $source->station($binding, false) === $row->source_station_id) {
-                DB::transaction(function () use ($request, $company, $charger, $binding, $row, $evidence) {
+            $authority = $source->authority();
+            $station = $source->station($binding, false);
+            $source->requireAuthority($authority);
+            $evidence = $station === $row->source_station_id ? $source->confirmation($row, $authority) : null;
+            if ($evidence !== null) {
+                $finalStation = $source->station($binding, false);
+                $source->requireAuthority($authority);
+                if ($finalStation !== $row->source_station_id) {
+                    $evidence = null;
+                }
+            }
+            if ($evidence !== null) {
+                DB::transaction(function () use ($request, $company, $charger, $binding, $row, $evidence, $source, $authority) {
+                    $source->requireAuthority($authority);
                     $current = $this->locked($request, $company, $charger, $binding, false);
                     $latest = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->firstOrFail();
+                    $source->requireAuthority($authority);
                     if (! $this->canObserve($latest, $current) || $latest->attempted_at !== $row->attempted_at
                         || $latest->source_station_id !== $row->source_station_id || $latest->source_watermark !== $row->source_watermark) {
                         return;

@@ -13,7 +13,8 @@ class _PreferencesApi extends EvApi {
   Completer<void>? holdVehicle12;
   int revision = 0;
   bool denyNewAccount = false;
-  bool poisonNextGet = false, poisonNextSave = false;
+  bool poisonNextGet = false, poisonNextSave = false, wrongValue=false;
+  Completer<void>? holdWrite;
 
   @override
   Future<dynamic> request(
@@ -50,11 +51,13 @@ class _PreferencesApi extends EvApi {
       final expected = id == 12 ? revision : 4;
       if (body['revision'] != expected) throw const ApiException(409, 'stale');
       if (id == 12) revision++;
+      if(holdWrite!=null)await holdWrite!.future;
       final poisoned = poisonNextSave;
       poisonNextSave = false;
       return {
         ...body,
         'revision': expected + 1,
+        if(wrongValue)'preferred_power_kw':999,
         'vehicle_id': id,
         'scope': 'DRIVER_PREFERENCE_ONLY',
         'applied_to_charging': poisoned ? true : false,
@@ -245,8 +248,13 @@ void main() {
         );
         // The EvApi instance can be reused after the authentication epoch
         // changes. A new account must never see the old account's 80 kW choice.
+        final stale=tester.widget<FilledButton>(find.byKey(const Key('driver-preferences-save'))).onPressed!;
+        final count=api.requests.length;
         api.denyNewAccount = true;
         await api.forgetSession();
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('driver-preferences-power')),findsNothing);
+        stale();
         await tester.pumpWidget(
           MaterialApp(
             home: VehicleDriverPreferencesView(
@@ -264,9 +272,52 @@ void main() {
           findsOneWidget,
         );
         expect(api.writes, isEmpty);
+        expect(api.requests.length,count,reason:'Retired same-object view must not acquire successor credentials');
       } finally {
         api.close();
       }
     },
   );
+  testWidgets('driver preference response must match exact reviewed values',(tester)async{
+    final api=_PreferencesApi()..wrongValue=true;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleDriverPreferencesView(api:api,vehicleId:12,onExpired:(){})));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('driver-preferences-power')),'١٥٠');
+    await tester.ensureVisible(find.byKey(const Key('driver-preferences-save')));
+    await tester.tap(find.byKey(const Key('driver-preferences-save')));
+    await tester.pumpAndSettle();
+    expect(api.writes.single['preferred_power_kw'],150);
+    expect(find.text('Driver preferences saved.'),findsNothing);
+    expect(find.byKey(const Key('driver-preferences-save')),findsNothing);
+    expect(find.textContaining('Unexpected driver preference save response'),findsOneWidget);
+    api.wrongValue=false;
+    await tester.tap(find.text('Refresh'));await tester.pumpAndSettle();
+    expect(api.writes.length,1);
+    expect(find.byKey(const Key('driver-preferences-save')),findsOneWidget);
+  });
+
+  testWidgets('background discards held write result and requires source refresh',(tester)async{
+    final api=_PreferencesApi()..holdWrite=Completer<void>();
+    addTearDown(api.close);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(MaterialApp(home:VehicleDriverPreferencesView(api:api,vehicleId:12,onExpired:(){})));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('driver-preferences-save')));
+    await tester.tap(find.byKey(const Key('driver-preferences-save')));await tester.pump();
+    expect(api.writes.length,1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);await tester.pump();
+    api.holdWrite!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('driver-preferences-power')),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('Driver preferences saved.'),findsNothing);
+    expect(find.byKey(const Key('driver-preferences-save')),findsNothing);
+    expect(api.requests.length,2);
+    await tester.tap(find.text('Refresh'));await tester.pumpAndSettle();
+    expect(api.requests.length,3);
+    expect(api.writes.length,1);
+    expect(find.byKey(const Key('driver-preferences-save')),findsOneWidget);
+  });
 }

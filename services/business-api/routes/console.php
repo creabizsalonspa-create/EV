@@ -299,6 +299,16 @@ Artisan::command('ocpi:sample-source-quality {--limit=25}', function () {
 })->purpose('Observe bounded stored OCPI location age, never live source/charging availability');
 Schedule::command('ocpi:sample-source-quality --limit=25')->everyMinute()->withoutOverlapping(30);
 
+// Explicitly enabled cache-only coverage sampler. The source cache lasts
+// five minutes, so hourly scheduling could miss all approved observations.
+// The capture service stores at most one sample per UTC hour and scope.
+Schedule::command('discovery:licensed-coverage-history --capture')
+    ->everyMinute()->withoutOverlapping(5)
+    ->when(fn () => config('discovery.ocm_coverage_sampling_enabled') === true
+        && config('discovery.ocm_coverage_enabled') === true
+        && config('discovery.ocm_enabled') === true
+        && config('discovery.ocm_terms_accepted') === true);
+
 // Source-only quality samples must not live indefinitely when a provider
 // stops synchronizing: remove already-expired history without any remote I/O.
 Artisan::command('ocpi:expire-source-quality-snapshots {--limit=500}', function () {

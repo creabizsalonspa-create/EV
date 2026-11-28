@@ -1,4 +1,32 @@
 /* Non-monetary promotional points. No wallet, money transfer or tariff modification. */
+function verifyPartnerRewardPage(result, page, kind) {
+    const fail = () => { throw new Error("Invalid partner reward page"); };
+    if (!Number.isSafeInteger(page) || page < 1 || page > 100000 ||
+        !["offers", "claims"].includes(kind) || !Array.isArray(result?.data) ||
+        result.current_page !== page || result.per_page !== 25 ||
+        !Number.isSafeInteger(result.total) || result.total < 0 ||
+        result.last_page !== Math.max(1, Math.ceil(result.total / 25)) ||
+        result.data.length !== Math.min(25, Math.max(0, result.total - (page - 1) * 25))) fail();
+    let previous = Infinity;
+    const redemptions = new Set();
+    const positive = v => Number.isSafeInteger(v) && v > 0;
+    for (const row of result.data) {
+        if (!row || row.source !== "RETAIL_PARTNER_REWARD" ||
+            row.evidence !== "SANDBOX_MANUAL_NONCASH" || row.external_fulfillment_verified !== false ||
+            row.cash_value !== false || row.points_cost !== 0 || !positive(row.review_id)) fail();
+        const id = kind === "offers" ? row.review_id : row.id;
+        if (!positive(id) || id >= previous) fail();
+        previous = id;
+        if (kind === "claims") {
+            if (!positive(row.redemption_id) || redemptions.has(row.redemption_id) ||
+                typeof row.created_at !== "string" || !["pending", "fulfilled", "rejected"].includes(row.status)) fail();
+            redemptions.add(row.redemption_id);
+        } else if (!["name", "name_ar", "partner_name", "partner_name_ar", "description", "description_ar", "ends_at"]
+            .every(field => typeof row[field] === "string")) fail();
+    }
+    return result;
+}
+
 window.mountLoyalty = ({ container, api, ui, actor }) => {
     const owner = actor()?.id,
         role = actor()?.role,
@@ -138,41 +166,11 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         parent.append(p);
     }
     function time(parent, en, ar, value) {
-        if (!value) return;
-        const p = node("p"),
-            date = new Date(
-                typeof value === "string" &&
-                    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(
-                        value,
-                    )
-                    ? value.replace(" ", "T") + "Z"
-                    : value,
-            ),
-            n = node("time");
-        if (Number.isNaN(date.getTime())) n.textContent = value;
-        else {
-            n.dateTime = date.toISOString();
-            n.dataset.loyaltyDate = "true";
-            n.textContent = date.toLocaleString(
-                document.documentElement.lang === "ar" ? "ar" : "en",
-            );
-        }
-        p.append(t("span", en, ar), node("span", " · "), n);
-        parent.append(p);
+        const line = node("p");
+        const clock = window.EvStationTime.bindServerEventTime(node("span"), value);
+        line.append(t("span", en, ar), node("span", " · "), clock);
+        parent.append(line);
     }
-    window.addEventListener(
-        "ev:locale",
-        () => {
-            if (alive())
-                for (const n of container.querySelectorAll(
-                    "time[data-loyalty-date]",
-                ))
-                    n.textContent = new Date(n.dateTime).toLocaleString(
-                        document.documentElement.lang === "ar" ? "ar" : "en",
-                    );
-        },
-        { signal: controller.signal },
-    );
     function card(parent, en, ar, id) {
         const n = node("article");
         n.className = "finance-row";
@@ -1063,8 +1061,15 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             return card;
         }
         const say = (en, ar) => feedback.replaceChildren(t("span", en, ar));
+        let couponBusy = false;
         function couponButton(parent, en, ar, action, operation = "read") {
             return button(parent, en, ar, async () => {
+                // Claim, cancellation and receipt recovery share a single
+                // draft. Serialize all controls in this mounted workspace,
+                // not only repeated clicks on an individual button.
+                if (couponBusy || !alive()) return;
+                couponBusy = true;
+                panel.setAttribute("aria-busy", "true");
                 feedback.replaceChildren();
                 try {
                     await action();
@@ -1074,15 +1079,33 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                         records.replaceChildren();
                         say("Could not load coupons. Please retry.", "تعذر تحميل القسائم. أعد المحاولة.");
                     } else if ([404, 409, 422].includes(error.status)) {
-                        if (operation === "draft") savePending(undefined);
+                        if (operation === "draft" && role === "admin") savePending(undefined);
                         say("Coupon request declined. Check the code, dates and limits.",
                             "رُفض طلب القسيمة. تحقق من الرمز والتواريخ والحدود.");
                     } else {
                         say("Coupon request could not be confirmed. Check the receipt or retry the same request.",
                             "تعذر تأكيد طلب القسيمة. تحقق من الإيصال أو أعد الطلب نفسه.");
                     }
+                } finally {
+                    couponBusy = false;
+                    if (alive()) panel.removeAttribute("aria-busy");
                 }
             });
+        }
+        async function showClaim(result, saved) {
+            const receipt = receiptCard(result?.claim);
+            const row = result.claim;
+            if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
+                throw Error("Coupon receipt identity changed");
+            if (saved.codeHash) {
+                const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+                if (row.request_binding !== await digest(saved.codeHash + ":" + request))
+                    throw Error("Coupon receipt binding changed");
+            }
+            if (!alive() || readPending()?.idempotency_key !== saved.idempotency_key) return;
+            savePending(undefined);
+            code.value = "";
+            records.replaceChildren(receipt);
         }
         async function refresh(number = 1) {
             const result = await couponRequest((role === "admin" ? "" : "/claims") + "?page=" + number);
@@ -1183,21 +1206,6 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 );
                 return value.enabled;
             }
-            async function showClaim(result, saved) {
-                const receipt = receiptCard(result?.claim);
-                const row = result.claim;
-                if (saved.coupon !== undefined && row.coupon_id !== saved.coupon)
-                    throw Error("Coupon receipt identity changed");
-                if (saved.codeHash) {
-                    const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
-                    if (row.request_binding !== await digest(saved.codeHash + ":" + request))
-                        throw Error("Coupon receipt binding changed");
-                }
-                if (!alive()) return;
-                savePending(undefined);
-                code.value = "";
-                records.replaceChildren(receipt);
-            }
             function resolveFirst() {
                 say("Check the previous claim receipt or clear the coupon draft.",
                     "تحقق من إيصال المطالبة السابقة أو امسح مسودة القسيمة.");
@@ -1268,10 +1276,49 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         function validCode() {
             return /^[A-Z0-9-]{12,40}$/.test(code.value.trim().toUpperCase());
         }
-        couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", () => {
-            savePending(undefined);
-            code.value = "";
-        });
+        couponButton(panel, "Clear coupon draft", "مسح مسودة القسيمة", async () => {
+            if (role === "admin") {
+                savePending(undefined);
+                code.value = "";
+                return;
+            }
+            const saved = readPending();
+            if (!saved) {
+                code.value = "";
+                return;
+            }
+            const same = () => alive() && readPending()?.idempotency_key === saved.idempotency_key;
+            const entered = code.value.trim().toUpperCase();
+            if (saved.codeHash && (!validCode() || await digest(entered) !== saved.codeHash)) {
+                say("Re-enter the original code to cancel the saved claim.",
+                    "أعد إدخال الرمز الأصلي لإلغاء المطالبة المحفوظة.");
+                return;
+            }
+            if (!same()) return;
+            const request = await digest("coupon-claim:" + owner + ":" + saved.idempotency_key);
+            const binding = await digest(saved.coupon === undefined
+                ? saved.codeHash + ":" + request
+                : "coupon-cancel-v1:" + saved.coupon + ":" + request);
+            if (!same()) return;
+            const result = await couponRequest("/claim-intents/cancel", "POST", {
+                idempotency_key: saved.idempotency_key,
+                ...(saved.coupon === undefined ? { code: entered } : { coupon_id: saved.coupon }),
+            });
+            if (!same()) return;
+            if (result?.request_binding !== binding ||
+                (saved.coupon !== undefined && result.coupon_id !== saved.coupon))
+                throw Error("Invalid cancellation binding");
+            if (result.state === "accepted") {
+                await showClaim(result, saved);
+            } else if (result.state === "cancelled" && result.claim === null) {
+                savePending(undefined);
+                code.value = "";
+                records.replaceChildren();
+                say("Saved claim cancelled by the server.", "ألغى الخادم المطالبة المحفوظة.");
+            } else {
+                throw Error("Invalid cancellation state");
+            }
+        }, "receipt");
         couponButton(panel, "Refresh coupons", "تحديث القسائم", () => refresh());
         panel.append(records);
         container.append(panel);
@@ -1461,8 +1508,10 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             parent.append(line);
         }
         function receipt(row) {
-            if (!evidence(row) || !Number.isSafeInteger(row.id) ||
-                !Number.isSafeInteger(row.review_id) || !Object.hasOwn(states, row.status)) {
+            if (!evidence(row) || !Number.isSafeInteger(row.id) || row.id < 1 ||
+                !Number.isSafeInteger(row.review_id) || row.review_id < 1 ||
+                !Number.isSafeInteger(row.redemption_id) || row.redemption_id < 1 ||
+                typeof row.created_at !== "string" || !Object.hasOwn(states, row.status)) {
                 throw new Error("Invalid partner reward receipt");
             }
             const card = node("article");
@@ -1583,10 +1632,8 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 throw error;
             }
             if (!alive()) return;
-            if (!Array.isArray(result?.data) || result.current_page !== page ||
-                !Number.isSafeInteger(result.last_page) || result.last_page < 1) {
-                throw new Error("Invalid partner reward page");
-            }
+            // Validate the entire page before creating any actionable row.
+            verifyPartnerRewardPage(result, page, kind);
             if (!result.data.length) {
                 if (kind === "offers") label(rows, "No eligible partner rewards", "لا توجد مكافآت شركاء مؤهلة");
                 else label(rows, "No partner reward claims", "لا توجد مطالبات بمكافآت الشركاء");
@@ -1607,7 +1654,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 rows.append(card);
             }
             if (page > 1) button(rows, "Previous partner rewards", "مكافآت الشركاء السابقة", () => load(kind, page - 1));
-            if (page < result.last_page) button(rows, "Next partner rewards", "مكافآت الشركاء التالية", () => load(kind, page + 1));
+            if (page < result.last_page && page < 100000) button(rows, "Next partner rewards", "مكافآت الشركاء التالية", () => load(kind, page + 1));
         }
         panel.append(t("h4", "Partner rewards", "مكافآت الشركاء"));
         label(panel, "Sandbox rewards require manual fulfillment. External partner delivery is unverified.", "تتطلب المكافآت التجريبية تسليماً يدوياً. لم يتم التحقق من تسليم الشريك الخارجي.");

@@ -10,6 +10,7 @@ let invitationPage = 1, invitationGeneration = 0,
     invitationRequest = null, invitationOwner = null;
 let fleetDetailGeneration = 0, fleetDetailRequest = null;
 let fleetCreatePending = false;
+let regionalConfigBusy = false;
 // Startup's pending-logout branch can clear identity before lower sections
 // initialize. Every mutation lock read by clearPrivateViews must exist now.
 let vehicleCreatePending = false,
@@ -139,6 +140,18 @@ function clearIdentity() {
     return epoch;
 }
 function clearPrivateViews() {
+    // Public country labels may remain, but reviewed Admin drafts and
+    // detached mutation callbacks must never cross a credential epoch.
+    const regionForm = el("region-config");
+    regionForm.reset();
+    delete regionForm.dataset.expectedCountry;
+    delete regionForm.dataset.expectedRevision;
+    delete regionForm.dataset.expectedEpoch;
+    delete regionForm.dataset.expectedValues;
+    regionalConfigBusy = false;
+    regionForm.inert = false;
+    regionForm.querySelector("button").disabled = false;
+    el("region-list").querySelectorAll("[data-access=admin]").forEach((node) => node.remove());
     inboxUnreadOnly = false;
     inboxCategory = "all";
     inboxPreferences = null;
@@ -660,10 +673,51 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
             : text("summary", "Sponsored promotions", "العروض المموّلة"),
         content,
     );
-    let revision = 0;
+    let revision = 0, pending = false;
+    const authorized = () => panel.isConnected && (banner || panel.open) &&
+        !catalogRequest.signal.aborted && identity === client.sessionEpoch &&
+        stationIds.size > 0 && stationIds.size <= 25 &&
+        stationIds.size === stations.length &&
+        [...stationIds].every(id => Number.isSafeInteger(id) && id > 0) &&
+        (banner || (stations.length === 1 && /^[A-Z]{2}$/.test(stations[0].country)));
+    function checked(result, page) {
+        if (!result || result.current_page !== page ||
+            !Number.isSafeInteger(result.last_page) || result.last_page < 1 ||
+            result.last_page > 100000 ||
+            result.ranking_basis !== "SPONSORED_ID_ORDER_NOT_PERFORMANCE" ||
+            result.client_telemetry_billable !== false ||
+            !Array.isArray(result.placements) || result.placements.length > 25 ||
+            (page > result.last_page && result.placements.length))
+            throw new Error("Invalid sponsored page");
+        if ("total" in result || "per_page" in result) {
+            const {total, per_page: size} = result;
+            if (!Number.isSafeInteger(total) || total < 0 || total > 1000 ||
+                !Number.isSafeInteger(size) || size < 1 || size > 25 ||
+                result.last_page !== Math.max(1, Math.ceil(total / size)) ||
+                result.placements.length !== Math.max(0, Math.min(size, total - (page - 1) * size)))
+                throw new Error("Inconsistent sponsored page");
+        }
+        const ids = new Set();
+        for (const item of result.placements) {
+            if (!item || !Number.isSafeInteger(item.campaign_id) ||
+                item.campaign_id < 1 || ids.has(item.campaign_id) ||
+                !stationIds.has(item.station_id) || item.sponsored !== true ||
+                item.availability_verified !== false || item.compatibility_verified !== false ||
+                item.capability_override !== false ||
+                !["title", "title_ar", "description", "description_ar"].every(key =>
+                    typeof item[key] === "string" && item[key].trim().length &&
+                    item[key].length <= (key.startsWith("title") ? 120 : 500)))
+                throw new Error("Invalid sponsored placement");
+            ids.add(item.campaign_id);
+        }
+        return result;
+    }
 
     async function load(page = 1) {
+        if (!authorized() || pending || !Number.isSafeInteger(page) || page < 1 || page > 100000) return;
         const current = ++revision;
+        pending = true;
+        panel.hidden = false;
         content.replaceChildren(text("p", "Loading promotions…", "جارٍ تحميل العروض…"));
         const params = new URLSearchParams({ placement, page });
         if (banner) {
@@ -672,36 +726,42 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
             params.set("country", stations[0].country);
             params.set("station_id", stations[0].id);
         }
-        const alive = () => current === revision && panel.isConnected &&
-            (banner || panel.open) && !catalogRequest.signal.aborted &&
-            identity === client.sessionEpoch;
+        const alive = () => current === revision && authorized();
+        const button = (target, en, ar) => {
+            const control = text("button", en, ar);
+            control.type = "button";
+            control.onclick = () => {
+                if (alive() && !pending && content.contains(control)) load(target);
+            };
+            return control;
+        };
         try {
-            const result = await api("commercial/campaign-placements?" + params, "GET",
+            const raw = await api("commercial/campaign-placements?" + params, "GET",
                 undefined, catalogRequest.signal);
             if (!alive()) return;
+            const result = checked(raw, page);
             content.replaceChildren();
+            if (result.placements.length)
+                content.append(text("p", "Paid placement, not verified availability or compatibility.",
+                    "إعلان مدفوع، وليس تأكيداً للتوفر أو التوافق."));
             for (const item of result.placements) {
-                if (!stationIds.has(item.station_id) || item.sponsored !== true ||
-                    item.availability_verified !== false || item.compatibility_verified !== false ||
-                    item.capability_override !== false) continue;
                 content.append(text("h4", item.title, item.title_ar),
                     text("p", item.description, item.description_ar));
             }
-            if (banner) panel.hidden = !content.childElementCount && result.last_page === 1;
-            if (!content.childElementCount)
+            if (banner) panel.hidden = !result.placements.length && page === 1 && result.last_page === 1;
+            if (!result.placements.length)
                 content.append(text("p", "No promotions on this page.", "لا توجد عروض في هذه الصفحة."));
-            for (const [allowed, target, en, ar] of [
-                [result.current_page > 1, result.current_page - 1, "Previous promotions", "العروض السابقة"],
-                [result.current_page < result.last_page, result.current_page + 1, "Next promotions", "العروض التالية"],
-            ]) {
-                if (!allowed) continue;
-                const button = text("button", en, ar);
-                button.type = "button";
-                button.onclick = () => load(target);
-                content.append(button);
-            }
+            if (page > 1)
+                content.append(button(Math.min(page - 1, result.last_page), "Previous promotions", "العروض السابقة"));
+            if (page < result.last_page)
+                content.append(button(page + 1, "Next promotions", "العروض التالية"));
         } catch {
-            if (alive()) content.replaceChildren(text("p", "Promotions unavailable. Reopen to retry.", "العروض غير متاحة. أعد فتح القسم للمحاولة."));
+            if (alive()) {
+                content.replaceChildren(text("p", "Promotions unavailable.", "العروض غير متاحة."),
+                    button(page, "Retry promotions", "إعادة تحميل العروض"));
+            }
+        } finally {
+            if (current === revision) pending = false;
         }
     }
 
@@ -710,6 +770,7 @@ function sponsorPanel(stations, placement, catalogRequest, identity) {
         if (panel.open) load();
         else {
             revision++;
+            pending = false;
             content.replaceChildren();
         }
     };
@@ -1373,11 +1434,37 @@ async function simulations(page = simulationPage) {
     }
 }
 async function regions() {
+    const epoch = client.sessionEpoch;
     const rows = await api("regions");
+    if (epoch !== client.sessionEpoch) return;
     const root = el("region-list");
     root.replaceChildren();
     for (const region of rows) {
         root.append(ui("p", "{country} · {currency} · {timezone} · commerce disabled", region));
+        if (user?.role === "admin" && Number.isSafeInteger(region.configuration_revision) &&
+            region.configuration_revision >= 1) {
+            const edit = batteryNode("button", "Edit reviewed regional settings", "تعديل إعدادات المنطقة التي تمت مراجعتها");
+            edit.type = "button";
+            edit.dataset.access = "admin";
+            edit.dataset.regionConfigurationEdit = region.country;
+            edit.onclick = () => {
+                if (!edit.isConnected || regionalConfigBusy || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+                const form = el("region-config");
+                for (const key of ["country", "currency", "minor_units", "timezone", "tax_bps"]) {
+                    form.elements.namedItem(key).value = region[key] ?? "";
+                }
+                form.dataset.expectedCountry = region.country;
+                form.dataset.expectedRevision = String(region.configuration_revision);
+                form.dataset.expectedEpoch = String(epoch);
+                form.dataset.expectedValues = JSON.stringify({
+                    currency: region.currency, minor_units: region.minor_units,
+                    timezone: region.timezone, tax_bps: region.tax_bps,
+                    commerce_enabled: region.commerce_enabled,
+                });
+                form.elements.namedItem("currency").focus();
+            };
+            root.append(edit);
+        }
         const enabled = Boolean(region.review_intake_enabled);
         const button = enabled
             ? batteryNode("button", "Pause new charging feedback", "إيقاف استقبال ملاحظات الشحن الجديدة")
@@ -1387,8 +1474,7 @@ async function regions() {
         button.dataset.regionReviewIntake = region.country;
         button.hidden = user?.role !== "admin";
         button.onclick = async () => {
-            if (button.disabled || user?.role !== "admin") return;
-            const epoch = client.sessionEpoch;
+            if (!button.isConnected || button.disabled || epoch !== client.sessionEpoch || user?.role !== "admin") return;
             button.disabled = true;
             try {
                 await api("regions/" + encodeURIComponent(region.country) + "/review-intake", "PUT", {
@@ -1823,18 +1909,65 @@ el("fleet-create").onsubmit = async (e) => {
         }
     }
 };
+function verifyRegionalConfigurationReceipt(saved, country, values, reviewed) {
+    const expected = values.expected_revision;
+    const normalized = {
+        currency: values.currency, minor_units: Number(values.minor_units),
+        timezone: values.timezone, tax_bps: values.tax_bps === null ? null : Number(values.tax_bps),
+    };
+    const fail = () => { throw Error("Regional configuration receipt cannot be verified."); };
+    if (!Number.isSafeInteger(expected) || expected < 0 ||
+        expected >= Number.MAX_SAFE_INTEGER || (expected > 0 && !reviewed)) fail();
+    const same = expected > 0 && [false, 0].includes(reviewed.commerce_enabled) &&
+        Object.keys(normalized).every(key => reviewed[key] === normalized[key]);
+    const revision = expected + (same ? 0 : 1);
+    if (!saved || saved.country !== country || saved.configuration_revision !== revision ||
+        !Object.keys(normalized).every(key => saved[key] === normalized[key]) ||
+        ![false, 0].includes(saved.commerce_enabled)) fail();
+    return {...normalized, commerce_enabled: saved.commerce_enabled};
+}
 el("region-config").onsubmit = async (e) => {
     e.preventDefault();
+    if (regionalConfigBusy || user?.role !== "admin") return;
+    const form = e.target, epoch = client.sessionEpoch;
+    const submit = form.querySelector("button");
+    const ticket = {epoch};
+    regionalConfigBusy = ticket;
+    submit.disabled = true;
+    form.inert = true;
     try {
-        let v = Object.fromEntries(new FormData(e.target)),
-            country = v.country;
+        const v = Object.fromEntries(new FormData(form)), country = v.country;
         delete v.country;
-        if (!v.tax_bps) v.tax_bps = null;
-        await api("regions/" + encodeURIComponent(country), "PUT", v);
+        v.tax_bps = v.tax_bps === "" ? null : v.tax_bps;
+        v.expected_revision = form.dataset.expectedCountry === country &&
+            form.dataset.expectedEpoch === String(epoch) ? Number(form.dataset.expectedRevision) : 0;
+        const reviewed = v.expected_revision > 0 ? JSON.parse(form.dataset.expectedValues ?? "null") : null;
+        const saved = await api("regions/" + encodeURIComponent(country), "PUT", v);
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch || user?.role !== "admin") return;
+        const accepted = verifyRegionalConfigurationReceipt(saved, country, v, reviewed);
+        form.dataset.expectedCountry = country;
+        form.dataset.expectedRevision = String(saved.configuration_revision);
+        form.dataset.expectedEpoch = String(epoch);
+        form.dataset.expectedValues = JSON.stringify(accepted);
         await regions();
-        notice("Configuration saved. Commercial activation remains disabled.");
-    } catch (e) {
-        notice(e);
+        if (epoch === client.sessionEpoch)
+            notice("Configuration saved. Commercial activation remains disabled.");
+    } catch (error) {
+        if (regionalConfigBusy !== ticket || epoch !== client.sessionEpoch) return;
+        // A lost response, malformed receipt or conflict can conceal a
+        // committed update. Never retain its reviewed authority for retry.
+        delete form.dataset.expectedRevision;
+        delete form.dataset.expectedCountry;
+        delete form.dataset.expectedEpoch;
+        delete form.dataset.expectedValues;
+        notice(error);
+        if (error.status === 409) await regions().catch(notice);
+    } finally {
+        if (regionalConfigBusy === ticket) {
+            regionalConfigBusy = false;
+            form.inert = false;
+            submit.disabled = false;
+        }
     }
 };
 el("account").onsubmit = async (e) => {
@@ -1861,6 +1994,8 @@ el("account").onsubmit = async (e) => {
         await identity();
         if (epoch !== client.sessionEpoch) return;
         await stations();
+        if (epoch !== client.sessionEpoch) return;
+        await regions();
         if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
         if (error.status === 422 && error.errors?.second_factor_code) {
@@ -2134,6 +2269,10 @@ function resetCustomerMutationState() {
     for (const id of ["vehicle-create", "profile-form", "support-create"]) {
         const submit = el(id).querySelector("button");
         if (submit) submit.disabled = false;
+    }
+    for (const field of ["subject","body"]) {
+        const input = el("support-create").elements.namedItem(field);
+        if (input) input.readOnly = false;
     }
 }
 async function garage(page = garagePage, showNewest = false) {
@@ -2956,9 +3095,10 @@ async function ticketDetail(id, page = 1, showNewest = false) {
     const controller = new AbortController();
     ticketDetailRequest = controller;
     const generation = ++ticketDetailGeneration,
-        epoch = client.sessionEpoch, owner = user.id;
+        epoch = client.sessionEpoch, owner = user.id, role = user.role;
+    let actionPending = false, pendingKind = null;
     const active = () => generation === ticketDetailGeneration &&
-        epoch === client.sessionEpoch && owner === user?.id &&
+        epoch === client.sessionEpoch && owner === user?.id && role === user?.role &&
         ticketDetailRequest === controller && !controller.signal.aborted;
     const d = el("ticket-detail");
     d.setAttribute("aria-busy", "true");
@@ -2984,10 +3124,32 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             status: { translate: j.ticket.status },
         }),
     );
-    if (!messages.data.length) d.append(batteryNode("p",
+    // Support clocks are server UTC, not the browser timezone or station
+    // wall clock. Keep an unavailable clock separate from the message body.
+    // Non-admin clients never display an internal or unknown visibility row,
+    // even if a malformed upstream page unexpectedly includes it.
+    const visible = messages.data.filter(m => m && typeof m.body === "string" &&
+        m.body.length <= 5000 &&
+        (m.support_ticket_id == null || m.support_ticket_id === id) &&
+        ([false, 0, "0"].includes(m.internal) ||
+            (user.role === "admin" && [true, 1, "1"].includes(m.internal))));
+    if (!visible.length) d.append(batteryNode("p",
         "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
-    for (const m of messages.data)
-        d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
+    for (const m of visible) {
+        const item = document.createElement("div");
+        item.dataset.supportMessage = "true";
+        if ([true, 1, "1"].includes(m.internal))
+            item.append(batteryNode("p", "Internal note", "ملاحظة داخلية"));
+        item.append(node("p", m.body));
+        const clock = batteryNode("small",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "en") ||
+                "Message time unavailable",
+            window.EvStationTime.displayStationTime(m.created_at, "UTC", "ar") ||
+                "وقت الرسالة غير متاح");
+        clock.dataset.supportMessageTime = "true";
+        item.append(clock);
+        d.append(item);
+    }
     const pager = document.createElement("nav");
     pager.className = "pagination";
     pager.dataset.supportMessagePagination = "true";
@@ -3004,7 +3166,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         b.type = "button";
         b.disabled = disabled;
         b.dataset.supportMessagePageAction = key;
-        b.onclick = () => { if (active()) void ticketDetail(id, target); };
+        b.onclick = () => { if (active() && !actionPending && !pendingKind && !b.disabled && pager.contains(b)) void ticketDetail(id, target); };
         pager.append(b);
     }
     d.append(pager);
@@ -3023,37 +3185,50 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             label.append(check);
             f.append(label);
         }
-        // Retain the same key across a lost acknowledgement, but generate a
-        // fresh key when the user changes the reply body or internal flag.
+        // Freeze the submitted reply until an exact acknowledgement.
         let pendingReply = null;
+        const submit = f.querySelector("button");
         f.onsubmit = async (e) => {
             e.preventDefault();
-            if (!active()) return;
-            const payload = {
-                body: body.value,
-                internal: !!f.elements.internal?.checked,
-            };
-            const signature = JSON.stringify(payload);
-            if (!pendingReply || pendingReply.signature !== signature) {
-                pendingReply = {
-                    signature,
-                    key: crypto.randomUUID().replace(/-/g, ""),
-                };
-            }
-            try {
-                await api("support/" + id + "/messages", "POST", {
-                    ...payload,
-                    idempotency_key: pendingReply.key,
+            if (!active() || actionPending || (pendingKind && pendingKind !== "reply") || !d.contains(f)) return;
+            const internal = f.elements.internal;
+            if (!pendingReply) {
+                const value = body.value.trim();
+                if (!value || value.length > 5000) return;
+                pendingReply = Object.freeze({
+                    body: value,
+                    internal: role === "admin" && !!internal?.checked,
+                    idempotency_key: crypto.randomUUID().replace(/-/g, ""),
                 });
+            }
+            const original = pendingReply;
+            pendingKind = "reply";
+            actionPending = true;
+            body.readOnly = true;
+            if (internal) internal.disabled = true;
+            if (submit) submit.disabled = true;
+            try {
+                const receipt = await api("support/" + id + "/messages", "POST", original);
                 if (!active()) return;
+                if (!receipt || !Number.isSafeInteger(receipt.id) || receipt.id < 1 ||
+                    receipt.support_ticket_id !== id || receipt.author_id !== owner ||
+                    receipt.body !== original.body ||
+                    !(original.internal ? [true, 1, "1"] : [false, 0, "0"]).includes(receipt.internal))
+                    throw new Error("Support reply acknowledgement unconfirmed.");
                 pendingReply = null;
-                // The API accepted the message. If the subsequent refresh
-                // fails, do not leave the just-sent body ready to submit again.
+                pendingKind = null;
                 body.value = "";
                 await support();
-                await ticketDetail(id, 1, true);
+                if (active()) await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
+            } finally {
+                actionPending = false;
+                if (active()) {
+                    body.readOnly = pendingReply !== null;
+                    if (internal) internal.disabled = pendingReply !== null;
+                    if (submit) submit.disabled = false;
+                }
             }
         };
         d.append(f);
@@ -3078,29 +3253,45 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         EvLocale.attribute(reason, "aria-label", "Reason for status change");
         f.append(select, reason, ui("button", "Update ticket status"));
         let pendingStatus = null;
+        const submit = f.querySelector("button");
         f.onsubmit = async (e) => {
             e.preventDefault();
-            if (!active()) return;
-            const payload = { status: select.value, reason: reason.value };
-            const signature = JSON.stringify(payload);
-            if (!pendingStatus || pendingStatus.signature !== signature) {
-                pendingStatus = {
-                    signature,
-                    key: crypto.randomUUID().replace(/-/g, ""),
-                };
-            }
-            try {
-                await api("support/" + id + "/status", "PATCH", {
-                    ...payload,
-                    idempotency_key: pendingStatus.key,
+            if (!active() || actionPending || (pendingKind && pendingKind !== "status") || role !== "admin" || !d.contains(f)) return;
+            if (!pendingStatus) {
+                const value = reason.value.trim();
+                if (!["open", "in_progress", "resolved", "closed"].includes(select.value) ||
+                    !value || value.length > 1000) return;
+                pendingStatus = Object.freeze({
+                    status: select.value,
+                    reason: value,
+                    idempotency_key: crypto.randomUUID().replace(/-/g, ""),
                 });
+            }
+            const original = pendingStatus;
+            pendingKind = "status";
+            actionPending = true;
+            select.disabled = true;
+            reason.readOnly = true;
+            if (submit) submit.disabled = true;
+            try {
+                const receipt = await api("support/" + id + "/status", "PATCH", original);
                 if (!active()) return;
+                if (!receipt || receipt.id !== id || receipt.status !== original.status)
+                    throw new Error("Support status acknowledgement unconfirmed.");
                 pendingStatus = null;
+                pendingKind = null;
                 reason.value = "";
                 await support();
-                await ticketDetail(id, 1, true);
+                if (active()) await ticketDetail(id, 1, true);
             } catch (e) {
                 if (active()) notice(e);
+            } finally {
+                actionPending = false;
+                if (active()) {
+                    select.disabled = pendingStatus !== null;
+                    reason.readOnly = pendingStatus !== null;
+                    if (submit) submit.disabled = false;
+                }
             }
         };
         d.append(f);
@@ -3121,34 +3312,44 @@ async function ticketDetail(id, page = 1, showNewest = false) {
 }
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
-    if (!user || ticketCreatePending) return;
-    const epoch = client.sessionEpoch, actor = user.id;
-    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const form = e.target;
+    if (!user || ticketCreatePending || form !== el("support-create") || !form.isConnected) return;
+    const epoch = client.sessionEpoch, actor = user.id, role = user.role;
     const token = ++ticketCreateGeneration;
-    const submit = e.target.querySelector("button");
-    const payload = Object.fromEntries(new FormData(e.target));
-    const signature = JSON.stringify(payload);
-    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature ||
-        pendingTicketCreate.actor !== actor || pendingTicketCreate.epoch !== epoch) {
-        pendingTicketCreate = {
-            signature, actor, epoch,
-            key: crypto.randomUUID().replace(/-/g, ""),
-        };
+    const active = () => token === ticketCreateGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id && role === user?.role &&
+        form.isConnected && form === el("support-create");
+    const submit = form.querySelector("button");
+    const subject = form.elements.namedItem("subject");
+    const body = form.elements.namedItem("body");
+    if (!subject || !body) return;
+    if (!pendingTicketCreate || pendingTicketCreate.actor !== actor ||
+        pendingTicketCreate.epoch !== epoch || pendingTicketCreate.role !== role) {
+        const payload = {subject:subject.value.trim(),body:body.value.trim()};
+        if (!payload.subject || payload.subject.length > 150 || !payload.body || payload.body.length > 5000) return;
+        pendingTicketCreate = {payload, actor, epoch, role,
+            key: crypto.randomUUID().replace(/-/g, "")};
     }
     const request = pendingTicketCreate;
+    // Restore the exact uncertain intent even if a stale callback changed the DOM.
+    subject.value = request.payload.subject;
+    body.value = request.payload.body;
+    subject.readOnly = body.readOnly = true;
     ticketCreatePending = true;
     if (submit) submit.disabled = true;
     try {
         const t = await api("support", "POST", {
-            ...payload,
+            ...request.payload,
             idempotency_key: request.key,
         });
         if (!active()) return;
-        if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
+        if (!Number.isSafeInteger(t?.id) || t.id <= 0 ||
+            t.user_id !== actor || t.subject !== request.payload.subject ||
+            !["open","in_progress","resolved","closed"].includes(t.status)) {
             throw new Error("Ticket creation was not confirmed");
         }
         if (pendingTicketCreate === request) pendingTicketCreate = null;
-        e.target.reset();
+        form.reset();
         supportPage = 1;
         await support();
         if (active()) await ticketDetail(t.id);
@@ -3157,7 +3358,10 @@ el("support-create").onsubmit = async (e) => {
     } finally {
         if (token === ticketCreateGeneration) {
             ticketCreatePending = false;
-            if (submit?.isConnected) submit.disabled = false;
+            if (active()) {
+                subject.readOnly = body.readOnly = pendingTicketCreate !== null;
+                if (submit) submit.disabled = false;
+            }
         }
     }
 };

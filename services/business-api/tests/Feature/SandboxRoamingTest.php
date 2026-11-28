@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Services\Ocpi\RecordNormalizer;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,6 +54,131 @@ class SandboxRoamingTest extends TestCase
             $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         }
         $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_corrupt_offer_and_stop_source_identity_cannot_grant_partner_actions(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        $offers = '/api/roaming/locations/'.$location->id.'/sandbox-offers';
+        $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
+        $this->actingAs($driver)->getJson($offers)->assertOk()->assertJsonCount(1, 'offers');
+        foreach ([$location, $tariff] as $record) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => str_repeat('a', 64)]);
+            $this->getJson($offers)->assertOk()->assertJsonCount(0, 'offers');
+            DB::table('ocpi_records')->where('id', $record->id)->update(['content_hash' => $record->content_hash]);
+        }
+        $this->assertCount(0, $this->writes);
+        [$id] = $this->start($driver, $location->fresh());
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        app(RecordSynchronizer::class)->ingest($provider, 'sessions', [$this->sourceSessionFixture($provider, $order, $this->writes[0]['body'])]);
+        $url = '/api/roaming/sandbox-orders/'.$id;
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('can_stop', true);
+        $source = OcpiRecord::where('module', 'sessions')->firstOrFail();
+        DB::table('ocpi_records')->where('id', $source->id)->update(['external_id' => 'FOREIGN-SESSION']);
+        $this->getJson($url)->assertOk()->assertJsonPath('can_stop', false);
+        $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertConflict();
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 1);
+        DB::table('ocpi_records')->where('id', $source->id)->update(['external_id' => $source->external_id]);
+        $this->getJson($url)->assertOk()->assertJsonPath('can_stop', true);
+        $this->postJson($url.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertCount(3, $this->writes);
+        $this->assertSame('S1', $this->writes[2]['body']['session_id']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_corrupted_roaming_offer_projection_never_exposes_nested_private_source_or_decryption_error(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id.'/sandbox-offers';
+        $this->actingAs($driver)->getJson($url)->assertOk()->assertJsonCount(1, 'offers');
+        $original = $location->getRawOriginal('normalized');
+        DB::table('ocpi_records')->where('id', $location->id)->update([
+            'normalized' => json_encode(array_replace($location->normalized, ['name' => ['private' => 'NEVER_PUBLIC_OFFER_MARKER']]), JSON_THROW_ON_ERROR),
+        ]);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers')
+            ->assertJsonPath('location_name', '')->assertDontSee('NEVER_PUBLIC_OFFER_MARKER');
+        DB::table('ocpi_records')->where('id', $location->id)->update(['normalized' => $original, 'payload' => 'NEVER_PUBLIC_INVALID_CIPHERTEXT']);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'offers')
+            ->assertJsonPath('location_name', '')->assertDontSee('NEVER_PUBLIC_INVALID_CIPHERTEXT');
+        DB::table('ocpi_records')->where('id', $location->id)->update(['payload' => $location->getRawOriginal('payload')]);
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'offers')->assertJsonPath('location_name', 'Sandbox location');
+        $this->assertCount(0, $this->writes);
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+    }
+
+    public function test_malformed_connector_tariff_lists_fail_closed_for_offers_and_direct_consent(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        $original = $location->payload;
+        foreach (['T1', ['named' => 'T1'], ['T1', 7], ['T1', ''], ['T1', str_repeat('x', 65)], array_fill(0, 11, 'T1')] as $invalid) {
+            $raw = $original;
+            $raw['evses'][0]['connectors'][0]['tariff_ids'] = $invalid;
+            $location->update(['payload' => $raw, 'content_hash' => app(RecordNormalizer::class)->hash($raw)]);
+            $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+            $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            $this->assertCount(0, $this->writes);
+        }
+        $location->update(['payload' => $original, 'content_hash' => app(RecordNormalizer::class)->hash($original)]);
+        $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(1, 'offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated();
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_future_local_location_or_tariff_receipt_cannot_grant_new_roaming_consent(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $tariff = OcpiRecord::where('module', 'tariffs')->firstOrFail();
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+
+        foreach ([$location, $tariff] as $record) {
+            DB::table('ocpi_records')->where('id', $record->id)->update(['received_at' => now()->addDay()->utc()->format('Y-m-d H:i:s.u')]);
+            $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+            $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+            $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+            $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+            $this->assertCount(0, $this->writes);
+            DB::table('ocpi_records')->where('id', $record->id)->update(['received_at' => $record->getRawOriginal('received_at')]);
+        }
+
+        $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(1, 'offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertCreated()->assertJsonPath('state', 'start_accepted');
+        $this->assertCount(2, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_withdrawn_read_scope_denies_new_roaming_but_preserves_owned_source_stop(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $this->withHeaders($this->peer())->postJson('/api/roaming-protocol/2.2.1/tokens/'.$token['uid'].'/authorize?type=APP_USER',
+            ['location_id' => 'L1', 'evse_uids' => ['E1']])->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+        $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1',
+            $this->sourceSessionFixture($provider, $order, $token))->assertCreated();
+        $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')
+            ->assertOk()->assertJsonPath('can_stop', true);
+
+        config(['ocpi.connections.roaming.read_modules' => ['locations', 'tariffs', 'sessions']]);
+        $this->getJson('/api/roaming/locations/'.$location->id.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+        $this->assertCount(2, $this->writes);
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertSame('S1', end($this->writes)['body']['session_id']);
+        $this->assertCount(3, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 

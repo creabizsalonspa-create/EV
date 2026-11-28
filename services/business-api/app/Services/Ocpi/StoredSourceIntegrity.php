@@ -77,6 +77,12 @@ final class StoredSourceIntegrity
         ];
     }
 
+    /** Reuse the canonical stored-source check at a bounded reconciliation decision. */
+    public function consistent(OcpiRecord $row): bool
+    {
+        return in_array($row->module, PartnerClient::MODULES, true) && $this->findings($row, $row->module) === [];
+    }
+
     private function findings(OcpiRecord $row, string $module): array
     {
         try {

@@ -17,7 +17,50 @@ final class CpoCatalogContract
             return [];
         }
 
-        return ($contract['session_exports'] ?? []) === [] ? self::MODULES : [...self::MODULES, ...self::SESSION_MODULES];
+        return $this->sessionExports($provider, $contract) === [] ? self::MODULES : [...self::MODULES, ...self::SESSION_MODULES];
+    }
+
+    /**
+     * A complete, valid synthetic mapping is required before advertising
+     * final session/CDR senders. Do not change the credential fingerprint
+     * or disable unrelated location/tariff publication for a bad mapping.
+     */
+    public function sessionExports(OcpiProvider $provider, array $contract): array
+    {
+        $exports = $contract['session_exports'] ?? [];
+        $connection = config('ocpi.connections.'.$provider->connection_key);
+        if (! app()->environment(['local', 'testing']) || ($connection['environment'] ?? null) !== 'sandbox'
+            || ! is_array($exports) || count($exports) > 250 || $exports === []) {
+            return [];
+        }
+        $role = app(CredentialExchange::class)->localConfiguration($provider)['roles'][0];
+        if ($role['role'] !== 'CPO' || ($connection['party_role'] ?? null) !== 'EMSP') {
+            return [];
+        }
+        $prefix = $role['country_code'].'*'.$role['party_id'].'*E';
+        foreach ($exports as $session => $mapping) {
+            if (! is_int($session) || $session < 1 || ! is_array($mapping)) {
+                return [];
+            }
+            $site = $mapping['site_id'] ?? null;
+            if ((! is_int($site) && (! is_string($site) || ! preg_match('/^[1-9][0-9]*$/D', $site)))
+                || filter_var($site, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false
+                || ! is_array($contract['sites'][(int) $site] ?? null)) {
+                return [];
+            }
+            foreach (['token_uid', 'contract_id'] as $key) {
+                if (! is_string($mapping[$key] ?? null) || ! preg_match('/^TEST-[A-Za-z0-9-]{1,31}$/D', $mapping[$key])) {
+                    return [];
+                }
+            }
+            if (! is_string($mapping['evse_id'] ?? null)
+                || ! preg_match('/^[A-Z]{2}\*[A-Z0-9]{3}\*E[A-Z0-9*]{1,30}$/D', $mapping['evse_id'])
+                || ! str_starts_with($mapping['evse_id'], $prefix)) {
+                return [];
+            }
+        }
+
+        return $exports;
     }
 
     public const MAX_RECORD_BYTES = 262_144;

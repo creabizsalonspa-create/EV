@@ -21,7 +21,12 @@ Map<String, dynamic> company({bool writer = true, bool operational = true, bool 
 
 class InventoryApi extends FixtureApi {
   final requests = <String>[];
-  bool blocked = false, fail = false, loseAck = false, siteLinked = true;
+  bool blocked = false, fail = false, loseAck = false, corruptAck = false, siteLinked = true;
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync:true);
+  @override Stream<int> get sessionEvents => changes.stream;
+  @override bool Function() sessionFence() { final captured = epoch; return () => captured == epoch; }
+  void rotate() { epoch++; changes.add(epoch); }
   int writes = 0;
   Completer<dynamic>? pending;
   Map<String, dynamic> page(
@@ -57,7 +62,8 @@ class InventoryApi extends FixtureApi {
       blocked = body['maintenance_blocked'] as bool;
       writes++;
       if (loseAck) throw const ApiException(0, 'transport lost');
-      return {};
+      return {'id':corruptAck?99:4,'charger_id':3,'maintenance_blocked':blocked,
+        'maintenance_reason':body['maintenance_reason'],'availability':'unknown','remote_control_enabled':false};
     }
     if (path == 'vendor-ops/companies')
       return page([company()], int.parse(query['page'] ?? '1'), 2);
@@ -65,6 +71,7 @@ class InventoryApi extends FixtureApi {
       return page([
         {
           'id': 2,
+          'company_id':1,
           'station_id': siteLinked ? 7 : null,
           'name': 'Literal site',
           'address': 'Synthetic address',
@@ -78,6 +85,7 @@ class InventoryApi extends FixtureApi {
       return page([
         {
           'id': 3,
+          'company_id':1,'site_id':2,
           'asset_reference': 'SIM-3',
           'manufacturer': 'Synthetic',
           'model': 'Fixture',
@@ -89,6 +97,7 @@ class InventoryApi extends FixtureApi {
     return page([
       {
         'id': 4,
+        'charger_id':3,
         'connector_number': 1,
         'connector_type': 'CCS2',
         'max_power_kw': 50,
@@ -122,34 +131,6 @@ VendorInventoryView connectors(
   charger: const {'id': 3},
 );
 void main() {
-  test('inventory translation contracts match', () {
-    expect(inventoryEnglish.keys.toSet(), inventoryArabic.keys.toSet());
-  });
-  testWidgets(
-    'company pagination and hierarchy use scoped APIs without hardware commands',
-    (tester) async {
-      final api = InventoryApi();
-      addTearDown(api.close);
-      await tester.pumpWidget(
-        app(VendorInventoryView(api: api, onExpired: () {})),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Literal <company>'), findsOneWidget);
-      await tester.tap(find.text('Next'));
-      await tester.pumpAndSettle();
-      expect(find.text('Page 2 of 2 · 1 records'), findsOneWidget);
-      for (final label in ['Sites', 'Chargers', 'Connectors']) {
-        await tester.tap(find.widgetWithText(FilledButton, label));
-        await tester.pumpAndSettle();
-      }
-      expect(find.text('Connector 1'), findsOneWidget);
-      expect(
-        api.requests,
-        contains('GET vendor-ops/companies/1/sites/2/chargers'),
-      );
-      expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
-    },
-  );
   testWidgets(
     'linked station site offers an owner-only policy editor with current source GET',
     (tester) async {
@@ -217,6 +198,97 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('فترات حجب المحطة'), findsOneWidget);
       expect(api.requests, contains('GET stations/7/availability-blocks'));
+      expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
+    },
+  );
+  test('maintenance receipt must match exact connector, charger, state and reason', () {
+    final row={'id':4,'charger_id':3,'maintenance_blocked':true,
+      'maintenance_reason':'Original reason','availability':'unknown','remote_control_enabled':false};
+    bool matches(dynamic value)=>inventoryMaintenanceReceipt(value,4,3,true,'Original reason');
+    expect(matches(row),isTrue);
+    for (final change in [
+      {'id':5},{'charger_id':6},{'maintenance_blocked':false},
+      {'maintenance_reason':'Other'},{'availability':'available'},{'remote_control_enabled':true},
+    ]) { expect(matches({...row,...change}),isFalse); }
+  });
+  testWidgets('inventory background invalidates maintenance consent and hides private rows',(tester) async {
+    final api=InventoryApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(connectors(api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Block new starts'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField),'Literal <reason>');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.writes,0);
+    expect(find.text('Connector 1'),findsNothing);
+    await tester.tap(find.byTooltip('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Connector 1'),findsOneWidget);
+  });
+  testWidgets('revoked inventory erases rows and denies retained navigation or refresh',(tester) async {
+    final api=InventoryApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(VendorInventoryView(api:api,onExpired:(){})));
+    await tester.pumpAndSettle();
+    final navigate=tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Sites')).onPressed!;
+    final refresh=tester.widget<IconButton>(find.byWidgetPredicate((w) => w is IconButton && w.tooltip == 'Refresh')).onPressed!;
+    final count=api.requests.length;
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Literal <company>'),findsNothing);
+    navigate(); refresh();
+    await tester.pumpAndSettle();
+    expect(api.requests.length,count);
+  });
+  testWidgets('wrong maintenance acknowledgement requires fresh inventory without replay',(tester) async {
+    final api=InventoryApi()..corruptAck=true;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(connectors(api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Block new starts'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField),'Literal <reason>');
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(find.text('Connector 1'),findsNothing);
+    expect(find.text(inventoryEnglish['uncertain']!),findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(api.writes,1);
+    expect(find.text('Maintenance block active'),findsOneWidget);
+  });
+  test('inventory translation contracts match', () {
+    expect(inventoryEnglish.keys.toSet(), inventoryArabic.keys.toSet());
+  });
+  testWidgets(
+    'company pagination and hierarchy use scoped APIs without hardware commands',
+    (tester) async {
+      final api = InventoryApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        app(VendorInventoryView(api: api, onExpired: () {})),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Literal <company>'), findsOneWidget);
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      expect(find.text('Page 2 of 2 · 1 records'), findsOneWidget);
+      for (final label in ['Sites', 'Chargers', 'Connectors']) {
+        await tester.tap(find.widgetWithText(FilledButton, label));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Connector 1'), findsOneWidget);
+      expect(
+        api.requests,
+        contains('GET vendor-ops/companies/1/sites/2/chargers'),
+      );
       expect(api.requests.every((v) => v.startsWith('GET ')), isTrue);
     },
   );
