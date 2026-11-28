@@ -73,7 +73,7 @@ class ChargerConfigurationTest extends TestCase
             $created = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('settings_changed', false);
             $id = $created->json('id');
             $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
-            Http::assertSentCount(3);
+            Http::assertSentCount(4);
             Http::assertSent(fn ($r) => str_contains($r->url(), $protocol === '1.6' ? '/configuration/getConfiguration?' : '/monitoring/getVariables?') && ! str_contains(json_encode($r->data()), 'AuthorizationKey'));
             $this->postJson($f['path'].'/'.$id.'/observe')->assertOk()->assertJsonPath('status', 'source_observed')->assertJsonCount(3, 'snapshot')->assertJsonPath('snapshot.0.value', '30')->assertJsonPath('snapshot.1.value', null)->assertJsonPath('snapshot.1.status', 'invalid_value')->assertDontSee('PRIVATE-')->assertJsonPath('physical_charging_verified', false);
             $this->getJson($f['path'])->assertOk()->assertJsonMissingPath('data.0.reason')->assertJsonMissingPath('data.0.source_payload_hash')->assertDontSee('PRIVATE-');
@@ -264,12 +264,12 @@ class ChargerConfigurationTest extends TestCase
         $body = ['idempotency_key' => 'lost', 'reason' => 'Inspect operating settings safely'];
         $id = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown')->json('id');
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('status', 'outcome_unknown');
-        Http::assertSentCount(3);
+        Http::assertSentCount(4);
         $this->postJson($f['path'], array_replace($body, ['reason' => 'Changed private operator reason']))->assertConflict();
         $this->postJson($f['path'], array_replace($body, ['idempotency_key' => 'replacement']))->assertConflict();
-        Http::assertSentCount(3);
+        Http::assertSentCount(4);
         $this->postJson($f['path'].'/'.$id.'/observe')->assertOk()->assertJsonPath('status', 'source_observed');
-        Http::assertSentCount(6);
+        Http::assertSentCount(7);
     }
 
     public function test_offline_device_error_reply_can_be_observed_without_another_command_or_private_error_text(): void
@@ -304,6 +304,42 @@ class ChargerConfigurationTest extends TestCase
             Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), 'citrine:8080'));
             $this->assertDatabaseHas('charger_configuration_reads', ['id' => $id, 'status' => 'not_dispatched']);
         }
+    }
+
+    public function test_final_source_station_and_credential_drift_block_configuration_reads(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['station', 'credential'] as $change) {
+                $f = $this->fixture($protocol);
+                config(['csms.operations_auth_mode' => 'development']);
+                $issued = false;
+                Http::swap(new Factory);
+                Http::preventStrayRequests();
+                Http::fake(function ($r) use ($protocol, $change, &$issued) {
+                    if (str_ends_with($r->url(), '/dev/token')) {
+                        $issued = true;
+
+                        return Http::response(['accessToken' => 'synthetic']);
+                    }
+                    $this->assertStringEndsWith('/graphql', $r->url());
+                    if ($issued && $change === 'credential') {
+                        config(['csms.operations_auth_mode' => 'oauth2']);
+                    }
+
+                    return Http::response(['data' => ['ChargingStations' => [[
+                        'id' => $issued && $change === 'station' ? 8 : 7, 'isOnline' => true, 'protocol' => $protocol,
+                    ]]]]);
+                });
+                $body = ['idempotency_key' => 'final-'.$protocol.'-'.$change, 'reason' => 'Review final source and credential'];
+                $id = $this->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched')->json('id');
+                config(['csms.operations_auth_mode' => 'development']);
+                $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'not_dispatched');
+                Http::assertSentCount(3);
+                Http::assertNotSent(fn ($r) => str_contains($r->url(), '/ocpp/'));
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_current_role_recheck_blocks_dispatch_after_service_token_discovery(): void

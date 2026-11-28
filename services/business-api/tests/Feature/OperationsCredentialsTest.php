@@ -44,6 +44,30 @@ class OperationsCredentialsTest extends TestCase
         Http::fake(['https://identity.example.test/token' => Http::response(array_replace(['token_type' => 'Bearer', 'access_token' => $jwt], $response))]);
     }
 
+    public function test_combined_policy_rejects_invalid_issuer_and_ambiguous_token_origin_before_network(): void
+    {
+        $original = config('csms.operations_oauth_issuer');
+        foreach (['https://identity.example.test:00443', 'https://identity.example.test/a/../issuer',
+            'https://identity.example.test/%2e%2e', 'https://identity.example.test.'] as $issuer) {
+            config(['csms.operations_oauth_issuer' => $issuer]);
+            try {
+                app(OperationsCredentials::class)->tokenForDispatch('https://csms.example.test');
+                $this->fail('Invalid issuer must block the entire credential operation.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        }
+        config(['csms.operations_oauth_issuer' => $original,
+            'csms.operations_oauth_token_url' => 'https://identity.example.test:00443/token']);
+        try {
+            app(OperationsCredentials::class)->tokenForDispatch('https://csms.example.test');
+            $this->fail('An ambiguous token origin must not receive credentials.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        Http::assertNothingSent();
+    }
+
     public function test_pinned_credentials_are_memory_only_and_provider_is_called_once_per_operation(): void
     {
         $token = $this->jwt();
@@ -53,6 +77,40 @@ class OperationsCredentialsTest extends TestCase
         $this->assertSame($token, $service->token('https://csms.example.test'));
         Http::assertSentCount(2);
         Http::assertSent(fn (Request $r) => $r->url() === 'https://identity.example.test/token' && $r['grant_type'] === 'client_credentials' && $r['scope'] === 'csms:operations' && $r->hasHeader('Authorization', 'Basic '.base64_encode('business-operations:'.str_repeat('private-secret-', 4))));
+    }
+
+    public function test_invalid_keyring_never_sends_oauth_client_secret_even_if_one_key_is_valid(): void
+    {
+        $pem = openssl_pkey_get_details(self::$key)['key'];
+        foreach ([[], ['current' => $pem, 'invalid' => 'not a key'], ['bad key' => $pem], ['current' => $pem.$pem]] as $keys) {
+            config(['csms.operations_oauth_public_keys' => $keys]);
+            try {
+                app(OperationsCredentials::class)->token('https://csms.example.test');
+                $this->fail('Invalid pinned keyring must block credential acquisition.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_duplicate_provider_envelope_members_are_rejected_even_with_valid_signed_last_token(): void
+    {
+        $jwt = $this->jwt();
+        foreach (['"access_token":"discarded",', '"token_\u0074ype":"invalid",', '"metadata":{"x":1,"\u0078":2},'] as $prefix) {
+            Http::fake(['https://identity.example.test/token' => Http::response(
+                '{'.$prefix.'"token_type":"Bearer","access_token":'.json_encode($jwt, JSON_THROW_ON_ERROR).'}',
+                200, ['Content-Type' => 'application/json']
+            )]);
+            try {
+                app(OperationsCredentials::class)->token('https://csms.example.test');
+                $this->fail('Ambiguous provider token envelope accepted.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+                $this->assertStringNotContainsString($jwt, $e->getMessage());
+            }
+        }
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dev/token') || str_contains($r->url(), '/ocpp/'));
     }
 
     public static function duplicateJwtMembers(): array
@@ -97,7 +155,7 @@ class OperationsCredentialsTest extends TestCase
     public static function invalidClaims(): array
     {
         return [
-            'issuer' => [['iss' => 'https://other.test']], 'audience' => [['aud' => 'https://other.test']], 'audience_array' => [['aud' => ['https://csms.example.test']]], 'subject' => [['sub' => 'other-service']], 'tenant' => [['tenantId' => 2]], 'string_tenant' => [['tenantId' => '1']], 'no_admin' => [['roles' => ['viewer']]], 'no_scope' => [['scope' => 'other:operations']], 'scope_substring' => [['scope' => 'xcsms:operations']], 'string_expiry' => [['exp' => '9999999999']], 'string_issued' => [['iat' => '1']], 'future_not_before' => [['nbf' => 9999999999]], 'null_not_before' => [['nbf' => null]], 'long_lifetime' => [['exp' => 9999999999]],
+            'issuer' => [['iss' => 'https://other.test']], 'audience' => [['aud' => 'https://other.test']], 'audience_array' => [['aud' => ['https://csms.example.test']]], 'subject' => [['sub' => 'other-service']], 'tenant' => [['tenantId' => 2]], 'string_tenant' => [['tenantId' => '1']], 'no_admin' => [['roles' => ['viewer']]], 'duplicate_roles' => [['roles' => ['admin', 'admin']]], 'mixed_roles' => [['roles' => ['admin', 1]]], 'duplicate_scope' => [['scope' => 'csms:operations csms:operations']], 'empty_scope_token' => [['scope' => 'csms:operations  read']], 'no_scope' => [['scope' => 'other:operations']], 'scope_substring' => [['scope' => 'xcsms:operations']], 'string_expiry' => [['exp' => '9999999999']], 'string_issued' => [['iat' => '1']], 'future_not_before' => [['nbf' => 9999999999]], 'null_not_before' => [['nbf' => null]], 'long_lifetime' => [['exp' => 9999999999]],
         ];
     }
 
@@ -302,6 +360,64 @@ class OperationsCredentialsTest extends TestCase
             return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
         });
         $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        config(['csms.operations_oauth_public_keys' => $keys]);
+        app(CsmsDispatcher::class)->dispatch($command->id);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), '/dev/token'));
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_issued_dispatch_credential_is_rechecked_without_new_provider_requests(): void
+    {
+        $jwt = $this->jwt(['exp' => now()->addSeconds(30)->timestamp]);
+        $this->serve($jwt);
+        $credential = app(OperationsCredentials::class)->tokenForDispatch('https://csms.example.test');
+        $this->assertSame($jwt, $credential());
+        $this->travel(20)->seconds();
+        try {
+            $credential();
+            $this->fail('A token with insufficient remaining lifetime survived the final wire check.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        Http::assertSentCount(1);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_policy_rotation_after_token_issuance_and_before_wire_cannot_dispatch_or_retry(string $protocol): void
+    {
+        config(['csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.example.test']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Post-token fixture',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25,
+            'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-post-token',
+            'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $vendor->id,
+            'station_id' => $station->id, 'action' => 'start', 'payload' => [],
+            'payload_hash' => str_repeat('d', 64), 'idempotency_key' => 'oauth-post-token']);
+        $jwt = $this->jwt();
+        $keys = config('csms.operations_oauth_public_keys');
+        $issued = false;
+        $rotated = false;
+        Http::fake(function (Request $request) use ($jwt, &$issued) {
+            $this->assertSame('https://identity.example.test/token', $request->url());
+            $issued = true;
+
+            return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
+        });
+        // The first binding read after credential issuance is outside the
+        // issuer's request/verification boundary but before transport.
+        DB::listen(function ($query) use (&$issued, &$rotated) {
+            if ($issued && ! $rotated && str_contains($query->sql, 'csms_bindings')) {
+                $rotated = true;
+                config(['csms.operations_oauth_public_keys' => []]);
+            }
+        });
+        $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        $this->assertTrue($rotated);
         config(['csms.operations_oauth_public_keys' => $keys]);
         app(CsmsDispatcher::class)->dispatch($command->id);
         Http::assertSentCount(1);

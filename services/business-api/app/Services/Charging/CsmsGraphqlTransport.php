@@ -19,17 +19,8 @@ final class CsmsGraphqlTransport
 
     public function approved(mixed $url): bool
     {
-        if (! is_string($url) || strlen($url) < 12 || strlen($url) > 512
-            || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) {
-            return false;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts) || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
-            || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
-            || isset($parts['user']) || isset($parts['pass'])
-            || isset($parts['query']) || isset($parts['fragment'])
-            || ! is_string($parts['path'] ?? null) || strlen($parts['path']) < 2
-            || ! str_starts_with($parts['path'], '/')) {
+        $parts = CsmsEndpoint::parse($url, 512);
+        if ($parts === null || strlen($parts['path'] ?? '') < 2) {
             return false;
         }
 

@@ -71,6 +71,36 @@ class CsmsGraphqlTransportTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_ambiguous_https_authorities_are_rejected_before_privileged_network_access(): void
+    {
+        foreach ([
+            'https://source.test:0/graphql',
+            'https://source.test:/graphql',
+            'https://source.test:00443/graphql',
+            'https://source%2etest/graphql',
+            'https://source.test./graphql',
+            'https://source..test/graphql',
+            'https://127.1/graphql',
+            'https://0x7f000001/graphql',
+            'https://[gggg::1]/graphql',
+            'https://source.test//graphql',
+            'https://source.test/a/../graphql',
+            'https://source.test/%2e%2e/graphql',
+        ] as $url) {
+            config(['csms.graphql_url' => $url]);
+            $this->assertFalse(app(CsmsGraphqlTransport::class)->approved($url));
+            try {
+                app(RemoteSessionAuthorization::class)->graph('query{ChargingStations(limit:1){id}}', []);
+                $this->fail('Ambiguous configured authority must not receive a source key.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        }
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_even_fixed_internal_plaintext_hosts_are_rejected_outside_local_test_environments(): void
     {
         $prior = app()->environment();
