@@ -992,3 +992,41 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   assert.equal(nodes(ui.mine,"pre").length,0);
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
+
+test("optional erasure security step explicitly confirms scoped copy discard and ends local identity",async()=>{
+  const ui=fixture(),calls=[];let ended=0;
+  ui.setSelfActor({id:3,role:"customer"},async(path,method="GET",body)=>{
+    calls.push({path,method,body});
+    if(method==="POST")return {request_id:22,case_status:"pending",derived_copies_discarded:1,sessions_revoked:true,
+      sign_in_required:true,automated_erasure_performed:false,source_records_deleted:false,manual_processing_required:true};
+    return page([record]);
+  },()=>ended++);
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Secure account before erasure")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional erasure security preparation");
+  const [password,factor,consent]=nodes(form,"input");
+  password.value="password";factor.value="123456";
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1);
+  consent.checked=true;
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,2);assert.equal(calls[1].path,"account/privacy-requests/22/secure-account");
+  assert.equal(calls[1].body.confirmation,"discard_copies_and_revoke_sessions");
+  assert.equal(password.value,"");assert.equal(factor.value,"");assert.equal(ended,1);
+  assert.equal(ui.mine.children.length,0);
+  await form.onsubmit({preventDefault(){}});assert.equal(calls.length,2);
+});
+test("unverified erasure security receipt never reports success or retries",async()=>{
+  const ui=fixture();let ended=0,posts=0;
+  ui.setSelfActor({id:3,role:"vendor"},async(path,method="GET")=>{
+    if(method==="POST"){posts++;return {request_id:99,sessions_revoked:true};}
+    return page([record]);
+  },()=>ended++);
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Secure account before erasure")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional erasure security preparation");
+  const [password,,consent]=nodes(form,"input");password.value="password";consent.checked=true;
+  await form.onsubmit({preventDefault(){}});
+  assert.match(ui.mine.textContent,/Security step unconfirmed/);assert.equal(ended,0);
+  await form.onsubmit({preventDefault(){}});assert.equal(posts,1);
+});
