@@ -13,6 +13,12 @@ class _PrivacyApi extends EvApi {
   final rows = <Map<String, dynamic>>[];
   final received = <Map<String, dynamic>>[];
   final withdrawals = <String>[];
+  final contactWrites = <Map<String, dynamic>>[];
+  Completer<void>? holdContact;
+  bool forgeContact = false;
+  final securityWrites = <Map<String, dynamic>>[];
+  Completer<void>? holdSecurity;
+  bool forgeSecurity = false;
   Completer<void>? holdGet;
   Completer<void>? holdPost;
   Completer<void>? holdWithdraw;
@@ -78,6 +84,29 @@ class _PrivacyApi extends EvApi {
       rows.add(row);
       return row;
     }
+    if (path.endsWith('/minimize-contact') && method == 'POST') {
+      contactWrites.add(Map<String, dynamic>.from(body!));
+      if (holdContact != null) await holdContact!.future;
+      return {
+        'request_id': 22, 'case_status': 'reviewing',
+        'optional_phone_removed': true, 'profile_phone_changed': true,
+        'live_challenges_cancelled': 1, 'challenge_payloads_cleared': 1,
+        'verification_receipts_retained': true,
+        'external_deletion_verified': forgeContact,
+        'account_deleted': false, 'automated_erasure_performed': false,
+        'manual_processing_required': true,
+      };
+    }
+    if (path.endsWith('/secure-account') && method == 'POST') {
+      securityWrites.add(Map<String, dynamic>.from(body!));
+      if (holdSecurity != null) await holdSecurity!.future;
+      return {
+        'request_id': 22, 'case_status': 'reviewing',
+        'derived_copies_discarded': 1, 'sessions_revoked': true,
+        'sign_in_required': true, 'source_records_deleted': forgeSecurity,
+        'automated_erasure_performed': false, 'manual_processing_required': true,
+      };
+    }
     if (path.endsWith('/withdraw') && method == 'POST') {
       withdrawals.add(path);
       if (holdWithdraw != null) await holdWithdraw!.future;
@@ -87,7 +116,167 @@ class _PrivacyApi extends EvApi {
   }
 }
 
+// The consolidated history card sits below the viewport at 800x600.
+// Wait for the scroll/layout update, then require the actual control to be
+// hit-testable before dispatching a tap or entering private credentials.
+Future<void> _visiblePrivacyControl(WidgetTester tester, Finder target) async {
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  expect(target.hitTestable(), findsOneWidget);
+}
+
 void main() {
+  for (final forged in [false, true]) {
+    testWidgets('optional contact receipt requires consent and exact evidence (forged=$forged)', (tester) async {
+      final api = _PrivacyApi()..forgeContact = forged;
+      addTearDown(api.close);
+      api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+      await tester.pumpWidget(MaterialApp(
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      final open = find.byKey(const ValueKey('privacy-contact-open-22'));
+      await _visiblePrivacyControl(tester, open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      final password = find.byKey(const Key('privacy-contact-password'));
+      final factor = find.byKey(const Key('privacy-contact-factor'));
+      final consent = find.byKey(const Key('privacy-contact-consent'));
+      final submit = find.byKey(const Key('privacy-contact-submit'));
+      await _visiblePrivacyControl(tester, password);
+      await tester.enterText(password, 'password');
+      await _visiblePrivacyControl(tester, factor);
+      await tester.enterText(factor, '123456');
+      expect(tester.widget<FilledButton>(submit).onPressed, isNull);
+      await _visiblePrivacyControl(tester, consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      await _visiblePrivacyControl(tester, submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.contactWrites.single['confirmation'], 'remove_optional_phone');
+      expect(api.contactWrites.single['second_factor_code'], '123456');
+      expect(password, findsNothing);
+      expect(factor, findsNothing);
+      expect(open, findsNothing);
+      expect(find.byKey(const Key('privacy-success')), forged ? findsNothing : findsOneWidget);
+      expect(find.byKey(const Key('privacy-error')), forged ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('late contact receipt is discarded on background and resume', (tester) async {
+    final api = _PrivacyApi()..holdContact = Completer<void>();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+    await tester.pumpWidget(MaterialApp(
+      home: PrivacyRequestsView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    final open = find.byKey(const ValueKey('privacy-contact-open-22'));
+    await _visiblePrivacyControl(tester, open);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    final password = find.byKey(const Key('privacy-contact-password'));
+    await _visiblePrivacyControl(tester, password);
+    await tester.enterText(password, 'password');
+    final consent = find.byKey(const Key('privacy-contact-consent'));
+    await _visiblePrivacyControl(tester, consent);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    final submit = find.byKey(const Key('privacy-contact-submit'));
+    await _visiblePrivacyControl(tester, submit);
+    await tester.tap(submit);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    api.holdContact!.complete();
+    await tester.pumpAndSettle();
+    expect(api.contactWrites, hasLength(1));
+    expect(find.byKey(const Key('privacy-success')), findsNothing);
+    expect(password, findsNothing);
+    expect(open, findsNothing);
+    expect(api.privateReads, 1);
+  });
+
+  for (final forged in [false, true]) {
+    testWidgets('erasure security confirms exact receipt before ending session (forged=$forged)', (tester) async {
+      final api = _PrivacyApi()..forgeSecurity = forged;
+      addTearDown(api.close);
+      var ended = 0;
+      api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+      final fence = api.sessionFence();
+      await tester.pumpWidget(MaterialApp(
+        home: PrivacyRequestsView(api: api, onExpired: () => ended++),
+      ));
+      await tester.pumpAndSettle();
+      final open = find.byKey(const ValueKey('privacy-security-open-22'));
+      await _visiblePrivacyControl(tester, open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      final password = find.byKey(const Key('privacy-security-password'));
+      final factor = find.byKey(const Key('privacy-security-factor'));
+      final consent = find.byKey(const Key('privacy-security-consent'));
+      final submit = find.byKey(const Key('privacy-security-submit'));
+      await _visiblePrivacyControl(tester, password);
+      await tester.enterText(password, 'password');
+      await _visiblePrivacyControl(tester, factor);
+      await tester.enterText(factor, '123456');
+      expect(tester.widget<FilledButton>(submit).onPressed, isNull);
+      await _visiblePrivacyControl(tester, consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      await _visiblePrivacyControl(tester, submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.securityWrites.single['confirmation'], 'discard_copies_and_revoke_sessions');
+      expect(api.securityWrites.single['second_factor_code'], '123456');
+      expect(ended, forged ? 0 : 1);
+      expect(fence(), forged);
+      expect(password, findsNothing);
+      expect(factor, findsNothing);
+      expect(find.byKey(const Key('privacy-error')), forged ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('confirmed security revocation clears current device even after backgrounding', (tester) async {
+    final api = _PrivacyApi()..holdSecurity = Completer<void>();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    var ended = 0;
+    final fence = api.sessionFence();
+    api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+    await tester.pumpWidget(MaterialApp(
+      home: PrivacyRequestsView(api: api, onExpired: () => ended++),
+    ));
+    await tester.pumpAndSettle();
+    final open = find.byKey(const ValueKey('privacy-security-open-22'));
+    await _visiblePrivacyControl(tester, open);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    final password = find.byKey(const Key('privacy-security-password'));
+    await _visiblePrivacyControl(tester, password);
+    await tester.enterText(password, 'password');
+    final consent = find.byKey(const Key('privacy-security-consent'));
+    await _visiblePrivacyControl(tester, consent);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    final submit = find.byKey(const Key('privacy-security-submit'));
+    await _visiblePrivacyControl(tester, submit);
+    await tester.tap(submit);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    api.holdSecurity!.complete();
+    await tester.pumpAndSettle();
+    expect(ended, 1);
+    expect(fence(), isFalse);
+    expect(api.securityWrites, hasLength(1));
+    expect(password, findsNothing);
+  });
+
 
   for (final language in ['en', 'ar']) {
     for (final failureMode in ['duplicate', 'wrong-page']) {
