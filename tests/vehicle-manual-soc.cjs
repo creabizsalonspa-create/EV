@@ -27,6 +27,7 @@ class Element {
 }
 const document={documentElement:{lang:'en'},createElement:tag=>new Element(tag)};
 const window={};
+vm.runInNewContext(fs.readFileSync('services/business-api/public/station-time.js','utf8'),{window,document});
 const crypto={randomUUID:()=> 'd9c914a4-b79f-40d6-b6ef-2a47a0d6a213'};
 const path='services/business-api/public/vehicle-manual-soc.js';
 vm.runInNewContext(fs.readFileSync(path,'utf8'),{window,document,crypto,Number,Object},{filename:path});
@@ -68,7 +69,7 @@ const api=async(path,method,body)=>{
     return {data:[],last_page:1,current_page:1};
   if(path==='vehicles/5/manual-soc/history?page=1')return {
     data:latest===0?[]:[{vehicle_id:5,battery_percent:latest,revision:1,
-      reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT'}],
+      reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}],
     last_page:1,current_page:1,
   };
   throw Error('unexpected endpoint '+path);
@@ -92,6 +93,8 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.ok(root.querySelector('[data-manual-soc-panel]'));
   assert.match(visible(root),/phone, vehicle API or charger/);
   const form=find(root,n=>n.tag==='form');
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(writes.length,0,'Empty estimate must not become zero');
   find(form,n=>n.name==='battery_percent').value='77';
   await form.onsubmit({preventDefault(){}});
   assert.equal(writes.length,1);
@@ -105,6 +108,39 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.equal(writes[0].battery_percent,77);
   assert.equal(writes[0].expected_revision,0);
   assert.match(visible(root),/Latest self-reported battery: 77%/);
+  assert.match(visible(root),/Report time unavailable/);
+  assert.doesNotMatch(visible(root),/server timestamp/);
+  const clockRoot=document.createElement('section');
+  const clockActor={id:58,role:'customer'};
+  let reportClock='2026-11-07T18:00:00+04:00', clockWrites=0;
+  const clockRow=()=>({vehicle_id:19,revision:1,battery_percent:63,
+    reported_at:reportClock,source:'CUSTOMER_MANUAL_SELF_REPORT',
+    measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false});
+  const clockView=window.VehicleManualSoc.create({root:clockRoot,actor:()=>clockActor,epoch:()=>1,
+    api:async(path,method)=>{
+      if(method&&method!=='GET')clockWrites++;
+      return path.includes('/history')?{data:[clockRow()],current_page:1,last_page:1}:clockRow();
+    }});
+  clockView.setActor(clockActor);
+  const vehicle={id:19,name:'Clock fixture'};
+  for(const language of ['en','ar']){
+    document.documentElement.lang=language;
+    clockView.renderGarage([vehicle]);
+    await clockView.open(vehicle);
+    const expected=new Intl.DateTimeFormat(language==='ar'?'ar':'en-GB',{
+      timeZone:'UTC',dateStyle:'medium',timeStyle:'short',hourCycle:'h23'
+    }).format(new Date('2026-11-07T14:00:00Z'))+' (UTC)';
+    assert.ok(visible(clockRoot).includes(expected));
+    assert.doesNotMatch(visible(clockRoot),/2026-11-07T18:00:00/);
+    reportClock='2026-02-30T18:00:00+04:00';
+    await clockView.open(vehicle);
+    assert.ok(visible(clockRoot).includes(language==='ar'?'وقت التقرير غير متاح':'Report time unavailable'));
+    assert.doesNotMatch(visible(clockRoot),/2026-02-30/);
+    reportClock='2026-11-07T18:00:00+04:00';
+  }
+  assert.equal(clockWrites,0);
+  clockView.clear();
+  document.documentElement.lang='en';
   // A source GET for vehicle 5 is delayed after a successful write. Meanwhile
   // a second vehicle is opened. The old form and old response must not modify
   // vehicle 6's state or submit another report for it.
@@ -154,7 +190,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     }
     if(path==='vehicles/8/manual-soc/history?page=1')return {
       data:accepted?[{vehicle_id:8,battery_percent:61,revision:1,
-        reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[],
+        reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
       current_page:1,last_page:1,
     };
     throw Error('unexpected uncertain readback endpoint '+path);
@@ -210,7 +246,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
         if(missing)badOnce=false;
         return {data:accepted&&!missing?[{vehicle_id:9,battery_percent:43,
           revision:1,reported_at:'server timestamp',
-          source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[],
+          source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
           current_page:1,last_page:1};
       }
       throw Error('Unexpected probe endpoint '+path);
@@ -276,9 +312,9 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     if(path==='vehicles/10/manual-soc/history?page=1')return {
       data:acceptedOlder?[
         {vehicle_id:10,revision:2,battery_percent:28,
-         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'newer'},
+         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'newer',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false},
         {vehicle_id:10,revision:1,battery_percent:54,
-         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'earlier'},
+         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'earlier',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false},
       ]:[],
       current_page:1,last_page:1,
     };
@@ -328,7 +364,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     if(path==='vehicles/11/manual-soc/history?page=1')return {
       current_page:1,last_page:1,
       data:serverCommitted?[{vehicle_id:11,revision:1,battery_percent:64,
-        source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null}]:[],
+        source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null,measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
     };
     throw Error('Unexpected held POST endpoint '+path);
   };
@@ -380,7 +416,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   // populate a user-editable manual report, even with HTTP 200.
   const poisonedRoot=document.createElement('section');
   const poisonedActor={id:97,role:'customer'};
-  let poisonedCurrent=true,poisonedHistory=false;
+  let poisonedCurrent=true,poisonedHistory=false,poisonedProvenance=false,duplicateRevision=false,wrongPage=false;
   const poisonedApi=async(path,method)=>{
     if(path==='vehicles/15/manual-soc')return {
       vehicle_id:15,revision:1,battery_percent:74,reported_at:'server time',
@@ -388,12 +424,13 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       measured_by_phone:poisonedCurrent,
       measured_by_vehicle_api:false,charging_capability_verified:false,
     };
-    if(path==='vehicles/15/manual-soc/history?page=1')return {
-      data:poisonedHistory?[{vehicle_id:999,revision:1,battery_percent:74,
-        source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[
-        {vehicle_id:15,revision:1,battery_percent:74,
-         source:'CUSTOMER_MANUAL_SELF_REPORT'}],
-      current_page:1,last_page:1,
+    if(path.startsWith('vehicles/15/manual-soc/history?page='))return {
+      data: Array.from({length:duplicateRevision?2:1},()=>({
+        vehicle_id:poisonedHistory?999:15,revision:1,battery_percent:74,
+        source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,
+        measured_by_vehicle_api:poisonedProvenance,charging_capability_verified:false,
+      })),
+      current_page:wrongPage?2:1,last_page:2,
     };
     throw Error('Unexpected provenance check API route '+path);
   };
@@ -414,6 +451,26 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.equal(poisonedRoot.querySelector('[data-manual-soc-panel]'),null,
     'Different vehicle history must not be displayed in customer view');
   poisonedHistory=false;
+  for(const defect of ['provenance','duplicate','wrong-page']){
+    poisonedProvenance=defect==='provenance';duplicateRevision=defect==='duplicate';wrongPage=defect==='wrong-page';
+    await poisoned.open({id:15,name:'Provenance safety check'});
+    assert.match(visible(poisonedRoot),/Unexpected manual battery history/);
+    assert.equal(poisonedRoot.querySelector('[data-manual-soc-panel]'),null,defect);
+  }
+  poisonedProvenance=duplicateRevision=wrongPage=false;
+  await poisoned.open({id:15,name:'Provenance safety check'});
+  assert.match(visible(poisonedRoot),/Latest self-reported battery: 74%/);
+  const retiredForm=find(poisonedRoot,n=>n.tag==='form');
+  const nextPage=find(poisonedRoot,n=>n.tag==='button'&&visible(n)===' Next');
+  const next=nextPage||find(poisonedRoot,n=>n.tag==='button'&&visible(n).trim()==='Next');
+  assert.ok(next);
+  // The API deliberately reports page 1 for a requested page 2.
+  await next.onclick();
+  assert.equal(poisonedRoot.querySelector('[data-manual-soc-panel]'),null);
+  assert.doesNotMatch(visible(poisonedRoot),/Latest self-reported battery: 74%/);
+  find(retiredForm,n=>n.name==='battery_percent').value='55';
+  await retiredForm.onsubmit({preventDefault(){}});
+  assert.match(visible(poisonedRoot),/Unexpected manual battery history/);
   await poisoned.open({id:15,name:'Provenance safety check'});
   assert.match(visible(poisonedRoot),/Latest self-reported battery: 74%/);
   poisoned.clear();

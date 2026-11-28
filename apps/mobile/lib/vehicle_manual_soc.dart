@@ -48,7 +48,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
   String? error,success;
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   String reportTime(dynamic value) {
-    final formatted=reservationTime(context, {'reported_at':value}, 'reported_at');
+    final formatted=serverUtcTime(context, value);
     return formatted=='—'
       ? t('Report time unavailable','وقت التقرير غير متاح')
       : formatted;
@@ -270,7 +270,15 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
         'Enter your own battery estimate. Your phone does not measure vehicle SOC. These reports do not start or stop charging, authorize reservations or calculate fees.',
         'أدخل تقديرك الشخصي للبطارية. الهاتف لا يقيس شحن المركبة. التقارير لا تبدأ أو توقف الشحن أو تسمح بالحجز أو تحسب الرسوم.',
       )),
-      if(loading)const LinearProgressIndicator(),
+      if (loading || saving) Semantics(
+        key: const Key('manual-soc-progress'),
+        liveRegion: true,
+        child: LinearProgressIndicator(
+          semanticsLabel: saving
+            ? t('Saving manual battery report', 'جارٍ حفظ تقرير البطارية اليدوي')
+            : t('Reading manual battery history', 'جارٍ قراءة سجل البطارية اليدوي'),
+        ),
+      ),
       if(error!=null)Semantics(liveRegion:true,
         child:Text(error!,key:const Key('manual-soc-error'))),
       if(success!=null)Semantics(liveRegion:true,

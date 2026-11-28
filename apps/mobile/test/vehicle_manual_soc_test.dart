@@ -142,6 +142,29 @@ class _SocApi extends EvApi {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('localized manual SOC progress is private and clears on completion ($ar)', (tester) async {
+      final api = _SocApi()..holdVehicle17 = Completer<void>();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: VehicleManualSocView(api: api, vehicleId: 17, onExpired: () {}),
+      ));
+      await tester.pump();
+      final progress = find.byKey(const Key('manual-soc-progress'));
+      expect(tester.widget<Semantics>(progress).properties.liveRegion, isTrue);
+      expect(tester.widget<LinearProgressIndicator>(
+        find.descendant(of: progress, matching: find.byType(LinearProgressIndicator)),
+      ).semanticsLabel, ar ? 'جارٍ قراءة سجل البطارية اليدوي' : 'Reading manual battery history');
+      expect(api.writes, isEmpty);
+      api.holdVehicle17!.complete();
+      await tester.pumpAndSettle();
+      expect(progress, findsNothing);
+      expect(api.writes, isEmpty);
+    });
+  }
   testWidgets('failed authoritative SOC refresh removes former report and disables new write', (tester) async {
     final api = _SocApi()..revision=1..percent=63;
     addTearDown(api.close);
@@ -181,7 +204,7 @@ void main() {
 
   for(final ar in [false,true]){
     testWidgets('manual SOC source clocks are localized without device timezone assumptions ($ar)', (tester) async {
-      final api=_SocApi()..revision=1..percent=63..reportClock='2026-11-07T14:00:00+00:00';
+      final api=_SocApi()..revision=1..percent=63..reportClock='2026-11-07T18:00:00+04:00';
       addTearDown(api.close);
       await tester.pumpWidget(MaterialApp(
         locale:Locale(ar?'ar':'en'),
@@ -190,8 +213,13 @@ void main() {
         home:VehicleManualSocView(api:api,vehicleId:17,onExpired:(){}),
       ));
       await tester.pumpAndSettle();
-      expect(find.textContaining('UTC'),findsNWidgets(2));
-      expect(find.textContaining('2026-11-07T14:00:00+00:00'),findsNothing);
+      final ctx = tester.element(find.byType(VehicleManualSocView));
+      final localizations = MaterialLocalizations.of(ctx);
+      final date = localizations.formatCompactDate(DateTime.utc(2026, 11, 7));
+      final time = localizations.formatTimeOfDay(const TimeOfDay(hour: 14, minute: 0),
+        alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(ctx));
+      expect(find.textContaining('$date · $time · \u2068UTC\u2069'),findsNWidgets(2));
+      expect(find.textContaining('2026-11-07T18:00:00+04:00'),findsNothing);
       api.reportClock='2026-02-30T14:00:00Z';
       final refresh=find.text(ar?'تحديث من الخادم':'Refresh from server');
       await tester.ensureVisible(refresh);
