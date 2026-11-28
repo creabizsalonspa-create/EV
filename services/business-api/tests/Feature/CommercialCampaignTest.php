@@ -75,8 +75,10 @@ class CommercialCampaignTest extends TestCase
         $this->delivery($c['id'], 'while-paused', occurredAt: $paused)->assertConflict();
         $this->delivery($c['id'], 'approved-window', occurredAt: $first)
             ->assertOk()->assertJsonPath('duplicate', true);
+        $this->delivery($c['id'], 'click-on-earlier-window', 'click', 'approved-window')->assertConflict();
         $this->delivery($c['id'], 'resumed-window')->assertOk();
-        $this->assertDatabaseCount('commercial_campaign_deliveries', 2);
+        $this->delivery($c['id'], 'click-on-current-window', 'click', 'resumed-window')->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 3);
         $this->assertDatabaseCount('commercial_subscription_ledger', $cash);
         $this->assertDatabaseCount('finance_payments', 0);
     }
@@ -745,6 +747,22 @@ class CommercialCampaignTest extends TestCase
         $this->postJson($path.'/pause', ['reason' => 'Vendor pauses delivery', 'expected_control_revision' => $approved['control_revision']])->assertConflict();
         $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'approved']);
         $this->assertSame(5, DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id'])->count());
+    }
+
+    public function test_repeated_campaign_decision_cannot_reuse_an_older_reason(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->approved($f);
+        $path = '/campaign-test/commercial/campaigns/'.$campaign['id'];
+        $this->actingAs($f['vendor']);
+        $this->postJson($path.'/pause', ['reason' => 'Pause for initial maintenance'])->assertOk();
+        $this->postJson($path.'/resume', ['reason' => 'Initial maintenance completed'])->assertOk();
+        $latest = $this->postJson($path.'/pause', ['reason' => 'Pause for new review'])->assertOk()->json('campaign');
+
+        $this->postJson($path.'/pause', ['reason' => 'Pause for initial maintenance'])->assertConflict();
+        $this->postJson($path.'/pause', ['reason' => 'Pause for new review'])
+            ->assertOk()->assertJsonPath('campaign.control_revision', $latest['control_revision']);
+        $this->assertSame(6, DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id'])->count());
     }
 
     public function test_old_authenticated_actor_cannot_cancel_or_create_after_global_revocation(): void
