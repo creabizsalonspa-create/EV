@@ -88,6 +88,45 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+  for (final language in ['en', 'ar']) {
+    testWidgets('privacy request progress is announced in $language', (tester) async {
+      final api = _PrivacyApi()..holdGet = Completer<void>();
+      addTearDown(api.close);
+      final semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      final ar = language == 'ar';
+      final loading = ar ? 'جارٍ تحميل طلبات الخصوصية' : 'Loading privacy requests';
+      final updating = ar ? 'جارٍ تحديث طلبات الخصوصية' : 'Updating privacy requests';
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pump();
+      expect(find.bySemanticsLabel(loading), findsOneWidget);
+      api.holdGet!.complete();
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel(loading), findsNothing);
+
+      api.holdPost = Completer<void>();
+      final confirm = find.byKey(const Key('privacy-confirm'));
+      await tester.ensureVisible(confirm);
+      await tester.tap(confirm);
+      final submit = find.byKey(const Key('privacy-submit'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+      tester.state<ScrollableState>(find.byType(Scrollable).first)
+          .position.jumpTo(0);
+      await tester.pump();
+      expect(find.bySemanticsLabel(updating), findsOneWidget);
+      api.holdPost!.complete();
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel(updating), findsNothing);
+    });
+  }
+
 
   for (final language in ['en', 'ar']) {
     for (final failureMode in ['duplicate', 'wrong-page']) {
