@@ -129,6 +129,59 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_negotiation_fails_closed_before_dispatch_and_after_review_changes(): void
+    {
+        foreach (['missing', 'expiry', 'replacement', 'policy-toggle', 'stable'] as $scenario) {
+            [$owner, $admin, $provider, $path] = $this->fixture();
+            // Unique connection key for each iteration.
+            $provider->forceFill(['connection_key' => 'negotiation-'.$scenario, 'authorized' => true])->save();
+            config(['ocpi.contract_review_authorization_required' => true,
+                'ocpi.connections.negotiation-'.$scenario => [
+                    'origin' => 'https://partner.example', 'authorization_token' => 'synthetic-token',
+                ]]);
+            $this->actingAs($admin);
+            if ($scenario !== 'missing') {
+                $this->postJson($path, $this->review())->assertCreated();
+            }
+            $requests = 0;
+            Http::fake(function ($request) use ($provider, $scenario, &$requests) {
+                $requests++;
+                if ($requests === 1) {
+                    if ($scenario === 'expiry') {
+                        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+                            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+                    } elseif ($scenario === 'replacement') {
+                        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+                            ->update(['evidence_sha256' => str_repeat('b', 64)]);
+                    } elseif ($scenario === 'policy-toggle') {
+                        config(['ocpi.contract_review_authorization_required' => false]);
+                    }
+                    return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
+                        'data' => [['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]]);
+                }
+                return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
+                    'data' => ['version' => '2.2.1', 'endpoints' => [
+                        ['identifier' => 'locations', 'role' => 'SENDER', 'url' => 'https://partner.example/locations'],
+                    ]]]);
+            });
+            $client = app(\App\Services\Ocpi\PartnerClient::class);
+            if ($scenario === 'stable') {
+                $this->assertArrayHasKey('locations', $client->negotiate($provider->fresh()));
+                $this->assertSame(2, $requests);
+                $this->assertSame('2.2.1', $provider->fresh()->version);
+            } else {
+                try {
+                    $client->negotiate($provider->fresh());
+                    $this->fail('Retired contractual evidence must not publish negotiated modules.');
+                } catch (\App\Services\Ocpi\OcpiException $error) {
+                    $this->assertSame($scenario === 'missing' ? 0 : 1, $requests);
+                    $this->assertNull($provider->fresh()->version);
+                    $this->assertNull($provider->fresh()->endpoints);
+                }
+            }
+        }
+    }
+
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
