@@ -67,14 +67,30 @@ class OperationsCredentials
         }
     }
 
+    /** Keep the issued token bound to its captured trust policy until wire dispatch. */
+    public function tokenForDispatch(string $operationsBase): \Closure
+    {
+        $authority = $this->authority();
+        $token = $this->token($operationsBase);
+        $this->requireAuthority($authority);
+
+        return function () use ($authority, $token, $operationsBase): string {
+            $this->requireAuthority($authority);
+            if ($authority['mode'] === 'oauth2') {
+                // Local checks and source reads may have consumed the token's
+                // usable lifetime or changed the pinned keyring since issuance.
+                $this->verify($token, $operationsBase, $authority['scope'], $authority);
+            }
+            $this->requireAuthority($authority);
+
+            return $token;
+        };
+    }
+
     private function url(string $url, bool $tls): void
     {
-        $parts = parse_url($url);
-        abort_unless(is_array($parts) && isset($parts['host']) && ! isset($parts['query']) && ! isset($parts['fragment']) && strlen($url) <= 2048 && ! preg_match('/[\x00-\x20\x7f\\\\]/', $url) && in_array($parts['scheme'] ?? null, $tls ? ['https'] : ['http', 'https'], true), 503);
-        // Reject ambiguous host encodings and all embedded credentials.
-        abort_if(isset($parts['user']) || isset($parts['pass']), 503);
-        abort_unless(preg_match('/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/D', $parts['host'])
-            && (! isset($parts['port']) || ($parts['port'] >= 1 && $parts['port'] <= 65535)), 503);
+        $parts = CsmsEndpoint::parse($url);
+        abort_unless($parts !== null && (! $tls || $parts['scheme'] === 'https'), 503);
         if ($parts['scheme'] === 'http') {
             abort_unless(in_array($parts['host'], ['127.0.0.1', 'localhost', '[::1]', 'citrine'], true), 503);
         }
