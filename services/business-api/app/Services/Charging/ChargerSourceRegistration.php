@@ -140,9 +140,15 @@ final class ChargerSourceRegistration
         $url = $this->attemptUrl($generation, $secret);
         $response = Http::connectTimeout(3)->timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, compact('query', 'variables'));
         $this->attemptUrl($generation, $secret);
-        abort_unless($response->successful() && strlen($response->body()) <= 32768 && ! $response->json('errors') && is_array($response->json('data')), 503, 'Authenticated source registration requires inspection.');
+        $body = $response->body();
+        abort_unless($response->successful() && strlen($body) <= 32768, 503, 'Authenticated source registration requires inspection.');
+        // Preserve JSON object/list types. Associative decoding turns an empty
+        // object into [], which must never authorize an upstream insert.
+        $envelope = json_decode($body, false, 32, JSON_THROW_ON_ERROR);
+        abort_unless($envelope instanceof \stdClass && ! property_exists($envelope, 'errors')
+            && ($envelope->data ?? null) instanceof \stdClass, 503, 'Authenticated source registration requires inspection.');
 
-        return $response->json('data');
+        return (array) $envelope->data;
     }
 
     private function lookup(string $identity, string $generation, #[\SensitiveParameter] string $secret): array
@@ -155,7 +161,9 @@ final class ChargerSourceRegistration
 
     private function verify(mixed $row, array $object): array
     {
-        abort_unless(is_array($row) && is_int($row['id'] ?? null) && $row['id'] > 0, 409, 'Typed source registration identity is required.');
+        abort_unless($row instanceof \stdClass, 409, 'Typed source registration identity is required.');
+        $row = (array) $row;
+        abort_unless(is_int($row['id'] ?? null) && $row['id'] > 0, 409, 'Typed source registration identity is required.');
         foreach (['tenantId', 'ocppConnectionName', 'protocol', 'isOnline', 'chargePointVendor', 'chargePointModel'] as $field) {
             abort_unless(array_key_exists($field, $row) && $row[$field] === $object[$field], 409, 'Source registration differs from the owned request.');
         }
