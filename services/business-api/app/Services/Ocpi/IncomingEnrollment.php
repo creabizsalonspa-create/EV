@@ -102,6 +102,7 @@ class IncomingEnrollment
         $query = DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)
             ->where('generation', $link->generation)->where('action', 'prepare_incoming')
             ->where('state', 'awaiting_peer');
+
         return ($lock ? $query->lockForUpdate() : $query)->firstOrFail();
     }
 
