@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -107,6 +108,48 @@ class VendorFinancialApi extends FixtureApi {
       'last_page': 2,
       'total': 26,
     };
+  }
+}
+
+class VendorSettlementHistoryApi extends VendorFinancialApi {
+  final settlementQueries = <Map<String, String>>[];
+  Map<String, String>? exportQuery;
+  bool wrongExport = false;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path != 'commercial/settlements') {
+      return super.request(path, method: method, body: body, query: query);
+    }
+    settlementQueries.add(Map.of(query));
+    return {
+      'data': [
+        {
+          'id': 9, 'vendor_id': 3, 'number': 'SIM-SET-PRIVATE',
+          'currency': 'KWD', 'minor_units': 3, 'amount_minor': 1250,
+          'state': 'approved', 'created_at': '2026-11-28 00:00:00',
+          'executed_at': null, 'evidence': 'SIMULATED',
+        },
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    };
+  }
+
+  @override
+  Future<PrivateDocument> downloadVendorSettlementPage(
+    Map<String, String> query,
+  ) async {
+    exportQuery = Map.of(query);
+    final csv = 'id,number,currency,minor_units,amount_minor,state,created_at,executed_at,evidence\n'
+        '9,SIM-SET-PRIVATE,KWD,3,${wrongExport ? 999 : 1250},approved,2026-11-28 00:00:00,,SIMULATED\n';
+    return PrivateDocument(Uint8List.fromList(utf8.encode(csv)), 'text/csv');
   }
 }
 
@@ -321,6 +364,62 @@ void main() {
     expect(api.writes,2);
     expect(api.bodies[1],api.bodies[0]);
     expect(store.values,isEmpty);
+  });
+
+  testWidgets('native settlement filters use exact query and export must match the visible page',
+      (tester) async {
+    final api = VendorSettlementHistoryApi();
+    await tester.pumpWidget(vendorApp(
+      VendorFinanceView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Earnings overview'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settlements').last);
+    await tester.pumpAndSettle();
+    expect(api.settlementQueries.single, {'page': '1'});
+
+    Finder input(String label) => find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.labelText == label,
+    );
+    await tester.enterText(input('Settlement currency'), 'kwd');
+    await tester.tap(find.text('Any status'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approved').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(input('From UTC (YYYY-MM-DD)'), '2026-11-28');
+    await tester.enterText(input('Through UTC (YYYY-MM-DD)'), '2026-11-28');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Filter settlements'));
+    await tester.tap(find.text('Filter settlements'));
+    await tester.pumpAndSettle();
+    final selected = {
+      'page': '1', 'currency': 'KWD', 'state': 'approved',
+      'from': '2026-11-28', 'to': '2026-11-28',
+    };
+    expect(api.settlementQueries.last, selected);
+
+    final export = find.text('Preview settlement page CSV');
+    await tester.ensureVisible(export);
+    await tester.tap(export);
+    await tester.pumpAndSettle();
+    expect(api.exportQuery, selected);
+    final preview = find.byKey(const Key('settlement-csv-preview'));
+    expect(tester.widget<SelectableText>(preview).data, contains('SIM-SET-PRIVATE'));
+
+    api.wrongExport = true;
+    await tester.tap(export);
+    await tester.pumpAndSettle();
+    expect(preview, findsNothing);
+
+    api.wrongExport = false;
+    await tester.tap(export);
+    await tester.pumpAndSettle();
+    expect(preview, findsOneWidget);
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    expect(preview, findsNothing);
   });
 
   testWidgets('already rendered vendor payout/finance source vanishes on logout event',
