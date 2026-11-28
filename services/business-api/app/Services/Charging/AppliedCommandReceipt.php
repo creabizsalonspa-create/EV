@@ -49,7 +49,12 @@ final class AppliedCommandReceipt
         $lastMeter = self::unsigned($link->last_meter_wh ?? null);
         $observed = self::instant($event->occurred_at ?? null);
         $started = self::instant($link->started_at ?? null);
-        if (($event->outcome ?? null) !== 'applied' || ($event->type ?? null) !== ($end ? 'ended' : 'started')
+        // Historical database timestamp precision may differ from the signed
+        // input, so do not reconstruct a hash from lossy retained timestamps.
+        // At minimum, a missing or malformed canonical digest is not evidence.
+        $fingerprint = $event->fingerprint ?? null;
+        if (! is_string($fingerprint) || ! preg_match('/\A[a-f0-9]{64}\z/', $fingerprint)
+            || ($event->outcome ?? null) !== 'applied' || ($event->type ?? null) !== ($end ? 'ended' : 'started')
             || $sequence === null || $meter === null || $last === null || $startMeter === null
             || $lastMeter === null || $lastMeter < $startMeter || $observed === null || $started === null) {
             return false;
