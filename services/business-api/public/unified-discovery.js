@@ -170,6 +170,7 @@
       data.reservable!==false||data.billing_eligible!==false||data.license_policy!=='PER_RECORD_ATTRIBUTION_REQUIRED'||
       !Array.isArray(data.results)||data.results.length>25||data.count!==data.results.length)throw Error('Invalid licensed sample');
    const ids=new Set(),cards=[];
+   let unknownTime=0,oldTime=0,unknownOperation=0;
    const label=(value,max,required=false)=>typeof value==='string'&&Array.from(value).length<=max&&
      !/[\x00-\x1f\x7f]/.test(value)&&(!required||value.trim()!=='');
    for(const r of data.results){
@@ -181,6 +182,16 @@
        !label(r.name,160,true)||!label(r.data_provider,120,true)||!label(r.data_license,240,true)||
        r.attribution!=='Open Charge Map / '+r.data_provider||
        !Number.isFinite(r.distance_km)||r.distance_km<0||r.distance_km>200)throw Error('Invalid licensed record');
+    const age=r.source_age_minutes,clock=r.source_clock_evidence,stamp=r.source_updated_at;
+    if((age!==null&&(!Number.isSafeInteger(age)||age<0))||
+       !['CROWD_REPORTED_TIME','SOURCE_TIME_UNKNOWN','SOURCE_CLOCK_AHEAD'].includes(clock)||
+       (clock==='CROWD_REPORTED_TIME')!==(age!==null)||
+       (clock==='SOURCE_TIME_UNKNOWN')!==(stamp===null)||
+       (stamp!==null&&(typeof stamp!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(stamp)||
+         !Number.isFinite(Date.parse(stamp))||new Date(stamp).toISOString()!==stamp.replace('Z','.000Z')))||
+       (r.reported_operational!==null&&typeof r.reported_operational!=='boolean'))throw Error('Invalid licensed freshness');
+    if(age===null)unknownTime++;else if(age>=1440)oldTime++;
+    if(r.reported_operational===null)unknownOperation++;
     ids.add(r.id);
     const card=document.createElement('article');card.dataset.ocmLocationId=r.id;
     const link=text('a','View source and license','عرض المصدر والترخيص');link.href=r.source_url;link.target='_blank';link.rel='noopener noreferrer';
@@ -189,7 +200,15 @@
       text('p','Licensed report · availability unknown · no booking, charging or payment authority.','تقرير مرخص · التوفر غير معروف · لا صلاحية للحجز أو الشحن أو الدفع.'),link);
     cards.push(card);
    }
+   const q=data.quality_sample;
+   if(!q||q.evidence!=='FILTERED_LICENSED_CROWD_SAMPLE_ONLY'||q.max_source_sample!==25||
+      q.complete_geographic_coverage!==false||q.live_status_verified!==false||
+      q.returned_count!==data.count||q.source_time_unknown_or_future_count!==unknownTime||
+      q.source_older_than_24h_count!==oldTime||q.operational_report_unknown_count!==unknownOperation)
+     throw Error('Invalid licensed quality summary');
    licensedResults.append(text('h4',data.count+' licensed reports (bounded sample)',data.count+' تقريراً مرخصاً (عينة محدودة)'),...cards);
+   licensedResults.append(text('p',unknownTime+' unknown/future timestamps; '+oldTime+' at least 24 hours old; '+unknownOperation+' unknown operating reports. Not live availability.',
+     unknownTime+' أوقات مجهولة أو مستقبلية؛ '+oldTime+' عمرها ٢٤ ساعة أو أكثر؛ '+unknownOperation+' تقارير تشغيل مجهولة. ليس توفراً مباشراً.'));
   }
   // Missing source metadata must never become a bookable catalog action.
   // Location identity remains visible as read-only evidence.

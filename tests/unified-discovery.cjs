@@ -569,8 +569,8 @@ for(const lang of ['en','ar'])test('unified licensed source entry is explicit, l
 });
 
 for(const lang of ['en','ar'])test('federated nearby uses one explicit POST and never replays consent '+lang,async()=>{
- const report={provider:'open_charge_map',source_status_evidence:'OPEN_CHARGE_MAP_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,id:'ocm:123',source_url:'https://openchargemap.org/site/poi/details/123',name:'<b>Licensed</b>',data_provider:'Fixture',data_license:'CC BY-SA 4.0',attribution:'Open Charge Map / Fixture',distance_km:1.25};
- const envelope={evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',complete_geographic_coverage:false,live_status_verified:false,combined_total:null,published:sample,licensed:{state:'observed',sample:{provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,license_policy:'PER_RECORD_ATTRIBUTION_REQUIRED',count:1,results:[report]}}};
+ const report={provider:'open_charge_map',source_status_evidence:'OPEN_CHARGE_MAP_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,id:'ocm:123',source_url:'https://openchargemap.org/site/poi/details/123',name:'<b>Licensed</b>',data_provider:'Fixture',data_license:'CC BY-SA 4.0',attribution:'Open Charge Map / Fixture',distance_km:1.25,source_age_minutes:null,source_clock_evidence:'SOURCE_TIME_UNKNOWN',source_updated_at:null,reported_operational:null};
+ const envelope={evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',complete_geographic_coverage:false,live_status_verified:false,combined_total:null,published:sample,licensed:{state:'observed',sample:{provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,license_policy:'PER_RECORD_ATTRIBUTION_REQUIRED',count:1,results:[report],quality_sample:{evidence:'FILTERED_LICENSED_CROWD_SAMPLE_ONLY',max_source_sample:25,complete_geographic_coverage:false,live_status_verified:false,returned_count:1,source_time_unknown_or_future_count:1,source_older_than_24h_count:0,operational_report_unknown_count:1}}}};
  const f=fixture(lang,async(path)=>path==='federated-nearby'?envelope:{...sample,current_page:2});
  f.control.setContext({owner:'a',customer:true});
  const panel=f.root.children[9],consent=panel.children[2].children.find(x=>x.tag==='input'),button=panel.children[3],results=panel.children[4];
@@ -580,7 +580,7 @@ for(const lang of ['en','ar'])test('federated nearby uses one explicit POST and 
  button.onclick();await tick();assert.equal(f.calls.length,0);
  consent.checked=true;button.onclick();await tick();
  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'federated-nearby');assert.equal(f.calls[0][1],'POST');
- assert.deepEqual(f.calls[0][2],{latitude:'25.2',longitude:'55.3',radius_km:'10',consent:true});
+ assert.deepEqual({...f.calls[0][2]},{latitude:'25.2',longitude:'55.3',radius_km:'10',consent:true});
  assert.equal(consent.checked,false);assert.equal(f.list.children.length,2);
  assert.match(results.textContent,/<b>Licensed<\/b>/);assert.match(results.textContent,/CC BY-SA 4.0/);
  assert.equal(results.children[1].children.some(x=>x.tag==='button'),false);
@@ -588,4 +588,25 @@ for(const lang of ['en','ar'])test('federated nearby uses one explicit POST and 
  assert.equal(f.calls.length,2);assert.match(f.calls[1][0],/^search\?/);assert.equal(results.children.length,0);
  f.control.setContext({owner:'b',customer:true});assert.equal(consent.checked,false);
  assert.equal(results.children.length,0);assert.equal(f.list.children.length,0);
+});
+
+for(const variant of ['missing','live','mismatch','clock','unavailable'])test('federated quality boundary '+variant,async()=>{
+ const report={provider:'open_charge_map',source_status_evidence:'OPEN_CHARGE_MAP_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,id:'ocm:123',source_url:'https://openchargemap.org/site/poi/details/123',name:'Licensed quality fixture',data_provider:'Fixture',data_license:'CC BY-SA 4.0',attribution:'Open Charge Map / Fixture',distance_km:1,source_age_minutes:null,source_clock_evidence:'SOURCE_TIME_UNKNOWN',source_updated_at:null,reported_operational:null};
+ const quality={evidence:'FILTERED_LICENSED_CROWD_SAMPLE_ONLY',max_source_sample:25,complete_geographic_coverage:false,live_status_verified:false,returned_count:1,source_time_unknown_or_future_count:1,source_older_than_24h_count:0,operational_report_unknown_count:1};
+ const sampleData={provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,license_policy:'PER_RECORD_ATTRIBUTION_REQUIRED',count:1,results:[report],quality_sample:quality};
+ if(variant==='missing')delete sampleData.quality_sample;
+ if(variant==='live')quality.live_status_verified=true;
+ if(variant==='mismatch')quality.source_time_unknown_or_future_count=0;
+ if(variant==='clock')report.source_age_minutes=5;
+ const envelope={evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',complete_geographic_coverage:false,live_status_verified:false,combined_total:null,published:sample,licensed:variant==='unavailable'?{state:'unavailable',sample:null}:{state:'observed',sample:sampleData}};
+ const f=fixture('en',async()=>envelope);f.control.setContext({owner:'a',customer:true});
+ const panel=f.root.children[9],consent=panel.children[2].children.find(x=>x.tag==='input'),button=panel.children[3],results=panel.children[4];
+ const advanced=f.form.children.find(x=>x.tag==='details');
+ for(const [i,key] of ['latitude','longitude','radius_km'].entries())advanced.children.flatMap(x=>x.children).find(x=>x.name===key).value=['25.2','55.3','10'][i];
+ f.form.children[1].children.find(x=>x.tag==='select').value='all';consent.checked=true;button.onclick();await tick();
+ assert.equal(f.calls.length,1);assert.equal(consent.checked,false);
+ assert.equal(f.list.children.length,variant==='unavailable'?2:0);
+ assert.equal(results.children.length,variant==='unavailable'?1:0);
+ if(variant==='unavailable')assert.match(results.textContent,/not zero coverage/);
+ else assert.match(f.root.textContent,/Search failed/);
 });
