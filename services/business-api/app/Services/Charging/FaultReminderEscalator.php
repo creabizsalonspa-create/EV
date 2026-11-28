@@ -5,7 +5,6 @@ namespace App\Services\Charging;
 use App\Models\InboxNotification;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 /**
  * One optional in-app reminder for a genuinely unresolved simulator fault.
@@ -15,31 +14,11 @@ use Throwable;
  */
 class FaultReminderEscalator
 {
-    /**
-     * Interpret only complete, explicit source event timestamps. Carbon's
-     * permissive parser accepts relative words and normalizes invalid dates;
-     * neither is durable evidence of a physical/source state transition.
-     */
     private static function sourceTimestamp(mixed $raw): ?CarbonImmutable
     {
-        if (! is_string($raw)
-            || preg_match(
-                '/\\A\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}(?::?\\d{2})?)?\\z/',
-                $raw
-            ) !== 1) {
-            return null;
-        }
+        $time = FaultRecoveryEvidence::timestamp($raw);
 
-        try {
-            $timestamp = CarbonImmutable::parse($raw);
-        } catch (Throwable) {
-            return null;
-        }
-
-        // Reject parser rollover (such as February 30 or hour 24) while
-        // preserving valid SQLite and PostgreSQL offsets/fractional seconds.
-        return $timestamp->format('Y-m-d H:i:s') === str_replace('T', ' ', substr($raw, 0, 19))
-            ? $timestamp : null;
+        return $time === null ? null : CarbonImmutable::instance($time);
     }
 
     public function scan(int $limit = 50, int $after = -1, int $olderThanMinutes = 15): array
@@ -160,23 +139,8 @@ class FaultReminderEscalator
                     if ($alert->recovery_observation_id !== null) {
                         $recovered = DB::table('charging_status_observations')
                             ->where('id', $alert->recovery_observation_id)->first();
-                        $recoveredAt = null;
-                        // Relative text and calendar-overflow dates must
-                        // never become a fresh source-recovery observation.
-                        if ($recovered) {
-                            $recoveredAt = self::sourceTimestamp($recovered->occurred_at);
-                        }
-                        if ($recovered && $recoveredAt !== null &&
-                            $recoveredAt->greaterThan($occurredAt) &&
-                            $recoveredAt->lessThanOrEqualTo(now()) &&
-                            $recovered->binding_id === $binding->id &&
-                            hash_equals((string) $observation->source_generation,
-                                (string) $recovered->source_generation) &&
-                            $recovered->source_event_id > $observation->source_event_id &&
-                            $recovered->evse_number === $observation->evse_number &&
-                            $recovered->connector_number === $observation->connector_number &&
-                            $recovered->status === 'Available' &&
-                            in_array($recovered->error_code, [null, 'NoError'], true)) {
+                        if (FaultRecoveryEvidence::matches($binding->protocol, $binding->id,
+                            FaultMonitor::generation($binding), $observation, $recovered, now()->toImmutable())) {
                             $resolution = 'source_recovered';
                         }
                     }

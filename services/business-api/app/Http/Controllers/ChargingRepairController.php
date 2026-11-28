@@ -7,8 +7,8 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\FaultRecoveryEvidence;
 use App\Services\VendorOps\VendorAccess;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -36,21 +36,12 @@ class ChargingRepairController extends Controller
             ->where('id', $alert->observation_id)->where('source_generation', $generation)->first();
         $recovery = DB::table('charging_status_observations')
             ->where('id', $alert->recovery_observation_id)->where('source_generation', $generation)->first();
-        if (! $fault || ! $recovery
-            || $fault->status !== 'Faulted'
-                && in_array($fault->error_code, [null, 'NoError'], true)
-            || (int) $recovery->evse_number !== (int) $fault->evse_number
-            || (int) $recovery->connector_number !== (int) $fault->connector_number
-            || (int) $recovery->source_event_id <= (int) $fault->source_event_id
-            || $recovery->occurred_at <= $fault->occurred_at
-            || $recovery->status !== 'Available'
-            || ($binding->protocol === '1.6'
-                ? $recovery->error_code !== 'NoError'
-                : ! in_array($recovery->error_code, [null, 'NoError'], true))) {
+        if (! FaultRecoveryEvidence::matches($binding->protocol, $binding->id, $generation, $fault, $recovery, now()->toImmutable())) {
             return false;
         }
+        $recoveryAt = FaultRecoveryEvidence::timestamp($recovery->occurred_at);
         $source = DB::table('charging_status_observations')
-            ->where('source_generation', $generation)
+            ->where('binding_id', $binding->id)->where('source_generation', $generation)
             ->where('evse_number', $fault->evse_number)
             ->where('connector_number', $fault->connector_number);
         $latest = (clone $source)->orderByDesc('source_event_id')->first();
@@ -60,16 +51,16 @@ class ChargingRepairController extends Controller
         // Historical recovery can be documented, but a newer fault, stale
         // observation or out-of-order source clock is not proof that review
         // can be marked closed. Never unblock physical charger capacity.
+        $latestAt = FaultRecoveryEvidence::timestamp($latest->occurred_at ?? null);
+
         return $latest && $latestByTime
             && (int) $latest->id === (int) $latestByTime->id
             && (int) $latest->source_event_id >= (int) $recovery->source_event_id
-            && $latest->occurred_at >= $recovery->occurred_at
-            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->lte(now())
-            && CarbonImmutable::parse($latest->occurred_at, 'UTC')->gt(now()->subMinutes(5))
-            && $latest->status === 'Available'
-            && ($binding->protocol === '1.6'
-                ? $latest->error_code === 'NoError'
-                : in_array($latest->error_code, [null, 'NoError'], true));
+            && $latestAt !== null && $recoveryAt !== null
+            && $latestAt >= $recoveryAt
+            && $latestAt <= now()
+            && $latestAt > now()->subMinutes(5)
+            && FaultRecoveryEvidence::cleared($binding->protocol, $latest);
     }
 
     private function reply(mixed $data)
