@@ -3,6 +3,7 @@
 namespace App\Services\Enterprise;
 
 use App\Models\Fleet;
+use App\Services\Commercial\CorporateBilling;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -23,19 +24,34 @@ final class FleetReport
         $claims = DB::table('corporate_claims as c')
             ->join('corporate_agreements as a', 'a.id', '=', 'c.agreement_id')
             ->join('corporate_claim_decisions as d', 'd.claim_id', '=', 'c.id')
+            ->leftJoin('finance_invoices as i', 'i.id', '=', 'c.invoice_id')
             ->where('a.fleet_id', $fleet->id)->where('d.decision', 'approved')
             ->where('c.created_at', '>=', $from->utc())->where('c.created_at', '<', $until->utc())
             ->when($center !== null, fn ($q) => $q->where('c.cost_center_id', $center))
             ->orderBy('c.id')->limit(2501)
-            ->get(['c.cost_center_id', 'c.cost_center_code', 'c.cost_center_name', 'c.currency', 'c.minor_units', 'c.amount_minor']);
+            ->get([
+                'c.cost_center_id', 'c.cost_center_code', 'c.cost_center_name', 'c.currency', 'c.minor_units', 'c.amount_minor', 'c.driver_id',
+                'a.currency as agreement_currency', 'a.minor_units as agreement_minor_units',
+                'i.currency as invoice_currency', 'i.minor_units as invoice_minor_units',
+                'i.total_minor as invoice_total_minor', 'i.user_id as invoice_user_id',
+            ]);
         abort_if($claims->count() > 2500, 422, 'Report exceeds 2500 claims. Select a shorter period or cost center.');
         $groups = [];
         foreach ($claims as $claim) {
+            $amount = CorporateBilling::exactMinor($claim->amount_minor);
+            $precision = CorporateBilling::exactMinor($claim->minor_units);
+            abort_unless($precision <= 3
+                && $claim->currency === $claim->agreement_currency && $claim->currency === $claim->invoice_currency
+                && $precision === CorporateBilling::exactMinor($claim->agreement_minor_units)
+                && $precision === CorporateBilling::exactMinor($claim->invoice_minor_units)
+                && $amount === CorporateBilling::exactMinor($claim->invoice_total_minor)
+                && (int) $claim->driver_id === (int) $claim->invoice_user_id,
+                409, 'Approved fleet claim differs from its canonical invoice.');
             // Historic cost-center snapshots and precision form separate groups.
             $key = json_encode([$claim->cost_center_id, $claim->cost_center_code, $claim->cost_center_name, $claim->currency, $claim->minor_units], JSON_THROW_ON_ERROR);
             $groups[$key] ??= ['cost_center_id' => (int) $claim->cost_center_id, 'code' => $claim->cost_center_code, 'name' => $claim->cost_center_name, 'currency' => $claim->currency, 'minor_units' => (int) $claim->minor_units, 'claims' => 0, 'amount_minor' => '0'];
             $groups[$key]['claims']++;
-            $groups[$key]['amount_minor'] = $this->add($groups[$key]['amount_minor'], (string) $claim->amount_minor);
+            $groups[$key]['amount_minor'] = $this->add($groups[$key]['amount_minor'], (string) $amount);
         }
 
         return ['as_of' => now()->toIso8601String(), 'fleet' => ['id' => $fleet->id, 'name' => $fleet->name, 'country' => $fleet->country],
