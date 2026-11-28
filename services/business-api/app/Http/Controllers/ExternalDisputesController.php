@@ -82,7 +82,7 @@ class ExternalDisputesController extends Controller
         $v = $r->validate([
             'attention' => 'sometimes|boolean',
             'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
-            'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+            'invoice_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,17}\z/', 'integer', 'max:'.self::MAX_EXACT],
             'status' => ['sometimes', Rule::in(self::STATES)],
             'per_page' => 'sometimes|integer|between:1,25',
             'page' => 'sometimes|integer|between:1,10000',
@@ -134,7 +134,7 @@ class ExternalDisputesController extends Controller
             $values = $r->validate([
                 'window_hours' => 'sometimes|integer|between:0,168',
                 'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
-                'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+                'invoice_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,17}\z/', 'integer', 'max:'.self::MAX_EXACT],
                 'per_page' => 'sometimes|integer|between:1,25',
                 'page' => 'sometimes|integer|between:1,10000',
             ]);
