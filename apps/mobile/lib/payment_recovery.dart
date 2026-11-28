@@ -4,6 +4,7 @@ import 'money_input.dart';
 import 'strings.dart';
 import 'subscriptions.dart';
 import 'financial_documents.dart';
+import 'reservation_times.dart';
 
 const recoveryEn = {
   'subscriptionDetail': 'Review subscription',
@@ -291,7 +292,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                         Text(
                           '${t('amount')}: ${minorDecimal(row['total_minor'] as int, row['minor_units'] as int)} ${row['currency']}',
                         ),
-                        Text('${row['created_at']}'),
+                        Text(serverEventTime(context, row['created_at'])),
                         if (row['subscription_id'] is int &&
                             row['subscription_id'] > 0)
                           OutlinedButton(
@@ -344,7 +345,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                         Text(
                           '#${row['id']} · ${t('status')}: ${t('${row['status']}')}',
                         ),
-                        Text('${row['created_at'] ?? ''}'),
+                        Text(serverEventTime(context, row['created_at'])),
                         if (widget.intent == null) ...[
                           Text(
                             '${t('scope')}: ${t('${row['scope']}')} · ${t('kind')}: ${t(row['kind'] == 'cancel' ? 'cancelOperation' : '${row['kind']}')}',

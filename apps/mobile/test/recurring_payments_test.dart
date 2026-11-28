@@ -7,6 +7,7 @@ import 'test_support.dart';
 
 class MandatesApi extends FixtureApi {
   bool revoked = false, lost = false, denied = false;
+  String consentExpiry = '2030-01-01';
   final mutations = <Map<String, dynamic>>[];
   @override
   Future<dynamic> request(
@@ -42,7 +43,7 @@ class MandatesApi extends FixtureApi {
               'status': revoked ? 'revoked' : 'active',
               'version': revoked ? 2 : 1,
               'detach_status': 'pending',
-              'consent_expires_at': '2030-01-01',
+              'consent_expires_at': consentExpiry,
             },
           ],
           'current_page': 1,
@@ -80,6 +81,27 @@ Widget host(
   ),
 );
 void main() {
+  for (final arabic in [false, true]) {
+    testWidgets(
+      'consent expiry refuses an impossible calendar date ($arabic)',
+      (tester) async {
+        const invalid = '2026-02-30T10:00:00Z';
+        final api = MandatesApi()..consentExpiry = invalid;
+        addTearDown(api.close);
+        await tester.pumpWidget(host(api, arabic: arabic));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(
+            arabic ? 'وقت الحدث غير متاح' : 'Event time unavailable',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining(invalid), findsNothing);
+        expect(api.mutations, isEmpty);
+      },
+    );
+  }
+
   test('provider URLs reject alternate hosts, credentials and non HTTPS', () {
     expect(
       trustedPaymentUrl(Uri.parse('https://checkout.stripe.com/c/pay/test')),
