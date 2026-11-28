@@ -31,7 +31,8 @@ def verified_success(result, text):
             and 'DEVICE: scoped noncash native loyalty evidence verified; synthetic economics' in text
             and 'DEVICE: private financial PDF and durable operation storage verified; synthetic document' in text
             and 'DEVICE: explicit native subscription enrollment verified; synthetic test billing' in text
-            and 'DEVICE: private case evidence consent and multipart upload verified; synthetic internal review' in text)
+            and 'DEVICE: private case evidence consent and multipart upload verified; synthetic internal review' in text
+            and 'DEVICE: scoped Arabic vendor revenue dashboard and private CSV verified; synthetic TLS fixture' in text)
 
 
 def owned_simulator(devices, device, run, attempt):

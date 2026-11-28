@@ -34,7 +34,8 @@ class SimulatorBoundaryTest(unittest.TestCase):
                  'DEVICE: scoped noncash native loyalty evidence verified; synthetic economics\n'
                  'DEVICE: private financial PDF and durable operation storage verified; synthetic document\n'
                  'DEVICE: explicit native subscription enrollment verified; synthetic test billing\n'
-                 'DEVICE: private case evidence consent and multipart upload verified; synthetic internal review')
+                 'DEVICE: private case evidence consent and multipart upload verified; synthetic internal review\n'
+                 'DEVICE: scoped Arabic vendor revenue dashboard and private CSV verified; synthetic TLS fixture')
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: native vendor onboarding and private PDF preview verified', '')))
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: customer favorites and private catalog status verified', '')))
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: customer map privacy consent navigation verified; no external tiles', '')))
@@ -44,6 +45,7 @@ class SimulatorBoundaryTest(unittest.TestCase):
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: explicit native subscription enrollment verified; synthetic test billing', '')))
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: private case evidence consent and multipart upload verified; synthetic internal review', '')))
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: coupon discovery and uncertain receipt recovery verified; synthetic TLS fixture', '')))
+        self.assertFalse(module.verified_success(0, proof.replace('DEVICE: scoped Arabic vendor revenue dashboard and private CSV verified; synthetic TLS fixture', '')))
         self.assertTrue(module.verified_success(0, proof))
         self.assertFalse(module.verified_success(1, proof))
 
