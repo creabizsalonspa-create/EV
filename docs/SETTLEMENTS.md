@@ -18,7 +18,8 @@ Mount `routes/settlements.php` inside the existing authenticated `/api` and opti
 
 | Endpoint | Role / payload |
 | --- | --- |
-| `GET /commercial/settlements` | Vendor sees only own records; admin sees all; paginated |
+| `GET /commercial/settlements` | Vendor sees own records; admin sees all. Optional currency, state, UTC creation-date range and bounded page filters |
+| `GET /commercial/settlements/export` | Private UTF-8 CSV for the same filtered page. Amount and precision fields use exact minor units |
 | `GET /commercial/vendors/{vendor}/statement?currency=AED` | Owning vendor/admin; returns invoiced totals, available payable, signed source lines, schedule, adjustments, eligibility and explicit simulation status |
 | `PUT /commercial/vendors/{vendor}/schedule` | Admin: `currency`, `hold_days` 0–365, `interval_days` 1–365, `minimum_minor` >0, `next_due_at` ISO date, `enabled` boolean |
 | `POST /commercial/vendors/{vendor}/settlements` | Owning vendor/admin: `currency`, `idempotency_key`; creates/replays pending settlement |

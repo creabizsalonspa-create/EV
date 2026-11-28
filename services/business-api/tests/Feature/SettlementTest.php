@@ -91,6 +91,46 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 2); // Settlement simulation never mutates invoice cash journals.
     }
 
+    public function test_settlement_history_and_csv_share_bounded_filters_and_vendor_scope(): void
+    {
+        $this->freezeTime();
+        $this->invoice();
+        $this->configure();
+        $first = $this->draft('history-first');
+        $day = now()->toDateString();
+        $base = '/settlement-test/commercial/settlements';
+        $this->actingAs($this->admin)->postJson($base.'/'.$first['id'].'/reject')->assertOk();
+        $this->travel(1)->days();
+        $second = $this->draft('history-second');
+        $events = DB::table('commercial_settlement_events')->count();
+        $journals = DB::table('finance_journals')->count();
+
+        $this->getJson($base.'?page=2&per_page=1')->assertOk()
+            ->assertJsonPath('total', 2)->assertJsonPath('data.0.id', $first['id']);
+        $this->getJson($base.'?state=pending')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $second['id']);
+        $query = '?currency=AED&state=rejected&from='.$day.'&to='.$day.'&per_page=1';
+        $this->getJson($base.$query)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $first['id'])
+            ->assertJsonMissingPath('data.0.request_key');
+        $csv = $this->get($base.'/export'.$query)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')->streamedContent();
+        $this->assertStringContainsString($first['number'], $csv);
+        $this->assertStringNotContainsString($second['number'], $csv);
+        $this->assertStringNotContainsString('request_key', $csv);
+        $this->get($base.'/export?page=0')->assertUnprocessable();
+        $this->getJson($base.'?state=invalid')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-11-28&to=2026-11-27')->assertUnprocessable();
+
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))
+            ->getJson($base.$query)->assertOk()->assertJsonPath('total', 0);
+        $foreignCsv = $this->get($base.'/export'.$query)->assertOk()->streamedContent();
+        $this->assertStringNotContainsString($first['number'], $foreignCsv);
+        $this->actingAs($this->customer)->get($base.'/export'.$query)->assertForbidden();
+        $this->assertDatabaseCount('commercial_settlement_events', $events);
+        $this->assertDatabaseCount('finance_journals', $journals);
+    }
+
     public function test_revoked_vendor_or_admin_cannot_view_settlements_or_post_financial_transitions(): void
     {
         $this->invoice();

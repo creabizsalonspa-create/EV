@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 
 // Mount only inside the parent authenticated API group (web and native).
 Route::get('/commercial/settlements', [S::class, 'index']);
+Route::get('/commercial/settlements/export', [S::class, 'export']);
 Route::get('/commercial/vendors/{vendor}/statement', [S::class, 'statement'])->where('vendor', '[0-9]{1,18}');
 Route::get('/commercial/vendors/{vendor}/earnings', [VendorEarningsController::class, 'index'])->where('vendor', '[0-9]{1,18}');
 Route::get('/commercial/vendors/{vendor}/earnings/export', [VendorEarningsController::class, 'export'])->where('vendor', '[0-9]{1,18}');

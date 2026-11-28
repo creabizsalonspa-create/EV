@@ -15,7 +15,7 @@ class SettlementService
     private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
 
     /** Never round or truncate a canonical financial amount before settlement. */
-    private static function exactMinor(mixed $value, bool $signed = false): int
+    public static function exactMinor(mixed $value, bool $signed = false): int
     {
         abort_unless(is_int($value) || is_string($value), 409,
             'Settlement source minor units must be exact integers.');

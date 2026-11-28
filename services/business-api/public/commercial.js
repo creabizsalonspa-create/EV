@@ -3,6 +3,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
     let cache = new Map(),
         pages = {},
         reportQuery = {},
+        settlementQuery = {},
         actor = null,
         epoch = 0,
         controller = null,
@@ -78,6 +79,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         pages = {};
         cache = new Map();
         reportQuery = {};
+        settlementQuery = {};
     }
     // Match the native diagnostic: malformed totals must never be rendered
     // as a reconciled invoice, but genuine signed audit findings remain visible.
@@ -167,8 +169,8 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             input.name = field.name;
             input.required = field.required !== false;
             if (field.options)
-                for (const [value, label] of field.options) {
-                    const o = text("option", label);
+                for (const [value, label, ar] of field.options) {
+                    const o = ar ? translated("option", label, ar) : text("option", label);
                     o.value = value;
                     input.append(o);
                 }
@@ -2182,10 +2184,12 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
     }
     async function settlements(parent, current) {
-        const activeCache = cache,
-            key = "commercial/settlements?";
-        const list =
-            activeCache.get(key) || (await api("commercial/settlements"));
+        const activeCache = cache;
+        const query = new URLSearchParams(settlementQuery);
+        if (pages.settlementHistory > 1) query.set("page", String(pages.settlementHistory));
+        const key = "commercial/settlements?" + query.toString();
+        const list = activeCache.get(key) ||
+            (await api(query.size ? key : "commercial/settlements"));
         if (current !== epoch) return;
         activeCache.set(key, list);
         form(
@@ -2519,6 +2523,48 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 }
             },
         );
+        const history = document.createElement("section");
+        history.dataset.settlementHistory = "true";
+        parent.append(history);
+        history.append(translated("h4", "Settlement history", "سجل التسويات"));
+        form(
+            history,
+            [
+                field("currency", "Currency", "العملة", settlementQuery.currency, "text", false),
+                field("from", "From UTC date", "من تاريخ بتوقيت UTC", settlementQuery.from, "date", false),
+                field("to", "Through UTC date", "إلى تاريخ بتوقيت UTC", settlementQuery.to, "date", false),
+                {
+                    name: "state",
+                    en: "Settlement status",
+                    ar: "حالة التسوية",
+                    value: settlementQuery.state || "",
+                    required: false,
+                    options: [
+                        ["", "Any status", "جميع الحالات"],
+                        ["pending", "Pending", "قيد الانتظار"],
+                        ["approved", "Approved", "معتمدة"],
+                        ["rejected", "Rejected", "مرفوضة"],
+                        ["simulated_paid", "Simulated payout", "صرف محاكى"],
+                        ["provider_paid", "Provider payout", "صرف عبر مزود الدفع"],
+                    ],
+                },
+            ],
+            "Filter settlements",
+            "تصفية التسويات",
+            async (data) => {
+                settlementQuery = Object.fromEntries(Object.entries(data).filter(([, value]) => value));
+                pages.settlementHistory = 1;
+                await load();
+            },
+        );
+        const exportLink = translated(
+            "a", "Download settlement page CSV", "تنزيل صفحة التسويات CSV",
+        );
+        exportLink.href = "/api/commercial/settlements/export?" + query.toString();
+        exportLink.download = "vendor-settlements-page.csv";
+        history.append(exportLink);
+        if (!list.data.length)
+            history.append(translated("p", "No matching settlements.", "لا توجد تسويات مطابقة."));
         for (const s of list.data) {
             const row = document.createElement("div");
             row.className = "finance-row";
@@ -2571,8 +2617,18 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             await load();
                         },
                     );
-            parent.append(row);
+            history.append(row);
         }
+        if (list.current_page > 1)
+            button(history, "Previous settlement page", "صفحة التسويات السابقة", async () => {
+                pages.settlementHistory = list.current_page - 1;
+                await load();
+            });
+        if (list.current_page < list.last_page)
+            button(history, "Next settlement page", "صفحة التسويات التالية", async () => {
+                pages.settlementHistory = list.current_page + 1;
+                await load();
+            });
     }
     async function open() {
         if (!actor) return;
