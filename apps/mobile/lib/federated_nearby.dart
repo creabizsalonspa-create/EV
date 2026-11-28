@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'partner_report_map.dart';
 import 'vendor_forms.dart' show vendorDigits;
 
 /// A deliberately read-only projection of the two independent discovery sources.
@@ -7,7 +8,8 @@ class FederatedNearbyResult {
   final int publishedTotal;
   final List<({String name, String evidence, String detail})> published;
   final List<({String name, String attribution, String license})>? licensed;
-  const FederatedNearbyResult(this.publishedTotal,this.published,this.licensed);
+  final List<PartnerMapPoint> mapPoints;
+  const FederatedNearbyResult(this.publishedTotal,this.published,this.licensed,this.mapPoints);
 
   static String label(dynamic value) => value is String
     ? String.fromCharCodes(value.trim().runes.take(250)) : '';
@@ -22,6 +24,7 @@ class FederatedNearbyResult {
       page['per_page']!=25||page['total'] is! int||page['last_page'] is! int||
       page['last_page']<1||page['data'].length>25||page['total']<page['data'].length)invalid();
     final keys=<String>{};
+    final points=<PartnerMapPoint>[];
     final published=<({String name,String evidence,String detail})>[];
     for(final row in page['data']){
       if(row is! Map||row['key'] is! String||!keys.add(row['key'] as String))invalid();
@@ -31,6 +34,8 @@ class FederatedNearbyResult {
           row['key']!='catalog:${station['id']}'||
           !['SIMULATED','DISCOVERY_ONLY'].contains(station['evidence'])||
           (station['evidence']=='DISCOVERY_ONLY'&&station['reservable']==true))invalid();
+        final point=PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(station));
+        if(point!=null)points.add(point);
         published.add((name:label(station['name']),evidence:'platform',detail:label(station['evidence'])));
       }else if(row['kind']=='partner'){
         final location=row['location'];
@@ -38,6 +43,8 @@ class FederatedNearbyResult {
           row['evidence']!='PARTNER_REPORTED_UNVERIFIED'||row['availability']!='unknown'||
           row['reservable']!=false||row['remote_control']!=false||location is! Map||
           location['availability']!='unknown'||location['reservable']!=false||location['remote_control']!=false)invalid();
+        final point=PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(location),providerLabel:label(row['provider_label']));
+        if(point!=null&&row['location_available']!=false)points.add(point);
         published.add((name:label(location['name']),evidence:'partner',
           detail:[row['provider_label'],location['address'],location['city'],location['country']].map(label).where((v)=>v.isNotEmpty).join(' · ')));
       }else{invalid();}
@@ -45,7 +52,7 @@ class FederatedNearbyResult {
     if(source is! Map)invalid();
     if(source['state']=='unavailable'){
       if(!source.containsKey('sample')||source['sample']!=null)invalid();
-      return FederatedNearbyResult(page['total'] as int,published,null);
+      return FederatedNearbyResult(page['total'] as int,published,null,List.unmodifiable(points));
     }
     final sample=source['sample'];
     if(source['state']!='observed'||sample is! Map||sample['provider']!='open_charge_map'||
@@ -63,9 +70,11 @@ class FederatedNearbyResult {
         row['data_license'].runes.length>240||row['attribution'] is! String||
         !row['attribution'].startsWith('Open Charge Map / ')||row['attribution'].runes.length>250||
         row['source_url']!='https://openchargemap.org/site/poi/details/${row['id'].substring(4)}')invalid();
+      final point=PartnerMapPoint.fromLicensedLocation(Map<String,dynamic>.from(row));
+      if(point!=null)points.add(point);
       licensed.add((name:label(row['name']),attribution:row['attribution'] as String,license:row['data_license'] as String));
     }
-    return FederatedNearbyResult(page['total'] as int,published,licensed);
+    return FederatedNearbyResult(page['total'] as int,published,licensed,List.unmodifiable(points));
   }
 }
 
@@ -74,7 +83,8 @@ class FederatedNearbyResult {
 class FederatedNearbyPanel extends StatefulWidget {
   final EvApi api;
   final bool Function() currentSession;
-  const FederatedNearbyPanel({super.key,required this.api,required this.currentSession});
+  final ValueChanged<List<PartnerMapPoint>>? onMap;
+  const FederatedNearbyPanel({super.key,required this.api,required this.currentSession,this.onMap});
   @override
   State<FederatedNearbyPanel> createState()=>_FederatedNearbyPanelState();
 }
@@ -151,6 +161,10 @@ class _FederatedNearbyPanelState extends State<FederatedNearbyPanel>{
             for(final row in data.licensed!)ListTile(title:Text(row.name.isEmpty?tr('Unnamed location','موقع بلا اسم'):row.name),
               subtitle:Text(tr('Crowd reported · availability unknown','تقرير مجتمع · التوفر غير معروف')+'\n${row.attribution} · ${row.license}')),
           ],
+          if(widget.onMap!=null&&data.mapPoints.isNotEmpty)
+            OutlinedButton(key:const Key('federated-map-open'),
+              onPressed:busy?null:(){if(mounted&&widget.currentSession()&&identical(result,data))widget.onMap?.call(data.mapPoints);},
+              child:Text(tr('Map loaded nearby results','عرض النتائج القريبة المحملة على الخريطة'))),
           Text(tr('Discovery only. Open the regular catalog to inspect booking options.','للاكتشاف فقط. افتح الكتالوج العادي للاطلاع على خيارات الحجز.')),
         ],
       ],
