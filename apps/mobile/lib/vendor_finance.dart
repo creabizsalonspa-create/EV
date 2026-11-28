@@ -6,6 +6,7 @@ import 'strings.dart';
 import 'financial_documents.dart';
 import 'financial_operation_store.dart';
 import 'vendor_earnings_csv.dart';
+import 'vendor_settlement_csv.dart';
 import 'vendor_revenue_cohorts.dart';
 import 'invoice_reconciliation.dart';
 
@@ -17,6 +18,16 @@ const vendorFinanceEn = {
   'accounts': 'Payout accounts',
   'payouts': 'Payout history',
   'settlements': 'Settlements',
+  'settlementCurrency': 'Settlement currency',
+  'settlementState': 'Settlement status',
+  'settlementAllStates': 'Any status',
+  'settlementFrom': 'From UTC (YYYY-MM-DD)',
+  'settlementTo': 'Through UTC (YYYY-MM-DD)',
+  'settlementFilter': 'Filter settlements',
+  'settlementExport': 'Preview settlement page CSV',
+  'settlementInvalidFilters': 'Enter a three-letter currency and valid dates in order.',
+  'provider_paid': 'Test-provider payout',
+  'rejected': 'Rejected',
   'empty': 'No records.',
   'refresh': 'Refresh',
   'next': 'Next',
@@ -85,6 +96,16 @@ const vendorFinanceAr = {
   'accounts': 'حسابات التحويل',
   'payouts': 'سجل التحويلات',
   'settlements': 'التسويات',
+  'settlementCurrency': 'عملة التسوية',
+  'settlementState': 'حالة التسوية',
+  'settlementAllStates': 'جميع الحالات',
+  'settlementFrom': 'من تاريخ UTC (YYYY-MM-DD)',
+  'settlementTo': 'إلى تاريخ UTC (YYYY-MM-DD)',
+  'settlementFilter': 'تصفية التسويات',
+  'settlementExport': 'معاينة صفحة التسويات CSV',
+  'settlementInvalidFilters': 'أدخل رمز عملة من ثلاثة أحرف وتواريخ صحيحة بالترتيب.',
+  'provider_paid': 'صرف عبر مزود الاختبار',
+  'rejected': 'مرفوض',
   'empty': 'لا توجد سجلات.',
   'refresh': 'تحديث',
   'next': 'التالي',
@@ -201,7 +222,18 @@ class VendorFinanceView extends StatefulWidget {
 
 class _VendorFinanceState extends State<VendorFinanceView>
     with WidgetsBindingObserver {
+  static const settlementStates = [
+    'pending', 'approved', 'rejected', 'simulated_paid', 'provider_paid',
+  ];
+
   String section = 'earnings';
+  final settlementCurrency = TextEditingController();
+  final settlementFrom = TextEditingController();
+  final settlementTo = TextEditingController();
+  var settlementState = '';
+  Map<String, String> settlementFilters = const {};
+  String? settlementCsv;
+  bool invalidSettlementFilter = false, settlementFiltersEdited = false;
   int generation = 0, target = 1;
   bool busy = false, foreground = true, hidden = false;
   late bool Function() authorized;
@@ -226,6 +258,14 @@ class _VendorFinanceState extends State<VendorFinanceView>
     error = null;
     busy = false;
     target = 1;
+    settlementCurrency.clear();
+    settlementFrom.clear();
+    settlementTo.clear();
+    settlementState = '';
+    settlementFilters = const {};
+    settlementCsv = null;
+    invalidSettlementFilter = false;
+    settlementFiltersEdited = false;
     hidden = true;
   }
 
@@ -276,6 +316,9 @@ class _VendorFinanceState extends State<VendorFinanceView>
   void dispose() {
     sessionEvents?.cancel();
     generation++;
+    settlementCurrency.dispose();
+    settlementFrom.dispose();
+    settlementTo.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -290,6 +333,7 @@ class _VendorFinanceState extends State<VendorFinanceView>
       error = null;
       page = null;
       groups = null;
+      settlementCsv = null;
     });
     try {
       final me = await widget.api.request('me');
@@ -305,7 +349,12 @@ class _VendorFinanceState extends State<VendorFinanceView>
           : 'commercial/settlements';
       final result = await widget.api.request(
         path,
-        query: section == 'earnings' ? const {} : {'page': '$number'},
+        query: section == 'earnings'
+            ? const {}
+            : {
+                'page': '$number',
+                if (section == 'settlements') ...settlementFilters,
+              },
       );
       if (!active(epoch, current)) return;
       if (section == 'earnings') {
@@ -331,6 +380,10 @@ class _VendorFinanceState extends State<VendorFinanceView>
         groups = rows;
       } else {
         final parsed = ApiPage.fromJson(result, (r) => r);
+        if (section == 'settlements' &&
+            (parsed.current != number || parsed.items.length > 25)) {
+          throw const FormatException('Invalid settlement history page.');
+        }
         for (final row in parsed.items) {
           if (row['id'] is! int || row['vendor_id'] != me['id'])
             throw const FormatException('Unsupported owner evidence.');
@@ -345,6 +398,23 @@ class _VendorFinanceState extends State<VendorFinanceView>
             nativeFinancialAmount(context, row, 'amount_minor');
             if (section == 'payouts' && row['real_money_moved'] != false)
               throw const FormatException('Unsupported payout evidence.');
+            if (section == 'settlements') {
+              final created = row['created_at'];
+              final date = created is String && created.length >= 10
+                  ? created.substring(0, 10)
+                  : null;
+              final from = settlementFilters['from'];
+              final to = settlementFilters['to'];
+              if (!settlementStates.contains(row['state']) ||
+                  (settlementFilters['state'] != null &&
+                      row['state'] != settlementFilters['state']) ||
+                  (settlementFilters['currency'] != null &&
+                      row['currency'] != settlementFilters['currency']) ||
+                  (from != null && (date == null || date.compareTo(from) < 0)) ||
+                  (to != null && (date == null || date.compareTo(to) > 0))) {
+                throw const FormatException('Settlement history scope changed.');
+              }
+            }
           }
         }
         page = parsed;
@@ -359,6 +429,82 @@ class _VendorFinanceState extends State<VendorFinanceView>
       }
     } finally {
       if (active(epoch, current)) setState(() => busy = false);
+    }
+  }
+
+  void editSettlementFilters() {
+    settlementFiltersEdited = true;
+    settlementCsv = null;
+  }
+
+  void filterSettlements() {
+    if (!foreground || !authorized() || busy) return;
+    final currency = settlementCurrency.text.trim().toUpperCase();
+    final from = settlementFrom.text.trim();
+    final to = settlementTo.text.trim();
+
+    bool date(String value) {
+      if (value.isEmpty) return true;
+      if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) return false;
+      final parsed = DateTime.tryParse('${value}T00:00:00Z');
+      return parsed != null && parsed.toIso8601String().startsWith('${value}T');
+    }
+
+    if ((currency.isNotEmpty && !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) ||
+        !date(from) || !date(to) ||
+        (from.isNotEmpty && to.isNotEmpty && from.compareTo(to) > 0)) {
+      setState(() {
+        invalidSettlementFilter = true;
+        page = null;
+        settlementCsv = null;
+      });
+      return;
+    }
+    setState(() {
+      invalidSettlementFilter = false;
+      settlementFiltersEdited = false;
+      settlementFilters = {
+        if (currency.isNotEmpty) 'currency': currency,
+        if (settlementState.isNotEmpty) 'state': settlementState,
+        if (from.isNotEmpty) 'from': from,
+        if (to.isNotEmpty) 'to': to,
+      };
+    });
+    load();
+  }
+
+  Future<void> viewSettlementCsv() async {
+    final source = page;
+    final current = widget.api.sessionFence();
+    final request = generation;
+    if (busy || source == null || section != 'settlements' ||
+        settlementFiltersEdited || !active(request, current)) return;
+    setState(() {
+      busy = true;
+      error = null;
+      settlementCsv = null;
+    });
+    try {
+      final document = await widget.api.downloadVendorSettlementPage({
+        ...settlementFilters,
+        'page': '${source.current}',
+      });
+      if (active(request, current)) {
+        final text = VendorSettlementCsv.verifiedText(document, source.items);
+        setState(() => settlementCsv = text);
+      }
+    } catch (e) {
+      if (active(request, current)) {
+        setState(() => error = e);
+        if (e is ApiException && e.endsCurrentSession) widget.onExpired();
+      }
+    } finally {
+      if (mounted && foreground && request == generation) {
+        setState(() {
+          if (!current()) clearPrivate();
+          busy = false;
+        });
+      }
     }
   }
 
@@ -452,6 +598,59 @@ class _VendorFinanceState extends State<VendorFinanceView>
                     load();
                   },
           ),
+          if (section == 'settlements') ...[
+            TextField(
+              controller: settlementCurrency,
+              enabled: !busy,
+              onChanged: (_) => setState(editSettlementFilters),
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(labelText: t('settlementCurrency')),
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: settlementState,
+              decoration: InputDecoration(labelText: t('settlementState')),
+              items: [
+                DropdownMenuItem(value: '', child: Text(t('settlementAllStates'))),
+                for (final state in settlementStates)
+                  DropdownMenuItem(value: state, child: Text(t(state))),
+              ],
+              onChanged: busy ? null : (value) {
+                if (authorized() && foreground && current()) {
+                  setState(() {
+                    settlementState = value ?? '';
+                    editSettlementFilters();
+                  });
+                }
+              },
+            ),
+            for (final field in [
+              (settlementFrom, 'settlementFrom'),
+              (settlementTo, 'settlementTo'),
+            ])
+              TextField(
+                controller: field.$1,
+                enabled: !busy,
+                onChanged: (_) => setState(editSettlementFilters),
+                keyboardType: TextInputType.datetime,
+                decoration: InputDecoration(labelText: t(field.$2)),
+              ),
+            OutlinedButton(
+              onPressed: busy ? null : () {
+                if (identical(widget.api, sourceApi) && current()) filterSettlements();
+              },
+              child: Text(t('settlementFilter')),
+            ),
+            if (invalidSettlementFilter) Text(t('settlementInvalidFilters')),
+            if (page != null && !settlementFiltersEdited)
+              OutlinedButton(
+                onPressed: busy ? null : () {
+                  if (identical(widget.api, sourceApi) && current()) viewSettlementCsv();
+                },
+                child: Text(t('settlementExport')),
+              ),
+            if (settlementCsv != null)
+              SelectableText(settlementCsv!, key: const Key('settlement-csv-preview')),
+          ],
           OutlinedButton(
             onPressed: busy ? null : () => load(number: target),
             child: Text(t('refresh')),

@@ -497,6 +497,18 @@ class EvApi {
         as PrivateDocument;
   }
 
+  Future<PrivateDocument> downloadVendorSettlementPage(
+    Map<String, String> query,
+  ) async =>
+      await _request(
+            'commercial/settlements/export',
+            query: query,
+            binary: true,
+            binaryTypes: const ['text/csv'],
+            binaryLimit: 65536,
+          )
+          as PrivateDocument;
+
   /// Same authenticated issuance-date scope as the accepted revenue report.
   Future<PrivateDocument> downloadVendorRevenueCohort(
     int vendorId, {
