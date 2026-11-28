@@ -154,6 +154,25 @@ class AdminStaffPermissionTest extends TestCase
         $this->getJson('/api/admin/permission-grants?page=100001')->assertUnprocessable();
     }
 
+    public function test_staff_account_and_security_hold_filters_match_the_same_membership(): void
+    {
+        [$admin, , $staff, $company, $member] = $this->fixture();
+        [, , $otherStaff, $otherCompany, $otherMember] = $this->fixture();
+        $this->actingAs($admin)->postJson('/api/admin/permission-grants/'.$member->id.'/revoke', $this->payload())->assertOk();
+        $url = '/api/admin/permission-grants';
+        $this->getJson($url.'?admin_hold=yes&user_id='.$staff->id.'&company_id='.$company->id)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $member->id);
+        $this->getJson($url.'?admin_hold=yes&user_id='.$otherStaff->id)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'?admin_hold=no&user_id='.$otherStaff->id.'&company_id='.$otherCompany->id)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $otherMember->id);
+        $this->getJson($url.'?admin_hold=no&user_id='.$staff->id)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'?admin_hold=yes&user_id='.$staff->id.'&company_id='.$otherCompany->id)
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'?admin_hold=bad')->assertUnprocessable();
+        $this->getJson($url.'?user_id=0')->assertUnprocessable();
+        $this->assertDatabaseCount('admin_permission_revocations', 1);
+    }
+
     public function test_owner_cannot_reinvite_during_admin_hold_and_release_requires_fresh_consent(): void
     {
         [$admin, $owner, $staff, $company, $member] = $this->fixture();
