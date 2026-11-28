@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ChargerDiagnosticLogTest extends TestCase
@@ -136,6 +137,47 @@ class ChargerDiagnosticLogTest extends TestCase
         $this->deleteJson($url.'/'.$second)->assertOk();
         $this->assertNull(DB::table('charger_diagnostic_logs')->find($second)->payload_ciphertext);
         $this->call('PUT', '/api/internal/diagnostic-logs/'.$second, [], [], [], ['CONTENT_TYPE' => 'application/octet-stream', 'CONTENT_LENGTH' => '1', 'PHP_AUTH_USER' => 'diagnostic', 'PHP_AUTH_PW' => str_repeat('a', 64)], 'x')->assertNotFound();
+    }
+
+    public static function expiringDispatches(): array
+    {
+        return [
+            'unclaimed request' => ['1.6', 'requested', 'not_dispatched', true],
+            'unclaimed request after historical purge' => ['2.0.1', 'requested', 'not_dispatched', false],
+            'interrupted transport after historical purge' => ['1.6', 'dispatching', 'outcome_unknown', false],
+            'interrupted transport' => ['2.0.1', 'dispatching', 'outcome_unknown', true],
+            'recorded transport receipt' => ['2.0.1', 'transport_submitted', 'transport_submitted', true],
+        ];
+    }
+
+    #[DataProvider('expiringDispatches')]
+    public function test_expired_dispatches_keep_a_conservative_receipt_without_retry(string $protocol, string $before, string $expected, bool $containsPayload): void
+    {
+        [$owner, , , $url] = $this->setupLog($protocol);
+        $body = $this->requestBody();
+        $id = $this->actingAs($owner)->postJson($url, $body)->assertCreated()->json('id');
+        $request = DB::table('charger_diagnostic_logs')->where('id', $id);
+        $request->update(['dispatch_state' => $before, 'attempted_at' => $before === 'requested' ? null : now()]
+            + ($containsPayload ? [] : ['payload_ciphertext' => null, 'upload_token_digest' => null]));
+
+        $this->artisan('csms:expire-diagnostic-files')->expectsOutput('Expired diagnostic records processed: 0. No source commands or billing changes.')->assertSuccessful();
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.dispatch_state', $before);
+        $this->travel(16)->minutes();
+        $this->artisan('csms:expire-diagnostic-files')->expectsOutput('Expired diagnostic records processed: 1. No source commands or billing changes.')->assertSuccessful();
+        $this->artisan('csms:expire-diagnostic-files')->expectsOutput('Expired diagnostic records processed: 0. No source commands or billing changes.')->assertSuccessful();
+
+        $this->postJson($url, $body)->assertOk()->assertJsonPath('id', $id)
+            ->assertJsonPath('dispatch_state', $expected)->assertJsonPath('accepted_at', null)
+            ->assertJsonPath('can_download', false);
+        $this->assertDatabaseHas('charger_diagnostic_logs', [
+            'id' => $id,
+            'dispatch_state' => $expected,
+            'upload_token_digest' => null,
+            'payload_ciphertext' => null,
+        ]);
+        $this->assertCount(1, Http::recorded(fn ($q) => str_contains($q->url(), '/reporting/')));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_oversized_invalid_auth_foreign_actor_and_production_are_rejected(): void
