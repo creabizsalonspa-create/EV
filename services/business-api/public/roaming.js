@@ -118,22 +118,23 @@ window.createRoamingWorkspace = ({
             "Roaming coordinates",
             `${item.latitude}, ${item.longitude}`,
         );
-        line(card, "Roaming source updated", item.last_updated);
+        const clocks = window.EvPartnerCatalogPolicy?.project(metadata);
+        line(card, "Roaming source updated", metadata ? clocks?.sourceTime : item.last_updated);
         if (metadata?.distance_basis === "great_circle" && Number.isFinite(Number(metadata.distance_km)))
             line(card, "Roaming straight-line distance", `${Number(metadata.distance_km).toFixed(2)} km`);
-        if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 0)
-            line(card, "Roaming partner source age", `${metadata.reported_source_age_minutes} min · not live availability`);
+        if (clocks?.sourceAge != null)
+            line(card, "Roaming partner source age", `${clocks.sourceAge} min · not live availability`);
         if (metadata?.source_clock_evidence === "PARTNER_CLOCK_AHEAD")
             card.append(ui("p", "Roaming partner clock ahead warning"));
-        else if (metadata?.source_clock_evidence === "SOURCE_TIMESTAMP_UNKNOWN")
+        else if (metadata && clocks?.sourceAge == null)
             card.append(ui("p", "Roaming partner time unknown warning"));
-        else if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 1440)
+        else if (clocks?.sourceAge >= 1440)
             card.append(ui("p", "Roaming stale partner source warning"));
-        if (Number.isSafeInteger(metadata?.received_age_minutes) && metadata.received_age_minutes >= 0)
-            line(card, "Roaming receipt age", String(metadata.received_age_minutes) + " min · not live availability");
-        const policy = raw('p', window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, document.documentElement.lang === 'ar') || 'Catalog-age policy unavailable.');
-        policy.dataset.en = window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, false) || 'Catalog-age policy unavailable.';
-        policy.dataset.ar = window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, true) || 'سياسة عمر الكتالوج غير متاحة.';
+        if (clocks?.receiptAge != null)
+            line(card, "Roaming receipt age", String(clocks.receiptAge) + " min · not live availability");
+        const policy = raw('p', window.EvPartnerCatalogPolicy?.text(clocks?.policy, document.documentElement.lang === 'ar') || 'Catalog-age policy unavailable.');
+        policy.dataset.en = window.EvPartnerCatalogPolicy?.text(clocks?.policy, false) || 'Catalog-age policy unavailable.';
+        policy.dataset.ar = window.EvPartnerCatalogPolicy?.text(clocks?.policy, true) || 'سياسة عمر الكتالوج غير متاحة.';
         card.append(policy);
         for (const evse of item.evses || []) {
             const group = document.createElement("div");
