@@ -35,6 +35,8 @@ class PartnerRewardApi extends FixtureApi {
   bool malformed = false;
   bool rejectClaim = false;
   bool malformedCancellation = false;
+  void Function(Map<String, dynamic>)? alterOffers;
+  void Function(Map<String, dynamic>)? alterClaims;
   final cancelled = <String>{};
   final cancellationKeys = <String>[];
   String status = 'pending';
@@ -55,6 +57,7 @@ class PartnerRewardApi extends FixtureApi {
     'total': data.length,
     'current_page': 1,
     'last_page': 1,
+    'per_page': 25,
   };
 
   @override
@@ -75,7 +78,7 @@ class PartnerRewardApi extends FixtureApi {
       expect(method, 'GET');
       expect(query['page'], '1');
       if (!enabled) throw const ApiException(503, 'Disabled');
-      return page([
+      final response = page([
         {
           ...evidence,
           'review_id': 9,
@@ -88,13 +91,17 @@ class PartnerRewardApi extends FixtureApi {
           'ends_at': '2026-12-23 00:00:00',
         },
       ]);
+      alterOffers?.call(response);
+      return response;
     }
     if (path == '$prefix/claims') {
       expect(method, 'GET');
-      return page([
+      final response = page([
         for (final row in claims.values)
           {...row, 'status': status, ...evidence},
       ]);
+      alterClaims?.call(response);
+      return response;
     }
     expect(method, 'POST');
     final key = body!['idempotency_key'] as String;
@@ -153,6 +160,45 @@ Future<void> tap(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('malformed offer page cannot expose actionable rows', (tester) async {
+    final api = PartnerRewardApi(1);
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, PartnerRewardStore(), 1));
+    await tester.pumpAndSettle();
+    expect(find.text('Claim reward'), findsOneWidget);
+    for (final change in <void Function(Map<String, dynamic>)>[
+      (r) => r['current_page'] = 2,
+      (r) => r['per_page'] = 26,
+      (r) => r['total'] = 2,
+      (r) => r['last_page'] = 99,
+      (r) { r['data'].add(r['data'][0]); r['total'] = 2; },
+    ]) {
+      api.alterOffers = change;
+      await tap(tester, 'Refresh offers');
+      expect(find.text('Claim reward'), findsNothing);
+      expect(find.textContaining('Partner reward offers are unavailable'), findsOneWidget);
+    }
+    expect(api.claimKeys, isEmpty);
+  });
+
+  testWidgets('malformed claim history cannot display duplicate receipts', (tester) async {
+    final api = PartnerRewardApi(1);
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, PartnerRewardStore(), 1));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Claim reward');
+    await tap(tester, 'Claim');
+    api.alterClaims = (r) {
+      r['data'].insert(0, {...Map<String, dynamic>.from(r['data'][0]), 'id': 15});
+      r['total'] = 2;
+    };
+    await tap(tester, 'My claim history');
+    expect(find.text('Could not load partner reward history.'), findsOneWidget);
+    expect(find.text('Claim #14'), findsNothing);
+    expect(find.text('Claim #15'), findsNothing);
+    expect(api.claimKeys, hasLength(1));
+  });
+
   testWidgets('cancelled intent retains its exact key until verified server acknowledgement', (tester) async {
     final api = PartnerRewardApi(1)..rejectClaim = true;
     final store = PartnerRewardStore();
