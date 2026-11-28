@@ -28,6 +28,7 @@ test('all inventoried charger-operation numeric routes retain bounded integer ma
     ['post', '/companies/{company}/chargers/{charger}/availability-operations', 'company', 'charger'],
     ['post', '/companies/{company}/chargers/{charger}/availability-operations/{operation}/observe', 'company', 'charger', 'operation'],
     ['post', '/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', 'operation'],
+    ['get', '/companies/{company}/chargers/{charger}/firmware-compatibility', 'company', 'charger'],
     ['delete', '/companies/{company}/firmware-releases/{release}', 'release'],
     ['post', '/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', 'operation'],
     ['post', '/companies/{company}/chargers/{charger}/firmware-operations/{operation}/cancel', 'operation'],

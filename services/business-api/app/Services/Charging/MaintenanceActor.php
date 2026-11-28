@@ -30,10 +30,15 @@ final class MaintenanceActor
         if (! $token instanceof PersonalAccessToken) {
             return;
         }
-        $query = $token->newQuery()->whereKey($token->getKey());
+        $id = $token->getKey();
+        abort_unless(is_int($id) && $id > 0, 403, 'Current bearer identity is unavailable.');
+        $query = $token->newQuery()->whereKey($id);
         $current = DB::transactionLevel() > 0 ? $query->lockForUpdate()->first() : $query->first();
         $expiration = config('sanctum.expiration');
-        abort_unless($current && (! $current->expires_at || $current->expires_at->isFuture())
+        abort_unless($current && $current->tokenable_id === $snapshot->id
+            && $current->tokenable_type === $snapshot->getMorphClass()
+            && is_string($token->token) && hash_equals($current->token, $token->token)
+            && (! $current->expires_at || $current->expires_at->isFuture())
             && (! $expiration || $current->created_at->gt(now()->subMinutes($expiration))), 403);
     }
 }

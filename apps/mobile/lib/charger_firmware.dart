@@ -29,6 +29,9 @@ class _FirmwareState extends State<ChargerFirmwareView>
     with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? operations, releases;
   bool busy = false, manager = false, enabled = false;
+  bool checkingCompatibility = false;
+  Map<String, dynamic>? sourceCompatibility;
+  Object? compatibilityError;
   Object? error;
   int generation = 0;
   bool foreground = true, prompting = false;
@@ -43,6 +46,9 @@ class _FirmwareState extends State<ChargerFirmwareView>
     busy = false;
     manager = false;
     enabled = false;
+    checkingCompatibility = false;
+    sourceCompatibility = null;
+    compatibilityError = null;
     operations = null;
     releases = null;
     selected = null;
@@ -103,6 +109,11 @@ class _FirmwareState extends State<ChargerFirmwareView>
     setState(() {
       busy = true;
       error = null;
+      // A previously verified source snapshot is never authoritative after
+      // list refresh, model change, account switch or a new request.
+      sourceCompatibility = null;
+      compatibilityError = null;
+      checkingCompatibility = false;
     });
     try {
       final values = await Future.wait([
@@ -142,11 +153,60 @@ class _FirmwareState extends State<ChargerFirmwareView>
         setState(() {
           operations = null;
           releases = null;
+          // A failed authoritative refresh revokes previously displayed
+          // maintenance capabilities; source state cannot be reused.
+          manager = false;
+          enabled = false;
+          selected = null;
+          sourceCompatibility = null;
+          compatibilityError = null;
         });
         fail(e);
       }
     } finally {
       if (current(epoch)) setState(() => busy = false);
+    }
+  }
+
+  Future<void> checkCompatibility() async {
+    if (!foreground || !authorized() || busy || checkingCompatibility) return;
+    final epoch = ++generation;
+    setState(() {
+      checkingCompatibility = true;
+      sourceCompatibility = null;
+      compatibilityError = null;
+    });
+    try {
+      final result = await widget.api.request(
+        '$base/chargers/${widget.chargerId}/firmware-compatibility',
+      );
+      if (!current(epoch)) return;
+      if (result is! Map ||
+          result['source_snapshot_verified'] != true ||
+          result['charger_id'] != widget.chargerId ||
+          result['manufacturer'] != widget.manufacturer ||
+          result['model'] != widget.model ||
+          result['physical_hardware_accepted'] != false ||
+          result['firmware_dispatch_authorized'] != false ||
+          result['releases'] is! List) {
+        throw const FormatException('Unverified source compatibility projection.');
+      }
+      setState(() {
+        sourceCompatibility = Map<String, dynamic>.from(result);
+        compatibilityError = null;
+      });
+    } catch (e) {
+      if (current(epoch)) {
+        setState(() {
+          sourceCompatibility = null;
+          compatibilityError = e;
+        });
+        if (e is ApiException && [401, 419].contains(e.status)) {
+          widget.onExpired();
+        }
+      }
+    } finally {
+      if (current(epoch)) setState(() => checkingCompatibility = false);
     }
   }
 
@@ -164,7 +224,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
   }
 
   Future<void> deploy() async {
-    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    if (!foreground || !authorized() || busy || checkingCompatibility || !manager || !enabled) return;
     final epoch = ++generation;
     final target = path;
     final api = widget.api;
@@ -173,6 +233,10 @@ class _FirmwareState extends State<ChargerFirmwareView>
     setState(() {
       busy = true;
       error = null;
+      // A pre-command compatibility snapshot must not be presented as
+      // current evidence after any maintenance operation is attempted.
+      sourceCompatibility = null;
+      compatibilityError = null;
     });
     try {
       if (pending == null) {
@@ -204,13 +268,15 @@ class _FirmwareState extends State<ChargerFirmwareView>
   }
 
   Future<void> review(int id, {bool cancel = false}) async {
-    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    if (!foreground || !authorized() || busy || checkingCompatibility || !manager || !enabled) return;
     final epoch = ++generation;
     final target = path;
     final api = widget.api;
     setState(() {
       busy = true;
       error = null;
+      sourceCompatibility = null;
+      compatibilityError = null;
     });
     try {
       final value = await note(
@@ -280,7 +346,61 @@ class _FirmwareState extends State<ChargerFirmwareView>
                   'للمحاكاة المحلية فقط. يجب أن يعتمد المسؤول ملفات موقعة موثوقة بشكل مستقل. تتاح الإصدارات المعتمدة والمتوافقة فقط. لا يوجد بديل غير موقع أو إعادة تلقائية. يبقى الشحن محظوراً حتى مراجعة حالة خمول حديثة ودليل مصدر نهائي مرتبط. لا تثبت تقارير المصدر التثبيت الفعلي.',
                 ),
               ),
-              if (busy && !prompting) const LinearProgressIndicator(),
+              if ((busy && !prompting) || checkingCompatibility)
+                const LinearProgressIndicator(),
+              if (enabled) ...[
+                OutlinedButton(
+                  onPressed: busy || checkingCompatibility
+                      ? null
+                      : checkCompatibility,
+                  child: Text(t(
+                    'Check live source firmware compatibility',
+                    'فحص توافق البرنامج الثابت مع المصدر المباشر',
+                  )),
+                ),
+                if (compatibilityError != null)
+                  Text(t(
+                    'Live source compatibility could not be verified. No firmware release is recommended by this check.',
+                    'تعذر التحقق من توافق المصدر المباشر. لا يوصي هذا الفحص بأي إصدار.',
+                  )),
+                if (sourceCompatibility != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(t('Authenticated source snapshot',
+                              'لقطة مصدر موثقة')),
+                          Text(
+                            '${t('Current source firmware', 'إصدار المصدر الحالي')}: '
+                            '${sourceCompatibility!['observed_source_firmware']}',
+                          ),
+                          Text(
+                            '${t('Last source heartbeat', 'آخر نبضة للمصدر')}: '
+                            '${sourceCompatibility!['source_last_message_at']}',
+                          ),
+                          Text(t(
+                            'Source reports never prove a physical installation or authorize firmware dispatch.',
+                            'لا تثبت تقارير المصدر التثبيت الفعلي ولا تسمح بإرسال البرنامج الثابت.',
+                          )),
+                          for (final row in (sourceCompatibility!['releases']
+                              is List ? sourceCompatibility!['releases'] as List : []))
+                            if (row is Map)
+                              Text(
+                                '${row['version']}: '
+                                '${row['matches_observed_source'] == true &&
+                                        row['signed_compatibility_policy'] == true &&
+                                        row['signer_currently_trusted'] == true &&
+                                        row['revoked'] == false
+                                    ? t('Signed source match', 'تطابق مصدر موقع')
+                                    : t('Not verified for this source', 'غير معتمد لهذا المصدر')}',
+                              ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
               if (error != null)
                 Text(EvStrings.of(context).t(errorKey(error!))),
               TextButton(
@@ -365,7 +485,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
                   ),
                 if (selected != null || pending != null)
                   FilledButton(
-                    onPressed: busy ? null : deploy,
+                    onPressed: busy || checkingCompatibility ? null : deploy,
                     child: Text(
                       pending == null
                           ? t('Request signed firmware', 'طلب برنامج ثابت موقع')
@@ -389,7 +509,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
                         Text('${op['created_at']}'),
                         if (op['reviewed_at'] == null && manager && enabled)
                           TextButton(
-                            onPressed: busy
+                            onPressed: busy || checkingCompatibility
                                 ? null
                                 : () => review(
                                     op['id'] as int,

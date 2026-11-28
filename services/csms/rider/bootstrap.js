@@ -75,10 +75,14 @@ class RiderServer extends CitrineOSServer {
         if (typeof nonce !== "string" || !/^[a-f0-9-]{36}$/i.test(nonce))
           return reply.code(400).send({ ready: false });
         if (!ready) return reply.code(503).send({ ready: false });
+        const protocols = signedFirmware ? ["1.6", "2.0.1"] : [];
         return {
           ready: true,
           remote_session_authorization: true,
-          signed_firmware_protocols: signedFirmware ? ["1.6", "2.0.1"] : [],
+          signed_firmware_protocols: protocols,
+          firmware_proof: createHmac("sha256", secret)
+            .update(["creabiz-firmware-capability-v2", nonce, "true", "1", protocols.join(",")].join("\n"))
+            .digest("hex"),
           adapter_version: version,
           tenant_id: 1,
           offline_fallback: false,
