@@ -35,10 +35,25 @@ class SandboxRoaming
         return [$c, $local, $link];
     }
 
+    /** New work requires every source module used by the existing roaming policy. */
+    public function newWorkPolicy(OcpiProvider $provider): array
+    {
+        $policy = $this->policy($provider);
+        $this->assertNewWorkReadScope($policy[0]);
+
+        return $policy;
+    }
+
+    private function assertNewWorkReadScope(array $connection): void
+    {
+        abort_unless(PartnerReadProfile::modules($connection) === PartnerReadProfile::MODULES, 409,
+            'Approved source read scope is incomplete for new sandbox roaming.');
+    }
+
     public function offer(OcpiRecord $location, string $evseUid, string $connectorId, string $tariffId): array
     {
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
-        [$c,$local,$link] = $this->policy($p);
+        [$c,$local,$link] = $this->newWorkPolicy($p);
         $integrity = app(StoredSourceIntegrity::class);
         abort_unless($integrity->consistent($location) && $this->currentReceipt($location), 409, 'Partner location source requires review.');
         abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
@@ -189,6 +204,7 @@ class SandboxRoaming
         [$c,$local,$link] = $this->policy($p);
         abort_unless($p->owner_id === $order->provider_owner_id && hash_equals($order->counterparty_hash, $link->configuration_hash) && $c['test_command_contract'] === $order->contract_reference && User::whereKey($order->user_id)->exists(), 409, 'Original roaming counterparty authority changed; source review is required.');
         if ($start) {
+            $this->assertNewWorkReadScope($c);
             $driver = User::whereKey($order->user_id)->first();
             abort_unless($driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch), 409, 'Charging consent was revoked or the customer account is unavailable.');
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');

@@ -64,13 +64,46 @@ final class VendorRevenueCohortController extends Controller
             ->where('created_at', '<=', $cutoff);
         $max = self::MAX_SAFE_MINOR;
         $sqlite = DB::connection()->getDriverName() === 'sqlite';
+        $entryValid = "e.debit_minor BETWEEN 0 AND {$max} AND e.credit_minor BETWEEN 0 AND {$max} AND (e.debit_minor = 0 OR e.credit_minor = 0)";
+        if ($sqlite) {
+            $entryValid .= " AND typeof(e.debit_minor) = 'integer' AND typeof(e.credit_minor) = 'integer'";
+        }
+        // SQLite's TOTAL avoids integer overflow on corrupt imports. All valid
+        // nonnegative sums up through MAX remain exactly representable.
+        $sum = $sqlite ? 'TOTAL' : 'SUM';
+        $entries = DB::table('finance_entries as e')
+            ->join('finance_journals as j', 'j.id', '=', 'e.journal_id')
+            ->whereIn('j.invoice_id', clone $cohortIds)
+            ->where('j.created_at', '<=', $cutoff)
+            ->where('e.created_at', '<=', $cutoff)
+            ->groupBy('e.journal_id')
+            ->select('e.journal_id')
+            ->selectRaw("MIN(CASE WHEN {$entryValid} THEN 1 ELSE 0 END) AS source_valid")
+            ->selectRaw("{$sum}(CASE WHEN {$entryValid} THEN e.debit_minor ELSE 0 END) AS debits")
+            ->selectRaw("{$sum}(CASE WHEN {$entryValid} THEN e.credit_minor ELSE 0 END) AS credits");
+
+        $journalValid = "j.currency = i.currency AND j.amount_minor BETWEEN 0 AND {$max} AND COALESCE(e.source_valid,1) = 1 AND COALESCE(e.debits,0) = j.amount_minor AND COALESCE(e.credits,0) = j.amount_minor";
+        $journalValid .= " AND ((j.kind = 'invoice' AND j.amount_minor = i.total_minor) OR j.kind IN ('payment', 'refund', 'unpaid_credit'))";
+        if ($sqlite) {
+            $journalValid .= " AND typeof(j.amount_minor) = 'integer'";
+        }
+        $journals = DB::table('finance_journals as j')
+            ->join('finance_invoices as i', 'i.id', '=', 'j.invoice_id')
+            ->leftJoinSub($entries, 'e', 'e.journal_id', '=', 'j.id')
+            ->whereIn('j.invoice_id', clone $cohortIds)
+            ->where('j.created_at', '<=', $cutoff)
+            ->groupBy('j.invoice_id')
+            ->select('j.invoice_id')
+            ->selectRaw("COUNT(CASE WHEN j.kind = 'invoice' THEN 1 END) AS issuance_count")
+            ->selectRaw("MIN(CASE WHEN {$journalValid} THEN 1 ELSE 0 END) AS source_valid");
+
         $posting = function (string $table, string $kind) use ($cohortIds, $cutoff, $max, $sqlite) {
             $query = DB::table($table.' as p')
                 ->whereIn('p.invoice_id', clone $cohortIds)
                 ->where('p.created_at', '<=', $cutoff)
                 ->join('finance_invoices as i', 'i.id', '=', 'p.invoice_id')
                 ->leftJoin('finance_journals as j', 'j.id', '=', 'p.journal_id');
-            $condition = "p.amount_minor BETWEEN 1 AND {$max} AND p.amount_minor <= i.total_minor AND j.invoice_id = i.id AND j.kind = '{$kind}' AND j.currency = i.currency AND j.amount_minor = p.amount_minor";
+            $condition = "p.amount_minor BETWEEN 1 AND {$max} AND p.amount_minor <= i.total_minor AND j.invoice_id = i.id AND j.kind = '{$kind}' AND j.created_at <= p.created_at AND j.currency = i.currency AND j.amount_minor = p.amount_minor";
             if ($sqlite) {
                 $condition .= " AND typeof(p.amount_minor) = 'integer' AND typeof(j.amount_minor) = 'integer'";
             }
@@ -100,11 +133,13 @@ final class VendorRevenueCohortController extends Controller
         if ($sqlite) {
             $invoiceValid .= " AND typeof(i.minor_units) = 'integer' AND typeof(i.total_minor) = 'integer' AND typeof(i.vendor_minor) = 'integer' AND typeof(i.commission_minor) = 'integer' AND typeof(i.tax_minor) = 'integer'";
         }
+        $invoiceValid .= ' AND a.issuance_count = 1 AND a.source_valid = 1';
         $invoiceValid .= ' AND COALESCE(p.source_valid,1) = 1 AND COALESCE(r.source_valid,1) = 1 AND COALESCE(c.source_valid,1) = 1 AND COALESCE(p.amount_minor,0) + COALESCE(c.amount_minor,0) <= i.total_minor AND COALESCE(r.amount_minor,0) <= COALESCE(p.amount_minor,0) AND COALESCE(r.vendor_minor,0) + COALESCE(c.vendor_minor,0) <= i.vendor_minor';
 
         // All period buckets are computed from one SQL snapshot with no per-invoice
         // loop and with SQL expressions valid on both SQLite and PostgreSQL.
         $rows = DB::table('finance_invoices as i')
+            ->leftJoinSub($journals, 'a', 'a.invoice_id', '=', 'i.id')
             ->leftJoinSub($payments, 'p', 'p.invoice_id', '=', 'i.id')
             ->leftJoinSub($refunds, 'r', 'r.invoice_id', '=', 'i.id')
             ->leftJoinSub($credits, 'c', 'c.invoice_id', '=', 'i.id')

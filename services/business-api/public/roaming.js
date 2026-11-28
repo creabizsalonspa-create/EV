@@ -1434,6 +1434,12 @@ window.createRoamingWorkspace = ({
             matrix.payment_authority === false &&
             typeof matrix.credentials_current === "boolean" &&
             (matrix.peer_role === null || ["CPO", "EMSP"].includes(matrix.peer_role)) &&
+            ((!Object.hasOwn(matrix, "sandbox_command_policy_ready") &&
+                !Object.hasOwn(matrix, "sandbox_reservation_policy_ready")) ||
+                (typeof matrix.sandbox_command_policy_ready === "boolean" &&
+                    typeof matrix.sandbox_reservation_policy_ready === "boolean" &&
+                    (!matrix.sandbox_command_policy_ready || (matrix.credentials_current && matrix.peer_role === "CPO")) &&
+                    (!matrix.sandbox_reservation_policy_ready || matrix.sandbox_command_policy_ready))) &&
             Array.isArray(matrix.modules) && matrix.modules.length === 4 &&
             matrix.modules.every((m, index) =>
                 m && typeof m === "object" && m.module === modules[index] &&
@@ -1458,6 +1464,10 @@ window.createRoamingWorkspace = ({
             target.append(raw("p", ar
                 ? "وحدات الشريك المُهيأة أو المتفاوض عليها فقط؛ لا تمثل موافقة للتجوال الفعلي أو صلاحية للشحن."
                 : "Configured or negotiated modules only — not live roaming approval or charging authority."));
+            if (typeof matrix.sandbox_command_policy_ready === "boolean") {
+                const yesNo = value => value ? (ar ? "نعم" : "yes") : (ar ? "لا" : "no");
+                target.append(raw("p", `${ar ? "سياسة أوامر الاختبار" : "Sandbox command policy"}: ${yesNo(matrix.sandbox_command_policy_ready)} · ${ar ? "سياسة الحجز التجريبي" : "Sandbox reservation policy"}: ${yesNo(matrix.sandbox_reservation_policy_ready)}`));
+            }
             for (const capability of matrix.modules) {
                 if (!["locations", "tariffs", "sessions", "cdrs"].includes(capability.module)) continue;
                 const labels = [

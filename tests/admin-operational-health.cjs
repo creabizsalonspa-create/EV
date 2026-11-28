@@ -92,3 +92,60 @@ test('resolved incident state remains visible beyond the bounded recent timeline
         assert(locale.root.textContent.includes('2026-11-15T12:30:00Z'));
     }
 });
+
+
+test('operator review binds the exact occurrence and leaves the incident open in EN/AR',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report(),calls=[];
+        const item={condition_key:'scheduler_stale',state:'open',opened_at:'2026-11-15T12:00:00Z',transition_revision:3,acknowledged_at:null};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[item],recent_events:[]};
+        f.setActor({role:'admin'},async(...args)=>{
+            calls.push(args);
+            if(args[1]==='POST'){
+                assert.equal(args[0],'admin/operational-health/acknowledge');
+                assert.equal(args[2].condition_key,item.condition_key);
+                assert.equal(args[2].transition_revision,3);
+                item.acknowledged_at='2026-11-15T12:05:00Z';
+                return {...args[2],acknowledged_at:item.acknowledged_at,incident_state:'open',external_actions:false};
+            }
+            return d;
+        });
+        click(f);await flush();
+        const action=nodes(f.root,'button')[1];assert(action);
+        await action.onclick();await flush();
+        assert.equal(calls.length,3);
+        assert(f.root.textContent.includes(ar?'الحادث ما زال مفتوحاً':'incident remains open'));
+        assert.equal(nodes(f.root,'button').length,1);
+        await action.onclick();assert.equal(calls.length,3);
+    }
+});
+test('operator review rejects forged receipts and late callbacks after account change',async()=>{
+    const f=fixture(),d=report(),calls=[];
+    d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[{condition_key:'scheduler_stale',state:'open',opened_at:'2026-11-15T12:00:00Z',transition_revision:1,acknowledged_at:null}],recent_events:[]};
+    let release;
+    f.setActor({role:'admin'},async(...args)=>{calls.push(args);if(args[1]==='POST')return new Promise(r=>release=r);return d;});
+    click(f);await flush();
+    const action=nodes(f.root,'button')[1],pending=action.onclick();
+    release({condition_key:'scheduler_stale',transition_revision:2,incident_state:'open',external_actions:false,acknowledged_at:'2026-11-15T12:05:00Z'});
+    await pending;await flush();assert(f.root.textContent.includes('Review not confirmed'));assert.equal(calls.length,2);
+    click(f);await flush();
+    const late=nodes(f.root,'button')[1].onclick();f.setActor(null,()=>{});
+    release({condition_key:'scheduler_stale',transition_revision:1,incident_state:'open',external_actions:false,acknowledged_at:'2026-11-15T12:05:00Z'});
+    await late;await flush();assert.equal(f.root.children.length,0);assert.equal(calls.length,4);
+});
+
+
+test('local review escalation shows overdue and unknown without external delivery in both languages',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report(),item={condition_key:'scheduler_stale',state:'open',opened_at:'2026-11-14T00:00:00Z',transition_revision:1,acknowledged_at:null,review_escalation:{state:'overdue',age_seconds:300}};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[item],recent_events:[],review_policy:{target_minutes:5,scope:'local_operator_review_only',observed_at:'2026-11-14T00:05:00Z',external_actions:false}};
+        f.setActor({role:'admin'},async()=>d);
+        click(f);await flush();assert(f.root.textContent.includes(ar?'مراجعة المشغل متأخرة':'operator review overdue'));
+        item.review_escalation.age_seconds=299;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+        item.review_escalation={state:'unknown',age_seconds:null};d.incidents.review_policy.target_minutes=null;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'أولوية المراجعة غير معروفة':'Review urgency unknown'));
+        d.incidents.review_policy.external_actions=true;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+    }
+});

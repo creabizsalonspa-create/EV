@@ -158,6 +158,30 @@ class SandboxRoamingTest extends TestCase
         $this->assertDatabaseCount('charging_sessions', 0);
     }
 
+    public function test_withdrawn_read_scope_denies_new_roaming_but_preserves_owned_source_stop(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $this->withHeaders($this->peer())->postJson('/api/roaming-protocol/2.2.1/tokens/'.$token['uid'].'/authorize?type=APP_USER',
+            ['location_id' => 'L1', 'evse_uids' => ['E1']])->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+        $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1',
+            $this->sourceSessionFixture($provider, $order, $token))->assertCreated();
+        $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')
+            ->assertOk()->assertJsonPath('can_stop', true);
+
+        config(['ocpi.connections.roaming.read_modules' => ['locations', 'tariffs', 'sessions']]);
+        $this->getJson('/api/roaming/locations/'.$location->id.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+        $this->assertCount(2, $this->writes);
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertSame('S1', end($this->writes)['body']['session_id']);
+        $this->assertCount(3, $this->writes);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_explicit_sandbox_consent_registers_never_offline_token_and_dispatches_once_without_financial_writes(): void
     {
         [$owner,$driver,$other,$p,$location] = $this->fixture();
