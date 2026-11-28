@@ -123,6 +123,7 @@ class CorporateBillingTest extends TestCase
 
     public function test_malformed_approved_claim_is_not_consolidated_even_when_credit_limit_allows_it(): void
     {
+        $this->travelTo(Carbon::parse('2026-11-15T10:00:00Z'));
         $a = $this->agreement();
         $invoice = $this->invoice();
         $id = DB::table('corporate_claims')->insertGetId([
@@ -140,6 +141,9 @@ class CorporateBillingTest extends TestCase
         ]);
         $before = DB::table('finance_journals')->count();
         $this->issue($a, [['id' => $id]])->assertConflict();
+        $url = '/api/fleets/'.$this->fleet->id.'/report?from=2026-11-15&through=2026-11-15';
+        $this->getJson($url)->assertConflict();
+        $this->getJson($url.'&format=csv')->assertConflict();
         $this->assertDatabaseCount('corporate_statements', 0);
         $this->assertDatabaseCount('corporate_statement_lines', 0);
         $this->assertDatabaseCount('corporate_receipts', 0);
