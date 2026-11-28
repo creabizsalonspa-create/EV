@@ -65,14 +65,16 @@ final class AvailabilitySource
             && is_array($reply[0]) && ($reply[0]['success'] ?? null) === true;
     }
 
-    public function confirmation(object $operation): ?array
+    public function confirmation(object $operation, array $authority): ?array
     {
+        $this->requireAuthority($authority);
         $from = CarbonImmutable::parse($operation->attempted_at, 'UTC');
         $until = $from->addSeconds(16);
         $requests = $this->source->messages($this->source->graph(
             'query($station:Int!,$action:String!,$watermark:Int!,$after:timestamptz!,$until:timestamptz!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},id:{_gt:$watermark},createdAt:{_gte:$after,_lte:$until}},limit:2){id createdAt payload correlationId}}',
             ['station' => $operation->source_station_id, 'action' => self::ACTION, 'watermark' => $operation->source_watermark, 'after' => $from->toISOString(), 'until' => $until->toISOString()],
         ), false);
+        $this->requireAuthority($authority);
         if (count($requests) !== 1) {
             return null;
         }
@@ -88,6 +90,7 @@ final class AvailabilitySource
             'query($station:Int!,$request:Int!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},requestMessageId:{_eq:$request},type:{_in:[3,4]}},limit:2){id type payload createdAt correlationId requestMessageId}}',
             ['station' => $operation->source_station_id, 'request' => $request['id']],
         ), true);
+        $this->requireAuthority($authority);
         if (count($replies) !== 1) {
             return null;
         }

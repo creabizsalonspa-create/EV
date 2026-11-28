@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,7 @@ class AnalyticsApi extends FixtureApi {
   bool deny = false;
   dynamic malformed;
   Completer<dynamic>? response;
+  Completer<PrivateDocument>? pdfResponse;
   final pdfQueries = <Map<String, String>>[];
   @override
   Future<dynamic> request(
@@ -72,6 +74,7 @@ class AnalyticsApi extends FixtureApi {
     Map<String, String> query,
   ) async {
     pdfQueries.add({...query});
+    if (pdfResponse != null) return pdfResponse!.future;
     throw const ApiException(503, 'secret-provider-diagnostic');
   }
 }
@@ -184,6 +187,42 @@ void main() {
     expect(find.textContaining('secret-provider'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('logout clears already displayed posting report and PDF affordance', (tester) async {
+    final api = AnalyticsApi();
+    addTearDown(api.close);
+    await open(tester, api);
+    final pdf = find.byKey(const Key('analytics-pdf'));
+    await tester.scrollUntilVisible(pdf, 150, scrollable: find.byType(Scrollable).first);
+    expect(pdf, findsOneWidget);
+    final before = api.calls.length;
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    expect(pdf, findsNothing);
+    expect(find.text('KWD 1.234'), findsNothing);
+    expect(api.calls.length, before);
+  });
+
+  testWidgets('late private PDF cannot open after account invalidation', (tester) async {
+    final api = AnalyticsApi()..pdfResponse = Completer<PrivateDocument>();
+    addTearDown(api.close);
+    await open(tester, api);
+    final pdf = find.byKey(const Key('analytics-pdf'));
+    await tester.scrollUntilVisible(pdf, 150, scrollable: find.byType(Scrollable).first);
+    await tester.tap(pdf);
+    await tester.pump();
+    expect(api.pdfQueries.length, 1);
+    await api.forgetSession();
+    api.pdfResponse!.complete(PrivateDocument(
+      Uint8List.fromList('%PDF-1.4'.codeUnits), 'application/pdf',
+    ));
+    await tester.pumpAndSettle();
+    expect(pdf, findsNothing);
+    expect(find.text('KWD 1.234'), findsNothing);
+    expect(find.byType(FinancialAnalyticsView), findsOneWidget);
+    expect(find.byType(Scaffold), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('background erases source and suppresses late response', (
     tester,
   ) async {

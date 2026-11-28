@@ -10,6 +10,7 @@ use App\Services\Ocpi\ReservationRoaming;
 use App\Services\Ocpi\RoamingDispatch;
 use App\Services\Ocpi\RoamingReconciler;
 use App\Services\Ocpi\SandboxRoaming;
+use App\Services\Ocpi\StoredSourceIntegrity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -71,26 +72,29 @@ class RoamingOrderController extends Controller
     {
         $this->driver($r);
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
-        $service->policy($p);
+        [$configuration] = $service->policy($p);
         $service->assertNewWorkContract($p);
         abort_unless($location->module === 'locations', 404);
         $filters = $r->validate(['evse_uid' => 'sometimes|string|max:64', 'connector_id' => 'sometimes|string|max:64']);
         $reservationService = app(ReservationRoaming::class);
         $providerAllowsReservation = $reservationService->supported($p);
         $offers = [];
-        $raw = $location->payload;
+        // Do not traverse or disclose a corrupted, unpublished or foreign projection.
+        $sourceIntact = app(StoredSourceIntegrity::class)->consistent($location)
+            && $location->country_code === $configuration['party_country']
+            && $location->party_id === $configuration['party_id']
+            && ($location->normalized['publish'] ?? false) === true;
+        $raw = $sourceIntact ? $location->payload : [];
+        $locationName = $sourceIntact ? $location->normalized['name'] : '';
         $attempts = 0;
         $truncated = false;
         foreach ($raw['evses'] ?? [] as $evse) {
             foreach ($evse['connectors'] ?? [] as $connector) {
-                foreach ($connector['tariff_ids'] ?? [] as $tariff) {
+                foreach ($service->advertisedTariffs($connector) as $tariff) {
                     if (isset($filters['evse_uid']) && $filters['evse_uid'] !== ($evse['uid'] ?? null)) {
                         continue;
                     }
                     if (isset($filters['connector_id']) && $filters['connector_id'] !== ($connector['id'] ?? null)) {
-                        continue;
-                    }
-                    if (! is_string($tariff) || strlen($tariff) > 64 || ! is_array($connector['tariff_ids'] ?? null) || count($connector['tariff_ids']) > 10) {
                         continue;
                     }
                     if (++$attempts > 100) {
@@ -106,7 +110,7 @@ class RoamingOrderController extends Controller
             }
         }
 
-        return $this->reply(['provider_name' => $p->name, 'location_name' => $location->normalized['name'], 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => collect($offers)->contains(fn ($offer) => $offer['reservation_supported'] === true), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
+        return $this->reply(['provider_name' => $p->name, 'location_name' => $locationName, 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => collect($offers)->contains(fn ($offer) => $offer['reservation_supported'] === true), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
     }
 
     public function index(Request $r, SandboxRoaming $service)

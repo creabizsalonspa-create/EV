@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
@@ -28,6 +29,17 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   int generation = 0;
   bool foreground = true;
   late bool Function() ownSession;
+  StreamSubscription<int>? sessionSubscription;
+  void subscribeSession() {
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api,api) && !ownSession()) {
+        // Redact immediately, even if the owning route has not rebuilt.
+        // Do not bind the successor session or dispatch a new history read.
+        setState(() { data = null; error = null; busy = false; });
+      }
+    });
+  }
   @override
   void initState() {
     super.initState();
@@ -35,6 +47,7 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    subscribeSession();
     if (foreground) load();
   }
 
@@ -69,18 +82,24 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
       final parsed = ApiPage.fromJson(result, (v) => v);
       if (current()) setState(() => data = parsed);
     } catch (e) {
-      if (current()) failed(e);
+      if (current()) {
+        failed(e);
+      } else if (mounted && foreground && request == generation &&
+          identical(widget.api,api) && identical(ownSession,fence) &&
+          e is ApiException && e.endsCurrentSession) {
+        widget.onExpired();
+      }
     } finally {
       if (current()) {
         setState(() => busy = false);
-      } else if (mounted && foreground && request == generation &&
+      } else if (mounted && request == generation &&
           identical(widget.api, api) && identical(ownSession, fence) &&
           !fence()) {
-        // An old account may revoke while the initial spinner is active.
-        // It cannot sign out, render data or overwrite a replacement actor,
-        // but the existing spinner must be removed from the frame; otherwise
-        // Flutter pumpAndSettle never completes on the revoked private view.
+        // A retired account may leave an animated loading indicator behind
+        // even when its response is correctly ignored. Clear only this
+        // original view; never touch a successor request or its data.
         setState(() {
+          generation++;
           busy = false;
           data = null;
           error = null;
@@ -490,7 +509,15 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
       data = null;
       error = null;
       busy = false;
-      ownSession = widget.api.sessionFence();
+      if (!identical(oldWidget.api,widget.api)) {
+        unawaited(sessionSubscription?.cancel());
+        ownSession = widget.api.sessionFence();
+        subscribeSession();
+      } else {
+        // Preserve the existing explicit owner rebind on parent updates.
+        // No rebind occurs in the revocation listener itself.
+        ownSession = widget.api.sessionFence();
+      }
       final api = widget.api;
       final fence = ownSession;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -523,6 +550,7 @@ class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver
   void dispose() {
     generation++;
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     super.dispose();
   }
 }

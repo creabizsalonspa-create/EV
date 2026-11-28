@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Security\CurrentFinanceReader;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\ContractReviewGate;
 use App\Services\Ocpi\OcpiException;
@@ -217,8 +218,18 @@ class OcpiController extends Controller
             && in_array($module, ['sessions', 'cdrs'], true)),
             409, 'Partner owner is not active for catalog synchronization.');
         try {
-            $records = $client->pull($provider, $module);
-            $counts = $sync->ingest($provider, $module, $records);
+            $actor = clone $r->user();
+            $consent = function () use ($actor, $provider, $module): bool {
+                app(MaintenanceActor::class)->check($actor);
+                $current = OcpiProvider::findOrFail($provider->id);
+                if ($actor->role !== 'admin' && ($actor->role !== 'vendor' || $current->owner_id !== $actor->id)) {
+                    return false;
+                }
+
+                return ($actor->role === 'admin' && in_array($module, ['sessions', 'cdrs'], true))
+                    || User::whereKey($current->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists();
+            };
+            $counts = $client->synchronize($provider, $module, $sync, $consent);
         } catch (OcpiException $e) {
             abort(409, $e->getMessage());
         }

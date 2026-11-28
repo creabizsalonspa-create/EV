@@ -269,7 +269,7 @@ class _StationPromotionsState extends State<StationPromotions>
         identical(api, widget.api) && identical(scope, ownsSession) && scope();
     final visible = expanded && (currentSession?.call() ?? false);
     if (discovery &&
-        (!visible || (placements?.isEmpty == true && lastPage == 1))) {
+        (!visible || (placements?.isEmpty == true && page == 1 && lastPage == 1))) {
       return const SizedBox.shrink();
     }
     return Column(
@@ -327,7 +327,7 @@ class _StationPromotionsState extends State<StationPromotions>
             children: [
               if (page > 1)
                 TextButton(
-                  onPressed: () { if (active()) load(page - 1); },
+                  onPressed: () { if (active()) load(page > lastPage ? lastPage : page - 1); },
                   child: Text(label('Previous promotions', 'العروض السابقة')),
                 ),
               if (page < lastPage)

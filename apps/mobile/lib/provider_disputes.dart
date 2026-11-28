@@ -1,27 +1,92 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
 String providerDisputeText(BuildContext context, String en, String ar) =>
     Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
+bool _providerId(dynamic id) => id is int && id > 0 && id <= 9007199254740991;
+
+// These tokens mirror ExternalDisputes::apply, webhook and reconcile.
+const _disputeStatuses = {
+  'warning_needs_response': ['Warning: response required', 'تحذير: مطلوب رد'],
+  'warning_under_review': ['Warning: under review', 'تحذير: قيد المراجعة'],
+  'warning_closed': ['Warning closed', 'تم إغلاق التحذير'],
+  'needs_response': ['Response required', 'مطلوب رد'],
+  'under_review': ['Under review', 'قيد المراجعة'],
+  'won': ['Won', 'تم كسب النزاع'],
+  'lost': ['Lost', 'تم خسارة النزاع'],
+};
+const _providerEvents = {
+  'charge.dispute.created': ['Dispute created', 'تم إنشاء النزاع'],
+  'charge.dispute.updated': ['Dispute updated', 'تم تحديث النزاع'],
+  'charge.dispute.closed': ['Dispute closed', 'تم إغلاق النزاع'],
+  'charge.dispute.funds_withdrawn': ['Provider reported funds withdrawn', 'أفاد المزود بسحب الأموال'],
+  'charge.dispute.funds_reinstated': ['Provider reported funds reinstated', 'أفاد المزود بإعادة الأموال'],
+  'provider.inspect': ['Provider inspection', 'فحص المزود'],
+};
+const _operationStatuses = {
+  'sending': ['Sending', 'جارٍ الإرسال'],
+  'uncertain': ['Uncertain', 'غير مؤكد'],
+  'confirmed': ['Confirmed', 'مؤكد'],
+};
+
+String _receiptLabel(BuildContext context, Map<String, List<String>> labels, dynamic token) {
+  final text = labels[token];
+  return text == null
+      ? providerDisputeText(context, 'Unknown', 'غير معروف')
+      : providerDisputeText(context, text[0], text[1]);
+}
+
+String _receiptClock(BuildContext context, dynamic raw) {
+  final value = reservationTime(context, {'instant': raw}, 'instant');
+  return value == '—'
+      ? providerDisputeText(context, 'Event time unavailable', 'وقت الحدث غير متاح')
+      : value;
+}
+
 /// Provider receipts remain distinct from internal complaints and ledger entries.
 Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
-  final row = Map<String, dynamic>.from(value as Map);
-  if (row['id'] is! int ||
-      row['invoice_id'] is! int ||
+  if (value is! Map) throw const FormatException('Invalid provider receipt.');
+  final row = Map<String, dynamic>.from(value);
+  if (!_providerId(row['id']) ||
+      !_providerId(row['invoice_id']) ||
       (expectedId != null && row['id'] != expectedId) ||
       row['evidence'] != 'STRIPE_TEST_CONTRACT' ||
       row['real_money_moved'] != false ||
       row['settlement_hold'] is! bool ||
       row['deadline_passed'] is! bool ||
       row['requires_financial_resolution'] is! bool ||
-      row['status'] is! String ||
+      !_disputeStatuses.containsKey(row['status']) ||
       row.containsKey('provider_reference') ||
       row.containsKey('charge_reference')) {
     throw const FormatException('Unsupported provider dispute receipt.');
   }
   return row;
+}
+
+/// The canonical list is a fixed 25-row Laravel paginator. An obsolete or
+/// inconsistent page must not expose receipt actions or navigation.
+ApiPage<Map<String, dynamic>> providerDisputePage(dynamic raw, int requested) {
+  final result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+  if (requested < 1 || requested > 100000 ||
+      result.current != requested || result.last < 1 ||
+      result.total < 0 || result.total > 2500000 ||
+      result.last != (result.total == 0 ? 1 : (result.total + 24) ~/ 25) ||
+      requested > result.last ||
+      (raw is Map && raw.containsKey('per_page') && raw['per_page'] != 25)) {
+    throw const FormatException('Invalid provider dispute page.');
+  }
+  final remaining = result.total - (requested - 1) * 25;
+  final expected = remaining < 25 ? remaining : 25;
+  final ids = <int>{};
+  if (result.items.length != expected ||
+      result.items.any((row) => !ids.add(row['id'] as int))) {
+    throw const FormatException('Inconsistent provider dispute page.');
+  }
+  return result;
 }
 
 class ProviderDisputesView extends StatefulWidget {
@@ -46,11 +111,33 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   int generation = 0, target = 1;
   String? error;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionSubscription;
+
+  void clearPrivate() {
+    generation++;
+    page = null;
+    detail = null;
+    error = null;
+    busy = false;
+    target = 1;
+    attention = false;
+  }
+
+  void bindSession() {
+    final source = widget.api;
+    authorized = source.sessionFence();
+    unawaited(sessionSubscription?.cancel());
+    sessionSubscription = source.sessionEvents.listen((_) {
+      if (mounted && identical(widget.api, source) && !authorized()) {
+        setState(clearPrivate);
+      }
+    });
+  }
   String t(String en, String ar) => providerDisputeText(context, en, ar);
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    bindSession();
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
@@ -63,20 +150,16 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     final switchedApi = !identical(oldWidget.api, widget.api);
     final switchedTarget = oldWidget.initialDisputeId != widget.initialDisputeId;
     if (switchedApi || switchedTarget) {
-      generation++;
-      page = null;
-      detail = null;
-      error = null;
-      busy = false;
-      target = 1;
-      authorized = widget.api.sessionFence();
+      clearPrivate();
+      if (switchedApi) bindSession();
       // A new explicit notification target should open its own canonical
       // receipt, but a new account/API alone must wait for manual refresh.
       if (switchedTarget && !switchedApi && foreground && authorized()) {
         final targetId = widget.initialDisputeId;
         final api = widget.api;
+        final epoch = generation;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && foreground && authorized() &&
+          if (mounted && foreground && authorized() && epoch == generation &&
               identical(api, widget.api) &&
               widget.initialDisputeId == targetId) {
             load(id: targetId);
@@ -105,12 +188,16 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int number = 1, int? id}) async {
-    if (!foreground || !authorized()) return;
+    if (!mounted || !foreground || !authorized() ||
+        (id != null && !_providerId(id)) || number < 1 || number > 100000) return;
+    final source = widget.api;
+    final fence = authorized;
     final request = ++generation;
     setState(() {
       busy = true;
@@ -119,7 +206,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       page = null;
     });
     try {
-      final raw = await widget.api.request(
+      final raw = await source.request(
         id == null
             ? 'commercial/external-disputes'
             : 'commercial/external-disputes/$id',
@@ -130,7 +217,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       ApiPage<Map<String, dynamic>>? result;
       Map<String, dynamic>? receipt;
       if (id == null) {
-        result = ApiPage.fromJson(raw, (row) => providerDispute(row));
+        result = providerDisputePage(raw, number);
       } else {
         receipt = providerDispute((raw as Map)['dispute'], expectedId: id);
         final events = raw['events'];
@@ -145,25 +232,25 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         }
         receipt['history'] = events.map((event) {
           if (event is! Map ||
-              event['type'] is! String ||
-              event['status'] is! String ||
+              !_providerEvents.containsKey(event['type']) ||
+              !_disputeStatuses.containsKey(event['status']) ||
               event['created_at'] is! String) {
             throw const FormatException('Invalid provider history.');
           }
-          return '${event['created_at']} UTC — ${event['type']}: ${event['status']}';
+          return {'created_at': event['created_at'], 'type': event['type'], 'status': event['status']};
         }).toList();
         receipt['submissions'] = operations.map((operation) {
           if (operation is! Map ||
-              operation['status'] is! String ||
+              !_operationStatuses.containsKey(operation['status']) ||
               !(operation['submit'] is bool ||
                   operation['submit'] == 0 ||
                   operation['submit'] == 1)) {
             throw const FormatException('Invalid evidence receipt.');
           }
-          return '${operation['status']} — ${operation['retry_until'] ?? ''}';
+          return {'status': operation['status'], 'retry_until': operation['retry_until']};
         }).toList();
       }
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && fence() && identical(source, widget.api) && request == generation) {
         setState(() {
           page = result;
           detail = receipt;
@@ -171,16 +258,22 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         });
       }
     } catch (e) {
-      if (mounted && foreground && authorized() && request == generation) {
+      if (mounted && foreground && identical(source, widget.api) &&
+          e is ApiException && e.endsCurrentSession &&
+          request + 1 == generation && !fence()) {
+        widget.onExpired();
+      } else if (mounted && foreground && fence() &&
+          identical(source, widget.api) && request == generation) {
         if (e is ApiException && [401, 419].contains(e.status)) {
           widget.onExpired();
         } else {
-          setState(
-            () => error = t(
+          setState(() {
+            if (id == null) target = 1;
+            error = t(
               'Could not load provider receipts. Refresh to retry.',
               'تعذر تحميل إيصالات المزود. حدّث للمحاولة مجددًا.',
-            ),
-          );
+            );
+          });
         }
       }
     } finally {
@@ -188,20 +281,20 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     }
   }
 
-  Widget receipt(Map<String, dynamic> row, {bool expanded = false}) => Card(
+  Widget receipt(Map<String, dynamic> row, {bool expanded = false, required bool Function() activeView}) => Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('${t('Invoice', 'الفاتورة')} #${row['invoice_id']}'),
-          Text('${t('Provider status', 'حالة المزود')}: ${row['status']}'),
+          Text('${t('Provider status', 'حالة المزود')}: ${_receiptLabel(context, _disputeStatuses, row['status'])}'),
           if (row['amount_minor'] is int && row['minor_units'] is int)
             Text(nativeFinancialAmount(context, row, 'amount_minor')),
           if (expanded) ...[
             Text(t('Provider event history (UTC)', 'سجل أحداث المزود (UTC)')),
             for (final event in (row['history'] as List? ?? const []))
-              Text(event as String),
+              Text('${_receiptClock(context, event['created_at'])} — ${_receiptLabel(context, _providerEvents, event['type'])}: ${_receiptLabel(context, _disputeStatuses, event['status'])}'),
             if ((row['submissions'] as List? ?? const []).isNotEmpty)
               Text(
                 t(
@@ -210,11 +303,11 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
                 ),
               ),
             for (final operation in (row['submissions'] as List? ?? const []))
-              Text(operation as String),
+              Text('${_receiptLabel(context, _operationStatuses, operation['status'])} — ${_receiptClock(context, operation['retry_until'])}'),
           ],
           if (row['evidence_due_at'] != null)
             Text(
-              '${t('Evidence deadline (UTC)', 'الموعد النهائي للأدلة (UTC)')}: ${row['evidence_due_at']}',
+              '${t('Evidence deadline (UTC)', 'الموعد النهائي للأدلة (UTC)')}: ${_receiptClock(context, row['evidence_due_at'])}',
             ),
           if (row['deadline_passed'] == true)
             Text(t('Evidence deadline passed', 'انتهى الموعد النهائي للأدلة')),
@@ -229,7 +322,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             ),
           if (!expanded)
             TextButton(
-              onPressed: busy ? null : () => load(id: row['id'] as int),
+              onPressed: busy ? null : () { if (activeView()) load(id: row['id'] as int); },
               child: Text(t('Inspect receipt', 'عرض الإيصال')),
             ),
         ],
@@ -239,6 +332,9 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
   @override
   Widget build(BuildContext context) {
     final visible = authorized() && foreground;
+    final epoch = generation, source = widget.api;
+    bool activeView() => mounted && foreground && authorized() &&
+        identical(source, widget.api) && epoch == generation && !busy;
     final currentPage = visible ? page : null;
     final currentDetail = visible ? detail : null;
     return Scaffold(
@@ -258,32 +354,33 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
             onChanged: busy || !visible
                 ? null
                 : (value) {
+                    if (!activeView()) return;
                     setState(() => attention = value);
                     load();
                   },
           ),
           OutlinedButton(
-            onPressed: busy || !visible ? null : () => load(number: target),
+            onPressed: busy || !visible ? null : () { if (activeView()) load(number: target); },
             child: Text(t('Refresh list', 'تحديث القائمة')),
           ),
           if (busy) const LinearProgressIndicator(),
           if (visible && error != null) Text(error!),
-          if (currentDetail != null) receipt(currentDetail, expanded: true),
+          if (currentDetail != null) receipt(currentDetail, expanded: true, activeView: activeView),
           if (currentPage != null) ...[
             if (currentPage.items.isEmpty)
               Text(t('No provider disputes.', 'لا توجد نزاعات لدى المزود.')),
-            ...currentPage.items.map((row) => receipt(row)),
+            ...currentPage.items.map((row) => receipt(row, activeView: activeView)),
             Row(
               children: [
                 TextButton(
                   onPressed: !busy && target > 1
-                      ? () => load(number: target - 1)
+                      ? () { if (activeView()) load(number: target - 1); }
                       : null,
                   child: Text(t('Previous', 'السابق')),
                 ),
                 TextButton(
                   onPressed: !busy && currentPage.current < currentPage.last
-                      ? () => load(number: target + 1)
+                      ? () { if (activeView()) load(number: target + 1); }
                       : null,
                   child: Text(t('Next', 'التالي')),
                 ),

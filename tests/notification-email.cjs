@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
         for (const ar of [false,true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar?'ar':'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
             await page.evaluate(async () => {
                 window.writes=[]; window.enabled=false; window.active=true;
@@ -18,6 +19,8 @@ const assert = require('node:assert/strict');
             });
             const enable=page.getByRole('button',{name:ar?'تفعيل بالموافقة':'Enable with consent',exact:true});
             assert.equal(await enable.isDisabled(),true); assert.equal(await page.locator('img').count(),0);
+            await page.getByText(ar?'وقت الحدث غير متاح':'Event time unavailable',{exact:false}).waitFor();
+            assert.equal(await page.getByText('<img src=x onerror=alert(1)>',{exact:false}).count(),0);
             await page.getByRole('checkbox').check(); await enable.click();
             await page.getByRole('button',{name:ar?'تحديث':'Refresh',exact:true}).waitFor();
             assert.deepEqual(await page.evaluate(()=>window.writes),[{enabled:true,confirmed:true,expected_revision:'9007199254740993'}]);
@@ -32,6 +35,7 @@ const assert = require('node:assert/strict');
         for (const ar of [false, true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
             await page.evaluate(async () => {
                 window.writes = [];
@@ -101,6 +105,7 @@ const assert = require('node:assert/strict');
         for (const ar of [false, true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
             await page.evaluate(async () => {
                 window.syntheticHidden = true;
@@ -160,6 +165,7 @@ const assert = require('node:assert/strict');
         for(const ar of [false,true]){
             const page=await browser.newPage();
             await page.setContent(`<html lang="${ar?'ar':'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/notification-email.js'});
             await page.evaluate(()=>{
                 window.reads=0; window.writes=0;

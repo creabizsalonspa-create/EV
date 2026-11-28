@@ -2,6 +2,7 @@
 
 namespace App\Services\Operations;
 
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -112,6 +113,34 @@ final class OperationalIncidents
         }, 3);
     }
 
+    /**
+     * Acknowledge review of an exact open occurrence, never resolve the source
+     * incident or change queue, provider, payment or charger state.
+     * The caller holds the current Admin account lock before this state lock.
+     */
+    public function acknowledge(User $actor, string $key, int $revision): array
+    {
+        abort_unless(DB::transactionLevel() > 0 && $actor->role === 'admin'
+            && $actor->account_status === 'active', 403);
+        abort_unless(in_array($key, self::KEYS, true), 422);
+        $state = DB::table('operational_incident_states')->where('condition_key', $key)->lockForUpdate()->first();
+        abort_unless($state && $state->state === 'open' && (int) $state->transitions === $revision, 409, 'Incident occurrence changed. Refresh the observations.');
+        $identity = ['condition_key' => $key, 'transition_revision' => $revision];
+        $record = DB::table('operational_incident_acknowledgements')->where($identity)->first();
+        if (! $record) {
+            $at = now('UTC');
+            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at]);
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id, 'action' => 'operations.incident_acknowledged',
+                'subject' => $key.':'.$revision, 'created_at' => $at,
+            ]);
+            $record = DB::table('operational_incident_acknowledgements')->where($identity)->firstOrFail();
+        }
+
+        return $identity + ['acknowledged_at' => $record->acknowledged_at,
+            'incident_state' => 'open', 'external_actions' => false];
+    }
+
     /** Read-only, bounded and deliberately free of queue payloads or recipient data. */
     public function summary(): array
     {
@@ -121,8 +150,20 @@ final class OperationalIncidents
             return DB::transaction(function () {
                 // Partition one result so a concurrent scan cannot make a
                 // condition appear in both projections in the same response.
-                $states = DB::table('operational_incident_states')->whereIn('condition_key', self::KEYS)
-                    ->orderBy('condition_key')->get(['condition_key', 'state', 'opened_at', 'resolved_at', 'updated_at']);
+                $states = DB::table('operational_incident_states as incident')
+                    ->leftJoin('operational_incident_acknowledgements as review', function ($join) {
+                        $join->on('review.condition_key', '=', 'incident.condition_key')
+                            ->on('review.transition_revision', '=', 'incident.transitions');
+                    })
+                    ->whereIn('incident.condition_key', self::KEYS)->orderBy('incident.condition_key')
+                    ->get(['incident.condition_key', 'incident.state', 'incident.opened_at',
+                        'incident.resolved_at', 'incident.updated_at', 'incident.transitions as transition_revision',
+                        'review.acknowledged_at'])
+                    ->map(function ($state) {
+                        $state->transition_revision = (int) $state->transition_revision;
+
+                        return $state;
+                    });
 
                 return [
                     'store_readable' => true,

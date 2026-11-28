@@ -35,13 +35,27 @@ class FinanceController extends Controller
     {
         return DB::transaction(function () use ($r, $station) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            // Route binding precedes this transaction. Re-read the station
+            // under the same lock used by tariff publishers before disclosure.
+            $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless($actor->role === 'admin'
                 || ($actor->role === 'vendor' && $station->vendor_id === $actor->id), 404);
             $region = DB::table('regions')->where('country', $station->country)
-                ->where('currency', $station->currency)->first();
+                ->where('currency', $station->currency)->lockForUpdate()->first();
+            $asOf = now();
+            $active = $station->source === 'simulator'
+                ? app(FinanceService::class)->activeTariff($station, $asOf) : null;
+            // History ordering is not effective-price ordering. Return the
+            // independently selected version even when it is on another page.
+            $matchesContext = $active !== null && $region !== null
+                && $active->currency === $station->currency
+                && (int) $active->minor_units === (int) $region->minor_units;
 
             return response()->json(TariffVersion::where('station_id', $station->id)
                 ->orderByDesc('id')->paginate(25)->toArray() + [
+                    'tariff_as_of' => $asOf->toISOString(),
+                    'active_tariff' => $active,
+                    'active_tariff_context_matches' => $matchesContext,
                     'pricing_context' => [
                         'currency' => $station->currency,
                         'minor_units' => $region ? (int) $region->minor_units : null,
@@ -75,15 +89,22 @@ class FinanceController extends Controller
     public function createTariff(Request $r, Station $station)
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
-        $v = $r->validate(['rate_minor_per_kwh' => 'required|integer|between:0,1000000', 'tax_bps' => 'required|integer|between:0,10000', 'commission_bps' => 'required|integer|between:0,10000', 'idempotency_key' => 'sometimes|required|string|max:100', 'expected_minor_units' => 'sometimes|required|integer|between:0,3', 'expected_currency' => ['sometimes', 'required', 'string', 'regex:/^[A-Z]{3}$/']]);
+        $v = $r->validate(['rate_minor_per_kwh' => 'required|integer|between:0,1000000', 'tax_bps' => 'required|integer|between:0,10000', 'commission_bps' => 'required|integer|between:0,10000', 'idempotency_key' => 'sometimes|required|string|max:100', 'expected_active_tariff_id' => 'sometimes|nullable|integer|min:1', 'expected_minor_units' => 'sometimes|required|integer|between:0,3', 'expected_currency' => ['sometimes', 'required', 'string', 'regex:/^[A-Z]{3}$/']]);
         abort_if($r->user()->role !== 'admin' && (int) $v['commission_bps'] !== 0, 403, 'Only administrators configure commission.');
         $key = isset($v['idempotency_key']) ? hash('sha256', $r->user()->id.':'.$v['idempotency_key']) : null;
-        $fingerprint = hash('sha256', json_encode([$station->id, (int) $v['rate_minor_per_kwh'], (int) $v['tax_bps'], (int) $v['commission_bps'], isset($v['expected_minor_units']) ? (int) $v['expected_minor_units'] : null, $v['expected_currency'] ?? null], JSON_THROW_ON_ERROR));
+        $hasExpectedActive = array_key_exists('expected_active_tariff_id', $v);
+        $expectedActive = isset($v['expected_active_tariff_id']) ? (int) $v['expected_active_tariff_id'] : null;
+        $payload = [$station->id, (int) $v['rate_minor_per_kwh'], (int) $v['tax_bps'], (int) $v['commission_bps'], isset($v['expected_minor_units']) ? (int) $v['expected_minor_units'] : null, $v['expected_currency'] ?? null];
+        // Preserve historical fingerprints for legacy retries without this field.
+        if ($hasExpectedActive) {
+            $payload[] = ['expected_active_tariff_id' => $expectedActive];
+        }
+        $fingerprint = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
         $expectedUnits = isset($v['expected_minor_units']) ? (int) $v['expected_minor_units'] : null;
         $expectedCurrency = $v['expected_currency'] ?? null;
-        unset($v['idempotency_key'], $v['expected_minor_units'], $v['expected_currency']);
+        unset($v['idempotency_key'], $v['expected_minor_units'], $v['expected_currency'], $v['expected_active_tariff_id']);
         try {
-            return DB::transaction(function () use ($r, $station, $v, $key, $fingerprint, $expectedUnits, $expectedCurrency) {
+            return DB::transaction(function () use ($r, $station, $v, $key, $fingerprint, $expectedUnits, $expectedCurrency, $hasExpectedActive, $expectedActive) {
                 $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
                 // All publishers serialize on the station; a vendor price
                 // change cannot erase an Admin's commission policy.
@@ -96,14 +117,24 @@ class FinanceController extends Controller
 
                     return response()->json($old, 201);
                 }
+                // Do not let an unreviewed future full-rate version undo
+                // a newly published price, tax or commission. Apply this
+                // even if scheduling is subsequently disabled; existing
+                // future immutable records do not vanish with a flag.
+                abort_if(TariffVersion::where('station_id', $station->id)
+                    ->where('effective_from', '>', now())->exists(), 409,
+                    'A future tariff is scheduled; review or correct it before immediate publication.');
                 $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->lockForUpdate()->first();
                 abort_unless($region, 409, 'Configure the matching region/currency first.');
                 abort_if(($expectedUnits !== null && $expectedUnits !== (int) $region->minor_units) || ($expectedCurrency !== null && $expectedCurrency !== $station->currency), 409, 'Pricing currency or precision changed; refresh the station.');
+                $clock = now();
+                $active = app(FinanceService::class)->activeTariff($station, $clock);
+                abort_if($hasExpectedActive && $active?->id !== $expectedActive, 409, 'Effective tariff changed; refresh before publishing.');
                 $values = $v;
                 if ($actor->role !== 'admin') {
-                    $values['commission_bps'] = TariffVersion::where('station_id', $station->id)->where('effective_from', '<=', now())->orderByDesc('effective_from')->orderByDesc('id')->value('commission_bps') ?? 0;
+                    $values['commission_bps'] = $active?->commission_bps ?? 0;
                 }
-                $t = TariffVersion::create($values + ['station_id' => $station->id, 'created_by' => $actor->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => now(), 'publishing_key' => $key, 'publishing_fingerprint' => $key ? $fingerprint : null]);
+                $t = TariffVersion::create($values + ['station_id' => $station->id, 'created_by' => $actor->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => $clock, 'publishing_key' => $key, 'publishing_fingerprint' => $key ? $fingerprint : null]);
                 DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'finance.simulated_tariff_published', 'subject' => (string) $t->id, 'created_at' => now()]);
 
                 return response()->json($t, 201);

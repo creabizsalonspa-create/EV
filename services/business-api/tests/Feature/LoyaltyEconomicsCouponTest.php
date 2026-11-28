@@ -79,6 +79,38 @@ class LoyaltyEconomicsCouponTest extends TestCase
         $this->assertDatabaseCount('loyalty_redemptions', 0);
     }
 
+    public function test_listed_coupon_cancellation_fences_both_claim_paths_and_preserves_committed_receipt(): void
+    {
+        $f = $this->fixture();
+        $v = $this->publication($f);
+        $base = '/api/commercial/coupons';
+        $listed = $this->actingAs($f['maker'])->postJson($base, $v + ['listed' => true])->assertCreated()->json('id');
+        $private = $this->postJson($base, array_replace($v, ['code' => 'PRIVATE-COUPON-99', 'idempotency_key' => 'private-publication']))->assertCreated()->json('id');
+        $this->actingAs($f['customer']);
+        $payload = ['coupon_id' => $listed, 'idempotency_key' => 'cancel-listed'];
+        $request = hash('sha256', 'coupon-claim:'.$f['customer']->id.':cancel-listed');
+        $binding = hash('sha256', 'coupon-cancel-v1:'.$listed.':'.$request);
+        $this->postJson($base.'/claim-intents/cancel', $payload + ['code' => $v['code']])->assertUnprocessable();
+        $this->postJson($base.'/claim-intents/cancel', array_replace($payload, ['coupon_id' => $private]))->assertNotFound();
+        config(['loyalty.enabled' => false]);
+        $this->postJson($base.'/claim-intents/cancel', $payload)->assertOk()
+            ->assertJsonPath('state', 'cancelled')->assertJsonPath('coupon_id', $listed)
+            ->assertJsonPath('request_binding', $binding)->assertJsonPath('claim', null)
+            ->assertDontSee($v['code'])->assertJsonMissingPath('code_hash');
+        $this->postJson($base.'/claim-intents/cancel', $payload)->assertOk()->assertJsonPath('request_binding', $binding);
+        config(['loyalty.enabled' => true]);
+        $this->postJson($base.'/eligible/'.$listed.'/claim', ['idempotency_key' => 'cancel-listed'])->assertConflict();
+        $this->postJson($base.'/claim', ['code' => $v['code'], 'idempotency_key' => 'cancel-listed'])->assertConflict();
+        $claim = $this->postJson($base.'/eligible/'.$listed.'/claim', ['idempotency_key' => 'accepted-listed'])->assertOk()->json('claim');
+        $this->postJson($base.'/claim-intents/cancel', array_replace($payload, ['idempotency_key' => 'accepted-listed']))
+            ->assertOk()->assertJsonPath('state', 'accepted')->assertJsonPath('claim.id', $claim['id']);
+        $this->assertDatabaseCount('loyalty_coupon_claim_intents', 1);
+        $this->assertDatabaseCount('loyalty_coupon_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
     public function test_accepted_claim_wins_cancellation_and_returns_original_private_receipt(): void
     {
         $f = $this->fixture();

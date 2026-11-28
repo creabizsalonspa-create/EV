@@ -246,7 +246,18 @@ class ConnectorTopologyTest extends TestCase
             'source_event_id' => 3, 'status' => 'Available', 'occurred_at' => now()->subSecond(),
         ]);
         $check(1);
-        $this->actingAs($f['customer'])->getJson('/api/stations?recent_source_status=Available')->assertOk()
+        // Source event IDs are global to a binding, not to a connector.
+        // A newer sibling event must not invalidate an independent component.
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 4, 'connector_number' => 8, 'status' => 'Unavailable', 'occurred_at' => now(),
+        ]));
+        $check(1);
+        $this->actingAs($f['customer'])->getJson('/api/stations/'.$f['station']->id.'/connectors')->assertOk()
+            ->assertJsonPath('data.0.status_freshness.state', 'recent')
+            ->assertJsonPath('data.0.status_freshness.reported_status', 'Available')
+            ->assertJsonPath('data.1.status_freshness.reported_status', 'Unavailable')
+            ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        $this->getJson('/api/stations?recent_source_status=Available')->assertOk()
             ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
         $this->assertDatabaseCount('reservations', 0);
         $this->assertDatabaseCount('charger_commands', 0);
@@ -313,12 +324,52 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson('/api/stations?recent_source_status=LIVE')->assertUnprocessable();
     }
 
+    #[DataProvider('protocols')]
+    public function test_available_filter_requires_explicit_ocpp16_fault_clear_but_not_ocpp201(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->topology($protocol);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $row = [
+            'binding_id' => $binding->id,
+            'source_generation' => FaultMonitor::generation($binding),
+            'fingerprint' => str_repeat('d', 64),
+            'evse_number' => $protocol === '1.6' ? 0 : 5,
+            'connector_number' => 7,
+            'status' => 'Available',
+            'created_at' => now(),
+        ];
+        $check = function (int $matches) use ($f, $admin) {
+            $this->actingAs($f['customer']);
+            foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $route) {
+                $this->getJson($route.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', $matches);
+            }
+            $this->getJson('/api/stations/'.$f['station']->id.'/connectors')->assertOk()
+                ->assertJsonPath('data.0.status_freshness.reported_status', $matches ? 'Available' : null)
+                ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+            $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')
+                ->assertOk()->assertJsonPath('total', $matches);
+        };
+        DB::table('charging_status_observations')->insert($row + [
+            'source_event_id' => 1, 'error_code' => null, 'occurred_at' => now()->subSecond(),
+        ]);
+        $check($protocol === '1.6' ? 0 : 1);
+        DB::table('charging_status_observations')->insert($row + [
+            'source_event_id' => 2, 'error_code' => 'NoError', 'occurred_at' => now(),
+        ]);
+        $check(1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_report_filter_preserves_canonical_ownership_approval_and_local_license_boundaries(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-14T19:59:58Z'));
         $f = $this->topology('1.6');
         $binding = DB::table('csms_bindings')->find($f['binding']);
-        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => null, 'occurred_at' => now(), 'created_at' => now()]);
+        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()]);
         $path = '/api/stations?recent_source_status=Available';
         $this->getJson($path)->assertJsonPath('total', 1);
         foreach ([[$f['company'], 'status', 'suspended'], [$f['connectors'][0], 'maintenance_blocked', true], [$f['station'], 'vendor_id', User::factory()->create(['role' => 'vendor'])->id], [$f['charger'], 'ocpp_protocol', '2.0.1']] as [$model, $field, $value]) {
@@ -381,6 +432,55 @@ class ConnectorTopologyTest extends TestCase
         $event['source_connector_number'] = 7;
         app(SessionBridge::class)->ingest($event);
         $this->assertSame('charging', ChargingSession::findOrFail($queued['session']['id'])->status);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_mapped_meter_settlement_requires_current_reservation_and_owned_binding_but_not_new_start_policy(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $start = now()->startOfHour()->addHour();
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'source-settlement'))->assertCreated()->json();
+        $this->travelTo($start->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
+        $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
+        $session = ChargingSession::findOrFail($queued['session']['id']);
+        $event = ['event_id' => 'settlement-start', 'session_id' => $session->id,
+            'identifier' => 'ev-test-canonical', 'protocol' => $protocol,
+            'transaction_id' => '333', 'type' => 'started', 'sequence' => 0,
+            'meter_wh' => 1000, 'occurred_at' => now()->toISOString(),
+            'source_evse_number' => $protocol === '1.6' ? 0 : 5, 'source_connector_number' => 7];
+        $bridge = app(SessionBridge::class);
+        $bridge->ingest($event);
+        $end = array_replace($event, ['event_id' => 'settlement-end', 'type' => 'ended',
+            'sequence' => 1, 'meter_wh' => 2000, 'occurred_at' => now()->addSecond()->toISOString()]);
+        $reject = function () use ($bridge, $end, $session) {
+            try {
+                $bridge->ingest($end);
+                $this->fail('Changed canonical target settled energy.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertSame('charging', $session->fresh()->status);
+            $this->assertSame(0, (int) $session->fresh()->energy_wh);
+            $this->assertDatabaseCount('csms_inbox_events', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        };
+        DB::table('reservations')->where('id', $booking['id'])->update(['connector_mapping_id' => $f['maps'][1]['id']]);
+        $reject();
+        DB::table('reservations')->where('id', $booking['id'])->update(['connector_mapping_id' => $f['maps'][0]['id']]);
+        DB::table('csms_bindings')->where('id', $f['binding'])->update(['vendor_charger_id' => null]);
+        $reject();
+        DB::table('csms_bindings')->where('id', $f['binding'])->update(['vendor_charger_id' => $f['charger']->id]);
+        // New-start policy changes must not strand the genuine active session.
+        $f['connectors'][0]->update(['maintenance_blocked' => true]);
+        $this->assertSame('applied', $bridge->ingest($end)['outcome']);
+        $this->assertSame('duplicate', $bridge->ingest($end)['outcome']);
+        $this->assertSame('stopped', $session->fresh()->status);
+        $this->assertSame(1000, (int) $session->fresh()->energy_wh);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        Http::assertNothingSent();
     }
 
     public function test_activation_preserves_legacy_bookings_and_rejects_uncorrelated_outbox_history(): void

@@ -11,6 +11,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\AdmissionLifecycle;
+use App\Services\Charging\ChargerCertificates;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\DatabaseStore;
 use Illuminate\Database\QueryException;
@@ -19,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -49,7 +51,7 @@ class ChargerAdmissionTest extends TestCase
         $p = AdmissionProfile::firstOrFail();
         $body = json_encode(array_replace(['identity' => $p->identity, 'protocol' => $p->protocol, 'tls' => true, 'certificate_sha256' => null], $extra), JSON_THROW_ON_ERROR);
         $auth = 'Basic '.base64_encode($p->identity.':'.$secret);
-        $ts = (string) time();
+        $ts = (string) now()->timestamp;
         $nonce ??= (string) Str::uuid();
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => $secure ? 'on' : 'off', 'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $ts, 'HTTP_X_EV_INGRESS_NONCE' => $nonce, 'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $ts."\n".$nonce."\n".$auth."\n".$body, $key ?? self::KEY)];
 
@@ -178,6 +180,150 @@ class ChargerAdmissionTest extends TestCase
         $this->assertDatabaseCount('charger_admission_events', 4);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_captured_charger_route_cannot_rotate_after_protocol_changes(string $protocol): void
+    {
+        [$owner, $company, $charger, , $secret] = $this->fixture($protocol);
+        DB::table('vendor_chargers')->where('id', $charger->id)->update(['ocpp_protocol' => $protocol === '1.6' ? '2.0.1' : '1.6']);
+        $request = Request::create('https://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+        $request->setUserResolver(fn () => $owner);
+        try {
+            app(ChargerAdmissionController::class)->credential($request, $company, $charger);
+            $this->fail('Captured inventory cannot authorize credential rotation.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+        $profile = AdmissionProfile::firstOrFail();
+        $this->assertSame(1, $profile->credential_version);
+        $this->assertSame(hash('sha256', $secret), $profile->getRawOriginal('credential_digest'));
+        $this->admission($secret)->assertUnauthorized();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_stale_company_route_cannot_disclose_admission_after_owner_transfer(string $protocol): void
+    {
+        [$owner, $company, $charger, $base, $secret] = $this->fixture($protocol);
+        $replacement = User::factory()->create(['role' => 'vendor']);
+        DB::table('vendor_companies')->where('id', $company->id)->update(['owner_id' => $replacement->id]);
+        $request = Request::create('https://localhost/admission', 'GET');
+        $request->setUserResolver(fn () => $owner);
+        foreach (['show', 'events'] as $method) {
+            try {
+                app(ChargerAdmissionController::class)->$method($request, $company, $charger);
+                $this->fail('A stale company route disclosed private admission information.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->actingAs($replacement)->getJson($base)->assertOk()
+            ->assertJsonPath('can_manage', true)->assertJsonMissingPath('profile.credential_digest');
+        $this->getJson($base.'/events')->assertOk()->assertJsonCount(2, 'data');
+        $this->assertSame(hash('sha256', $secret), AdmissionProfile::firstOrFail()->getRawOriginal('credential_digest'));
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_stale_charger_route_cannot_disclose_admission_after_inventory_transfer(string $protocol): void
+    {
+        [$owner, $company, $charger, , $secret] = $this->fixture($protocol);
+        $replacement = User::factory()->create(['role' => 'vendor']);
+        $foreign = VendorCompany::create(['owner_id' => $replacement->id, 'legal_name' => 'Transferred fixture',
+            'country' => 'AE', 'trade_license_number' => 'TRANSFER', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
+        DB::table('vendor_chargers')->where('id', $charger->id)->update(['company_id' => $foreign->id]);
+        $request = Request::create('https://localhost/admission', 'GET');
+        $request->setUserResolver(fn () => $owner);
+        foreach (['show', 'events'] as $method) {
+            try {
+                app(ChargerAdmissionController::class)->$method($request, $company, $charger);
+                $this->fail('A stale inventory route disclosed private admission information.');
+            } catch (HttpException $error) {
+                $this->assertSame(404, $error->getStatusCode());
+            }
+        }
+        $this->admission($secret)->assertUnauthorized();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_ingress_rechecks_current_security_policy_before_returning_handshake_authority(string $protocol): void
+    {
+        [, , , , $secret] = $this->fixture($protocol);
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
+        $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
+            config(['csms.ingress_secret' => str_repeat('r', 64)]);
+
+            return null;
+        });
+        $this->app->instance(ChargerCertificates::class, $mock);
+        $nonce = (string) Str::uuid();
+        $this->admission($secret, nonce: $nonce)->assertServiceUnavailable();
+        config(['csms.ingress_secret' => self::KEY]);
+        $this->app->instance(ChargerCertificates::class, $service);
+        $this->admission($secret, nonce: $nonce)->assertUnauthorized();
+        $this->admission($secret)->assertNoContent();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_ingress_rejects_signed_request_that_expires_during_certificate_verification(string $protocol): void
+    {
+        [, , , , $secret] = $this->fixture($protocol);
+        $this->freezeTime();
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
+        $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
+            $this->travel(61)->seconds();
+
+            return null;
+        });
+        $this->app->instance(ChargerCertificates::class, $mock);
+        try {
+            $this->admission($secret)->assertUnauthorized();
+        } finally {
+            $this->app->instance(ChargerCertificates::class, $service);
+            $this->travelBack();
+        }
+        $this->admission($secret)->assertNoContent();
+        $this->assertDatabaseCount('charger_admission_events', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_ingress_rejects_credential_that_expires_during_certificate_verification(string $protocol): void
+    {
+        [, , , , $secret] = $this->fixture($protocol);
+        $this->freezeTime();
+        $profile = AdmissionProfile::firstOrFail();
+        $profile->update(['expires_at' => now()->addSeconds(2)]);
+        $service = app(ChargerCertificates::class);
+        $mock = Mockery::mock($service);
+        $mock->shouldReceive('usable')->once()->andReturnUsing(function () {
+            $this->travel(2)->seconds();
+
+            return null;
+        });
+        $this->app->instance(ChargerCertificates::class, $mock);
+        try {
+            $this->admission($secret)->assertUnauthorized();
+            $this->assertSame(1, $profile->fresh()->credential_version);
+            $this->assertDatabaseCount('charger_admission_events', 2);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        } finally {
+            $this->app->instance(ChargerCertificates::class, $service);
+            $this->travelBack();
+        }
     }
 
     public function test_replayed_or_spoofed_ingress_tls_protocol_and_expiry_are_rejected(): void

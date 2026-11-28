@@ -95,11 +95,11 @@ final class StationInformationController extends Controller
         }
 
         return DB::transaction(function () use ($request, $station, $v, $noticeChanged) {
-            // Pin the original authenticated login before the station lock.
-            // A fresh account cannot lend its authority to a stale request.
-            app(MaintenanceActor::class)->check($request->user());
-            // Serializes first-time creates as well as concurrent revisions.
+            // Use the same station → user → token lock order as closure writes.
             $owned = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+            $actor = app(MaintenanceActor::class);
+            $actor->check($request->user());
+            $actor->checkBearer($request->user());
             abort_unless((int) $owned->vendor_id === (int) $request->user()->id && $request->user()->role === 'vendor', 404);
             $current = DB::table('station_information')->where('station_id', $owned->id)->lockForUpdate()->first();
             abort_unless((int) ($current->revision ?? 0) === (int) $v['revision'], 409, 'Station information changed; refresh before saving.');

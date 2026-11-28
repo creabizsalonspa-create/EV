@@ -2,9 +2,19 @@ import 'package:flutter/material.dart';
 
 bool supportedReservationTerms(Map<String,dynamic>? terms) {
   if (terms == null) return false;
-  return terms['version']==1 && terms['slot_minutes']==30 &&
-    terms['arrival_before_minutes']==15 && terms['unused_expiry_minutes']==30 && terms['no_show_fee_minor']==0 &&
-    terms['cancellation_fee_minor']==0 && terms['cancellation_rule']=='BEFORE_ADMITTED_OR_UNCERTAIN_START' &&
+  // PHP's publicTerms() supplies integers, not floating point lookalikes.
+  const numeric = {'version': 1, 'slot_minutes': 30,
+    'arrival_before_minutes': 15, 'unused_expiry_minutes': 30,
+    'no_show_fee_minor': 0, 'cancellation_fee_minor': 0};
+  if (numeric.entries.any((entry) =>
+      terms[entry.key] is! int || terms[entry.key] != entry.value)) {
+    return false;
+  }
+  // Old persisted v1 snapshots omitted this newly added flag. They remain
+  // readable; a supplied contradictory or non-boolean value is unsupported.
+  if (terms.containsKey('price_acceptance_required') &&
+      terms['price_acceptance_required'] != true) return false;
+  return terms['cancellation_rule']=='BEFORE_ADMITTED_OR_UNCERTAIN_START' &&
     terms['occupancy_basis']=='CANONICAL_LOGICAL_SESSION_ONLY' && terms['occupancy_enforcement']=='START_ADMISSION' && terms['physical_occupancy_verified']==false &&
     terms['unresolved_session_requires_reconciliation']==true && terms['automatic_stop']==false && terms['evidence']=='SIMULATED_BUSINESS_POLICY';
 }
@@ -21,4 +31,10 @@ class ReservationPolicyPanel extends StatelessWidget {
     title:Text(Localizations.localeOf(context).languageCode=='ar'?'شروط الحجز المسجلة - النسخة 1':'Recorded reservation terms - version 1'),
     children:[Padding(padding:const EdgeInsets.all(12),child:Text(reservationPolicyText(Localizations.localeOf(context).languageCode=='ar',priceAcceptanceRequired:terms['price_acceptance_required']==true)))],
   ):const SizedBox.shrink();
+}
+
+/// UTC calendar day for the explicit UTC reservation picker, never device-local.
+DateTime reservationUtcCalendarDay(DateTime instant) {
+  final utc = instant.toUtc();
+  return DateTime.utc(utc.year, utc.month, utc.day);
 }

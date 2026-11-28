@@ -58,7 +58,20 @@ class OcpiProtocolCredentialsController extends Controller
     {
         try {
             [$p, $link] = $this->authenticate($r, $exchange, $resource);
-            $local = $exchange->localPayload($link->state === 'active' ? Crypt::decryptString($link->local_token_ciphertext) : '', $p);
+            $localToken = '';
+            if ($link->state === 'active') {
+                // The authenticated digest and encrypted local token must
+                // describe the same generation. A mismatched ciphertext must
+                // never disclose a different token to the previous peer.
+                try {
+                    $localToken = Crypt::decryptString($link->local_token_ciphertext);
+                } catch (Throwable) {
+                    abort(401);
+                }
+                abort_unless(preg_match('/^[\x21-\x7e]{1,64}$/D', $localToken)
+                    && hash_equals($link->local_token_digest, hash('sha256', $localToken)), 401);
+            }
+            $local = $exchange->localPayload($localToken, $p);
             if ($r->isMethod('POST') && $resource === 'credentials') {
                 if ($link->state !== 'awaiting_registration') {
                     return $this->reply(null, 2000, 405);
@@ -98,7 +111,7 @@ class OcpiProtocolCredentialsController extends Controller
                 $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
                 abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key
                     && $current->authorization_revision === $p->authorization_revision && $active->owner_id === $owner->id
-                    && $active->state === 'active' && $active->generation === $link->generation && $active->local_token_digest === $link->local_token_digest
+                    && $active->state === 'active' && $exchange->sameLink($link, $active)
                     && hash_equals($link->configuration_hash, $active->configuration_hash)
                     && hash_equals($active->configuration_hash, $exchange->configurationHash($current)), 401);
                 if ($peer) {

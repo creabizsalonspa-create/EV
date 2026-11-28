@@ -7,10 +7,30 @@ import 'package:creabiz_ev/reservation_intent.dart';
 
 const terms=<String,dynamic>{'version':1,'slot_minutes':30,'arrival_before_minutes':15,'unused_expiry_minutes':30,'no_show_fee_minor':0,'cancellation_fee_minor':0,'cancellation_rule':'BEFORE_ADMITTED_OR_UNCERTAIN_START','occupancy_basis':'CANONICAL_LOGICAL_SESSION_ONLY','occupancy_enforcement':'START_ADMISSION','physical_occupancy_verified':false,'unresolved_session_requires_reconciliation':true,'automatic_stop':false,'evidence':'SIMULATED_BUSINESS_POLICY'};
 void main(){
+ test('UTC booking calendar bounds do not inherit the device date or DST', () {
+  final west = reservationUtcCalendarDay(DateTime.parse('2026-11-26T23:45:00-05:00'));
+  final east = reservationUtcCalendarDay(DateTime.parse('2026-11-27T02:15:00+04:00'));
+  expect(west, DateTime.utc(2026, 11, 27));
+  expect(east, DateTime.utc(2026, 11, 26));
+  expect(west.add(const Duration(days: 29)), DateTime.utc(2026, 12, 26));
+  expect(reservationUtcCalendarDay(DateTime.parse('2026-03-29T00:30:00+01:00')), DateTime.utc(2026, 3, 28));
+ });
  test('unrecognized fees, policy revisions and physical claims are never described as free supported terms',(){
   expect(supportedReservationTerms(terms),isTrue);
   for(final change in [{'version':2},{'no_show_fee_minor':500},{'cancellation_fee_minor':1},{'physical_occupancy_verified':true},{'automatic_stop':true}]){expect(supportedReservationTerms({...terms,...change}),isFalse);}
   expect(supportedReservationTerms(null),isFalse);
+ });
+ test('reservation terms reject wrong wire types and contradictory price consent',(){
+  for(final field in ['version','slot_minutes','arrival_before_minutes','unused_expiry_minutes','no_show_fee_minor','cancellation_fee_minor']){
+   expect(supportedReservationTerms({...terms,field:(terms[field] as int).toDouble()}),isFalse,reason:field);
+   expect(supportedReservationTerms({...terms,field:null}),isFalse,reason:field);
+   expect(supportedReservationTerms({...terms,field:'${terms[field]}'}),isFalse,reason:field);
+  }
+  expect(supportedReservationTerms({...terms,'price_acceptance_required':true}),isTrue);
+  for(final bad in [false,null,1,'true']){
+   expect(supportedReservationTerms({...terms,'price_acceptance_required':bad}),isFalse);
+  }
+  expect(supportedReservationTerms(terms),isTrue,reason:'Legacy snapshot without new flag');
  });
  test('connector and favorite projections preserve the selected server terms',(){
   final station=Station.fromJson({'id':7,'name':'Synthetic','connector_type':'CCS2','evidence':'SIMULATED','power_kw':50,'reservable':true,'reservation_terms':terms});

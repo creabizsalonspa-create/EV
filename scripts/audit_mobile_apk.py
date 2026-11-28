@@ -6,13 +6,17 @@ does NOT prove physical-device behavior, Google API restrictions, or store
 acceptance. No signing secrets or API-key values are printed.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+
+try:
+    from mobile_apk_evidence import EvidenceError, verified_snapshot, verify_backup_resource_refs, verify_single_signer
+except ModuleNotFoundError:
+    from scripts.mobile_apk_evidence import EvidenceError, verified_snapshot, verify_backup_resource_refs, verify_single_signer
 
 
 class AuditError(ValueError):
@@ -192,14 +196,12 @@ def audit_manifest(
             signer_output,
         ):
             raise AuditError("Distribution APK is signed with Android Debug")
-        signer = re.search(
-            r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})",
-            signer_output,
-        )
-        if signer is None or \
-                signer.group(1).lower() != expected_signer_sha256.lower():
-            raise AuditError("Release APK signing certificate does not match")
-        result["approved_signer_digest"] = signer.group(1).lower()
+        try:
+            result["approved_signer_digest"] = verify_single_signer(
+                signer_output, expected_signer_sha256
+            )
+        except EvidenceError as exc:
+            raise AuditError(str(exc)) from exc
     elif mode != "debug":
         raise AuditError("Unknown APK release mode")
     return result
@@ -209,6 +211,16 @@ def audit_file(args):
     apk = Path(args.apk)
     if not apk.is_file():
         raise AuditError("APK file does not exist")
+    try:
+        with verified_snapshot(apk) as (snapshot, sha):
+            result = _audit_snapshot(args, snapshot)
+            result["sha256"] = sha
+        return result
+    except (EvidenceError, OSError) as exc:
+        raise AuditError("APK evidence verification failed") from exc
+
+
+def _audit_snapshot(args, apk):
     aapt = _sdk_tool("aapt", args.aapt)
     badging = _run([aapt, "dump", "badging", str(apk)])
     manifest = _run([aapt, "dump", "xmltree", str(apk), "AndroidManifest.xml"])
@@ -216,10 +228,10 @@ def audit_file(args):
                    "res/xml/ev_backup_rules.xml"])
     extraction = _run([aapt, "dump", "xmltree", str(apk),
                        "res/xml/ev_data_extraction_rules.xml"])
-    resources = None
+    resources = _run([aapt, "dump", "resources", str(apk)])
+    verify_backup_resource_refs(manifest, resources, args.expected_package)
     network_rules = None
     if "android:networkSecurityConfig" in manifest and args.mode == "debug":
-        resources = _run([aapt, "dump", "resources", str(apk)])
         network_rules = _run([
             aapt, "dump", "xmltree", str(apk),
             "res/xml/ev_debug_network_security.xml",
@@ -239,11 +251,6 @@ def audit_file(args):
         network_resources=resources,
         network_rules=network_rules,
     )
-    digest = hashlib.sha256()
-    with apk.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    result["sha256"] = digest.hexdigest()
     return result
 
 

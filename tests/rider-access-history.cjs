@@ -22,6 +22,7 @@ async function verifyRiderAccessHistory() {
     await page.addScriptTag({
       path: path.resolve("services/business-api/public/locale-data.js"),
     });
+    await page.addScriptTag({path: path.resolve("services/business-api/public/station-time.js")});
     await page.addScriptTag({
       path: path.resolve("services/business-api/public/rider-access.js"),
     });
@@ -74,7 +75,7 @@ async function verifyRiderAccessHistory() {
                       {
                         id: 1,
                         action: "grant.approved",
-                        created_at: "2026-11-07",
+                        created_at: "2026-11-07T12:00:00+04:00",
                       },
                     ]
                   : [
@@ -83,7 +84,7 @@ async function verifyRiderAccessHistory() {
                         state: "awaiting_source",
                         charging_session_id: 8,
                         protocol: "2.0.1",
-                        created_at: "2026-11-07",
+                        created_at: "2026-02-30T12:00:00Z",
                       },
                     ],
           };
@@ -96,23 +97,28 @@ async function verifyRiderAccessHistory() {
       .getByRole("button", { name: "Charging access activity", exact: true })
       .click();
     await page.getByText("Operator approved access", { exact: true }).waitFor();
+    await page.getByText(/08:00 \(UTC\)/).waitFor();
+    assert.equal(await page.getByText("2026-11-07T12:00:00+04:00", {exact:true}).count(), 0);
     await page
       .getByRole("button", { name: "Card charging attempts", exact: true })
       .click();
     await page
       .getByText("Awaiting source transaction", { exact: true })
       .waitFor();
+    await page.getByText("Event time unavailable", {exact:true}).waitFor();
     assert.equal(
       await page.getByText("Source start observed", { exact: true }).count(),
       0,
     );
     await page.evaluate(() => {
       window.language = "ar";
+      document.documentElement.lang = "ar";
     });
     await page
       .getByRole("button", { name: "Access lifecycle", exact: true })
       .click();
     await page.getByText("وافق المشغل على الوصول", { exact: true }).waitFor();
+    await page.getByText(/\(UTC\)/).waitFor();
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

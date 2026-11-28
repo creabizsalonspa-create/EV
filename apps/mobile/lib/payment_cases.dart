@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
 import 'vendor_company.dart';
@@ -95,6 +96,29 @@ const caseAr = {
 String caseText(BuildContext c, String key) =>
     (Localizations.localeOf(c).languageCode == 'ar' ? caseAr : caseEn)[key] ??
     caseEn['unknown']!;
+
+/// Reject inconsistent private lists before exposing record actions.
+void _validateCasePage(ApiPage<Map<String, dynamic>> page, int requested) {
+  if (requested < 1 ||
+      requested > 100000 ||
+      page.current != requested ||
+      page.last < requested ||
+      page.last > 100000 ||
+      page.total < page.items.length ||
+      (page.total == 0 && page.last != 1)) {
+    throw const FormatException('Invalid private case page.');
+  }
+  final ids = <int>{};
+  for (final row in page.items) {
+    final id = row['id'];
+    if (id is! int ||
+        id < 1 ||
+        id > 9007199254740991 ||
+        !ids.add(id)) {
+      throw const FormatException('Invalid private case identity.');
+    }
+  }
+}
 
 class PaymentCasesView extends StatefulWidget {
   final EvApi api;
@@ -195,6 +219,7 @@ class _CasesState extends State<PaymentCasesView>
         ),
         (r) => r,
       );
+      _validateCasePage(raw, number);
       for (final r in raw.items) {
         if (r['id'] is! int ||
             r['id'] < 1 || r['id'] > 9007199254740991 ||
@@ -218,6 +243,7 @@ class _CasesState extends State<PaymentCasesView>
     } catch (e) {
       if (current(epoch)) {
         error = e;
+        if (e is FormatException) target = 1;
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
@@ -891,6 +917,7 @@ class _EvidenceState extends State<CaseEvidenceView>
       if (raw is! Map || raw['can_upload'] is! bool)
         throw const FormatException('Unsupported case permission.');
       final parsed = ApiPage.fromJson(raw, (r) => r);
+      _validateCasePage(parsed, number);
       for (final r in parsed.items) validate(r);
       final scopeGeneration = targetGeneration;
       final op =
@@ -923,7 +950,10 @@ class _EvidenceState extends State<CaseEvidenceView>
       page = parsed;
     } catch (e) {
       if (mounted && foreground && epoch == generation && current() &&
-          identical(api, widget.api)) fail(e);
+          identical(api, widget.api)) {
+        if (e is FormatException) target = 1;
+        fail(e);
+      }
     } finally {
       if (mounted && epoch == generation &&
           identical(api, widget.api)) {
@@ -1211,7 +1241,7 @@ class _EvidenceState extends State<CaseEvidenceView>
                     children: [
                       Text('#${r['id']} · ${t('${r['kind']}')}'),
                       Text(t('private')),
-                      Text('${r['created_at']}'),
+                      Text(serverEventTime(c, r['created_at'])),
                       OutlinedButton(
                         onPressed: busy ? null : () { if (currentView(view)) preview(r); },
                         child: Text(t('view')),

@@ -3,6 +3,7 @@ import 'package:creabiz_ev/vehicle_manual_soc.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Deterministic contract fixture. Real HTTP transport is covered by api_test.dart
@@ -15,6 +16,8 @@ class _SocApi extends EvApi {
   Completer<void>? holdVehicle17;
   bool failReadbackOnce = false;
   bool hideHistoryOnce = false;
+  bool foreignHistory = false;
+  String reportClock = '2026-11-07 14:00:00';
   bool staleCurrentOnce = false;
   bool denyNewAccount = false;
   bool supersedeAfterPost = false;
@@ -49,6 +52,8 @@ class _SocApi extends EvApi {
           'vehicle_id': 18, 'battery_percent': otherPercent,
           'revision': otherRevision, 'reported_at': '2026-11-07T14:00:00+00:00',
           'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+          'measured_by_phone': false, 'measured_by_vehicle_api': false,
+          'charging_capability_verified': false,
         }],
       };
     }
@@ -84,7 +89,7 @@ class _SocApi extends EvApi {
         'source': 'CUSTOMER_MANUAL_SELF_REPORT',
         'measured_by_phone': false, 'measured_by_vehicle_api': false,
         'charging_capability_verified': false,
-        'reported_at': percent == null ? null : '2026-11-07 14:00:00',
+        'reported_at': percent == null ? null : reportClock,
         'replayed': false,
       };
     }
@@ -94,13 +99,15 @@ class _SocApi extends EvApi {
       return {
         'current_page': 1, 'last_page': 1, 'total': revision,
         'data': revision == 0 || suppress ? [] : [
-          {'vehicle_id': 17, 'battery_percent': percent, 'revision': revision,
-            'reported_at': '2026-11-07 14:00:00',
-            'source': 'CUSTOMER_MANUAL_SELF_REPORT'},
+          {'vehicle_id': foreignHistory ? 18 : 17, 'battery_percent': percent, 'revision': revision,
+            'reported_at': reportClock,
+            'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+            'measured_by_phone':false,'measured_by_vehicle_api':false,'charging_capability_verified':false},
           if(earlierPercent!=null)
             {'vehicle_id':17,'battery_percent':earlierPercent,
               'revision':revision-1,'reported_at':'2026-11-07 13:59:00',
-              'source':'CUSTOMER_MANUAL_SELF_REPORT'},
+              'source':'CUSTOMER_MANUAL_SELF_REPORT',
+              'measured_by_phone':false,'measured_by_vehicle_api':false,'charging_capability_verified':false},
         ],
       };
     }
@@ -135,6 +142,67 @@ class _SocApi extends EvApi {
 }
 
 void main() {
+  testWidgets('failed authoritative SOC refresh removes former report and disables new write', (tester) async {
+    final api = _SocApi()..revision=1..percent=63;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    final oldSave=tester.widget<FilledButton>(find.byKey(const Key('manual-soc-save'))).onPressed!;
+    api.foreignHistory=true;
+    final refresh=find.text('Refresh from server');
+    await tester.ensureVisible(refresh);
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsNothing);
+    expect(find.byKey(const Key('manual-soc-save')),findsNothing);
+    expect(find.byKey(const Key('manual-soc-error')),findsOneWidget);
+    oldSave();
+    await tester.pumpAndSettle();
+    expect(api.writes,isEmpty);
+    api.foreignHistory=false;
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsOneWidget);
+    expect(find.byKey(const Key('manual-soc-save')),findsOneWidget);
+  });
+
+  testWidgets('exhausted manual SOC revision cannot create another report', (tester) async {
+    final api=_SocApi()..revision=2147483647..percent=63;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(find.byKey(const Key('manual-soc-save'))).onPressed,isNull);
+    expect(api.writes,isEmpty);
+  });
+
+  for(final ar in [false,true]){
+    testWidgets('manual SOC source clocks are localized without device timezone assumptions ($ar)', (tester) async {
+      final api=_SocApi()..revision=1..percent=63..reportClock='2026-11-07T14:00:00+00:00';
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale:Locale(ar?'ar':'en'),
+        supportedLocales:const [Locale('en'),Locale('ar')],
+        localizationsDelegates:GlobalMaterialLocalizations.delegates,
+        home:VehicleManualSocView(api:api,vehicleId:17,onExpired:(){}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('UTC'),findsNWidgets(2));
+      expect(find.textContaining('2026-11-07T14:00:00+00:00'),findsNothing);
+      api.reportClock='2026-02-30T14:00:00Z';
+      final refresh=find.text(ar?'تحديث من الخادم':'Refresh from server');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(ar?'وقت التقرير غير متاح':'Report time unavailable'),findsNWidgets(2));
+      expect(find.textContaining('2026-02-30'),findsNothing);
+      expect(api.writes,isEmpty);
+      expect(tester.takeException(),isNull);
+    });
+  }
   testWidgets('customer explicitly records a battery estimate with source labels',
       (tester) async {
     final api = _SocApi();
@@ -209,6 +277,8 @@ void main() {
       await tester.tap(find.byKey(const Key('manual-soc-save')));
       await tester.pumpAndSettle();
       expect(api.requestPaths, contains('POST vehicles/18/manual-soc'));
+      expect(api.requestPaths, isNot(contains('GET vehicles/17/manual-soc/history')),
+        reason:'A delayed retired read cannot dispatch a follow-on history read');
       expect(api.writes.last['expected_revision'], 4);
       expect(api.writes.last['battery_percent'], 55);
     } finally {
@@ -230,7 +300,12 @@ void main() {
       // An auth epoch change can reuse the same EvApi object and vehicle id;
       // neither the old percentage nor the pending edit may remain visible.
       api.denyNewAccount = true;
+      final stale=tester.widget<FilledButton>(find.byKey(const Key('manual-soc-save'))).onPressed!;
+      final count=api.requestPaths.length;
       await api.forgetSession();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 73%'), findsNothing);
+      stale();
       await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
         api: api, vehicleId: 17, onExpired: () {},
       )));
@@ -240,6 +315,7 @@ void main() {
       expect(find.byKey(const Key('manual-soc-percent')), findsNothing);
       expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
       expect(api.writes, isEmpty);
+      expect(api.requestPaths.length,count,reason:'Retired view must not bind next credentials');
     } finally {
       api.close();
     }
@@ -347,4 +423,52 @@ void main() {
     }
   });
 
+  testWidgets('manual SOC inactive mount and foreground refresh are explicit',(tester) async {
+    final api=_SocApi()..revision=1..percent=63;
+    addTearDown(api.close);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(()=>tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    expect(api.requestPaths,isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.requestPaths,isEmpty);
+    await tester.tap(find.text('Refresh from server'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsOneWidget);
+    expect(api.requestPaths.length,2);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Latest estimate: 63%'),findsNothing);
+    expect(api.requestPaths.length,2);
+  });
+
+  testWidgets('foreign history cannot confirm a report and original retry stays frozen',(tester) async {
+    final api=_SocApi()..foreignHistory=true;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('manual-soc-percent')),'٤٧');
+    await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+    await tester.tap(find.byKey(const Key('manual-soc-save')));
+    await tester.pumpAndSettle();
+    expect(api.writes.single['battery_percent'],47);
+    expect(find.text('Manual battery report recorded.'),findsNothing);
+    expect(find.text('Retry identical report'),findsOneWidget);
+    api.foreignHistory=false;
+    await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+    await tester.tap(find.byKey(const Key('manual-soc-save')));
+    await tester.pumpAndSettle();
+    expect(api.writes.length,2);
+    expect(api.writes.first,api.writes.last);
+    expect(find.text('Manual battery report recorded.'),findsOneWidget);
+  });
 }

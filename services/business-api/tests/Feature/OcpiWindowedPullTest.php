@@ -139,6 +139,118 @@ class OcpiWindowedPullTest extends TestCase
         $this->assertDatabaseCount('ocpi_records', 0);
     }
 
+    public function test_negotiated_query_scope_and_continuation_controls_are_not_interchangeable(): void
+    {
+        $provider = $this->provider('https://partner.example/locations?country=NL&limit=25');
+        $mode = 'valid';
+        Http::fake(function ($request) use (&$mode) {
+            if (str_contains($request->url(), 'offset=25')) {
+                return Http::response($this->envelope([['id' => 'second']]));
+            }
+            $link = match ($mode) {
+                'valid' => '?limit=25&offset=25&country=NL',
+                'missing' => '?offset=25&limit=25',
+                'changed' => '?country=AE&offset=25',
+                'duplicate' => '?country=NL&country=AE&offset=25',
+                'case_alias' => '?country=NL&COUNTRY=AE&offset=25',
+                'new_scope' => '?country=NL&party_id=OTHER&offset=25',
+                'bracket' => '?country=NL&country%5B%5D=AE&offset=25',
+                'separator' => '?country=NL;country=AE&offset=25',
+            };
+
+            return Http::response($this->envelope([['id' => 'first']]), 200, ['Link' => '<'.$link.'>; rel="next"']);
+        });
+        $this->assertSame(['first', 'second'], array_column(app(PartnerClient::class)->pull($provider, 'locations'), 'id'));
+        foreach (['missing', 'changed', 'duplicate', 'case_alias', 'new_scope', 'bracket', 'separator'] as $mode) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations');
+                $this->fail('An ambiguous or altered negotiated query scope was accepted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('pagination', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(9);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_explicit_window_rejects_aliases_and_new_bounds_before_the_second_get(): void
+    {
+        $provider = $this->provider();
+        $suffix = '';
+        Http::fake(function ($request) use (&$suffix) {
+            return Http::response($this->envelope([]), 200, ['Link' => '<'.$request->url().$suffix.'>; rel="next"']);
+        });
+        foreach ([
+            '&date%20from=2025-03-09T00%3A00%3A00Z',
+            '&date.from=2025-03-09T00%3A00%3A00Z',
+            '&date_from%5B%5D=2025-03-09T00%3A00%3A00Z',
+            '&DATE_FROM=2025-03-09T00%3A00%3A00Z',
+            '&date_to=2025-03-11T00%3A00%3A00Z',
+        ] as $suffix) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations', ['date_from' => '2025-03-10T08:00:00Z']);
+                $this->fail('A continuation changed the explicit one-sided source window.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('window', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(5);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_link_parameter_order_and_multiple_relations_do_not_silently_truncate_source_pages(): void
+    {
+        $provider = $this->provider('https://partner.example/locations?country=NL');
+        $header = '';
+        Http::fake(function ($request) use (&$header) {
+            if (str_contains($request->url(), 'offset=25')) {
+                return Http::response($this->envelope([['id' => 'second']]));
+            }
+
+            return Http::response($this->envelope([['id' => 'first']]), 200, ['Link' => $header]);
+        });
+        foreach ([
+            '<?country=NL&offset=25>; type="application/json"; rel="next"',
+            '<?country=NL&offset=25>; title="records, next page"; rel="alternate next"',
+            '<?country=NL&offset=0>; rel=prev, <?country=NL&offset=25>; REL="NEXT"',
+        ] as $header) {
+            $this->assertSame(['first', 'second'], array_column(app(PartnerClient::class)->pull($provider, 'locations'), 'id'));
+        }
+        Http::assertSentCount(6);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_malformed_or_ambiguous_link_cannot_be_treated_as_complete_source(): void
+    {
+        $provider = $this->provider();
+        $header = '';
+        Http::fake(function () use (&$header) {
+            return Http::response($this->envelope([['id' => 'first']]), 200, ['Link' => $header]);
+        });
+        foreach ([
+            '<?offset=1>; type="application/json"; rel=next, <?offset=2>; rel=next',
+            '<?offset=1>; rel=next; rel=prev',
+            '<?offset=1>; anchor="https://other.example/locations"; rel=next',
+            '<?offset=1>; title="unterminated; rel=next',
+            '<?offset=1>; rel=next,',
+            '<?offset=1>; title="missing relation"',
+            '<?offset=1>; rel',
+            '<?offset=1>; rel=""',
+        ] as $header) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations');
+                $this->fail('A malformed or ambiguous Link was accepted as a complete source batch.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('pagination', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(8);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_duplicate_partner_next_links_fail_closed_before_any_second_get(): void
     {
         $provider = $this->provider();

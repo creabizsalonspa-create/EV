@@ -41,18 +41,50 @@ class EnterpriseController extends Controller
     {
         abort_unless($r->user()->role === 'admin', 403);
         abort_unless(preg_match('/^[A-Z]{2}$/D', $country), 422);
-        $v = $r->validate(['currency' => 'required|string|size:3|uppercase', 'minor_units' => 'required|integer|between:0,3', 'timezone' => 'required|timezone', 'tax_bps' => 'nullable|integer|between:0,10000']);
+        $v = $r->validate([
+            'currency' => ['required', 'regex:/^[A-Z]{3}$/D'],
+            'minor_units' => 'required|integer|between:0,3',
+            'timezone' => 'required|timezone',
+            'tax_bps' => 'nullable|integer|between:0,10000',
+            'expected_revision' => 'sometimes|integer|between:0,9007199254740990',
+        ]);
 
         return DB::transaction(function () use ($r, $country, $v) {
-            // A stale Admin session may pass the initial role check after
-            // revocation. Lock and revalidate the live actor before changing
-            // shared country, timezone, tax or currency configuration.
             AdminTransactionAuthority::requireCurrent($r->user());
-            DB::table('regions')->updateOrInsert(['country' => $country], $v + ['commerce_enabled' => false, 'updated_at' => now()]);
+            $expected = (int) ($v['expected_revision'] ?? 0);
+            $values = [
+                'currency' => $v['currency'], 'minor_units' => (int) $v['minor_units'],
+                'timezone' => $v['timezone'], 'tax_bps' => isset($v['tax_bps']) ? (int) $v['tax_bps'] : null,
+                'commerce_enabled' => false,
+            ];
+            $row = DB::table('regions')->where('country', $country)->lockForUpdate()->first();
+            if (! $row) {
+                abort_unless($expected === 0, 409, 'Regional configuration changed. Refresh before saving.');
+                // A concurrent first writer cannot be overwritten by another
+                // administrator whose form expected an absent country.
+                $inserted = DB::table('regions')->insertOrIgnore(['country' => $country]
+                    + $values + ['configuration_revision' => 1, 'updated_at' => now()]);
+                abort_unless($inserted === 1, 409, 'Regional configuration changed. Refresh before saving.');
+            } else {
+                $revision = (int) $row->configuration_revision;
+                abort_unless($revision === $expected && $revision < 9007199254740991, 409, 'Regional configuration changed. Refresh before saving.');
+                $same = $row->currency === $values['currency']
+                    && (int) $row->minor_units === $values['minor_units']
+                    && $row->timezone === $values['timezone']
+                    && ($row->tax_bps === null ? null : (int) $row->tax_bps) === $values['tax_bps']
+                    && ! $row->commerce_enabled;
+                if ($same) {
+                    return response()->json($row)->header('Cache-Control', 'private, no-store');
+                }
+                DB::table('regions')->where('country', $country)->update($values + [
+                    'configuration_revision' => $revision + 1, 'updated_at' => now(),
+                ]);
+            }
             $this->audit($r, 'region.configured', $country);
 
-            return response()->json(DB::table('regions')->where('country', $country)->first());
-        });
+            return response()->json(DB::table('regions')->where('country', $country)->first())
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function configureRegionalReviewIntake(Request $r, string $country)

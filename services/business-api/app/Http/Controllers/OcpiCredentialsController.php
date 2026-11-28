@@ -46,12 +46,15 @@ class OcpiCredentialsController extends Controller
                 || (int) $actor->id === (int) $provider->owner_id, 404);
             $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
             $configured = true;
+            $configurationHash = null;
             $receiverModules = [];
             try {
                 $exchange->configuration($provider);
                 $receiverModules = $exchange->receiverModules($provider);
+                $configurationHash = $exchange->configurationHash($provider);
             } catch (Throwable) {
                 $configured = false;
+                $receiverModules = [];
             }
             $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
             $state = $link->state ?? 'not_exchanged';
@@ -59,7 +62,7 @@ class OcpiCredentialsController extends Controller
             $bootstrap = (string) config('ocpi.connections.'.$provider->connection_key.($incoming ? '.inbound_authorization_token' : '.authorization_token'), '');
             $raw = base64_decode($bootstrap, true);
             $bootstrapReady = is_string($raw) && preg_match('/^[\x21-\x7e]{1,64}$/D', $raw) && base64_encode($raw) === $bootstrap && (! $link || ! hash_equals($link->bootstrap_hash, hash('sha256', $bootstrap)));
-            if ($configured && $link && $state === 'active' && ! hash_equals($link->configuration_hash, $exchange->configurationHash($provider))) {
+            if ($configured && $link && $state === 'active' && ! hash_equals($link->configuration_hash, $configurationHash)) {
                 $state = 'configuration_changed';
             }
 
@@ -73,10 +76,14 @@ class OcpiCredentialsController extends Controller
             $ownerVendor = $owner->role === 'vendor';
             $ownerActive = $ownerVendor && $owner->account_status === 'active';
             $reviewCurrent = app(ContractReviewGate::class)->current($provider, $owner);
-            if ($configured && $provider->authorized && $r->user()->role === 'admin' && $ownerVendor) {
+            $adminActions = $configured && $provider->authorized && $actor->role === 'admin' && $ownerVendor;
+            $canAdvance = $ownerActive && $provider->authorization_revision < PHP_INT_MAX
+                && (int) ($link->generation ?? 0) < 2147483647;
+            if ($adminActions) {
                 if ($state === 'active') {
-                    $actions = $ownerActive ? ['rotate', 'unregister'] : ['unregister'];
-                } elseif ($ownerActive && $bootstrapReady && in_array($state, ['not_exchanged', 'revoked', 'unregistered', 'awaiting_registration', 'enrollment_expired'], true)) {
+                    $actions = $canAdvance ? ['rotate', 'unregister'] : ['unregister'];
+                } elseif ($canAdvance && $bootstrapReady && (in_array($state, ['not_exchanged', 'revoked', 'unregistered'], true)
+                    || ($incoming && in_array($state, ['awaiting_registration', 'enrollment_expired'], true)))) {
                     $actions = [$incoming ? 'prepare_incoming' : 'register'];
                 }
             }
@@ -100,10 +107,10 @@ class OcpiCredentialsController extends Controller
                     $tokenBound = false;
                 }
             }
-            if ($configured && $state === 'active' && ! $tokenBound) {
+            if ($adminActions && $state === 'active' && ! $tokenBound) {
                 // An incomplete or corrupted active link is not safe to rotate.
                 // Keep explicit de-registration available to a current admin.
-                $actions = $r->user()->role === 'admin' ? ['unregister'] : [];
+                $actions = ['unregister'];
             }
             // An expired or absent enforced review must not advertise an
             // operation or module that the actual protocol boundary denies.
@@ -112,7 +119,7 @@ class OcpiCredentialsController extends Controller
                 $actions = $configured && $provider->authorized && $actor->role === 'admin'
                     && $ownerVendor && $state === 'active' ? ['unregister'] : [];
             }
-            $activeReceivers = $reviewCurrent && $configured && $tokenBound && $provider->authorized
+            $activeReceivers = $reviewCurrent && $configured && $tokenBound && $provider->authorized && $ownerVendor
                 ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [];
             $capabilities = app(PartnerCapabilityMatrix::class)->read(
                 $provider, $configured, $configured && $tokenBound && $provider->authorized && $ownerActive && $reviewCurrent,

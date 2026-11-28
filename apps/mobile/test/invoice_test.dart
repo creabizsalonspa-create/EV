@@ -9,6 +9,7 @@ import 'test_support.dart';
 class InvoiceFixture extends FixtureApi {
   bool fail = false, invalidEvidence = false;
   String? corruptField;
+  bool transactionClocks = false;
   int precision = 2;
   String currencyCode = 'AED';
   int requests = 0;
@@ -45,10 +46,10 @@ class InvoiceFixture extends FixtureApi {
       'ledger_balanced': true,
       'payments': corruptField == 'payment'
           ? [{'amount_minor': 'not-an-amount', 'created_at': '2026-11-16'}]
-          : [],
+          : transactionClocks ? [{'amount_minor': 329, 'created_at': '2026-11-25T19:32:00+04:00'}] : [],
       'refunds': corruptField == 'refund'
           ? [{'amount_minor': 329, 'created_at': null}]
-          : [],
+          : transactionClocks ? [{'amount_minor': 329, 'created_at': '2026-02-30T15:32:00Z', 'reason': 'Synthetic refund'}] : [],
       'unpaid_credit_notes': corruptField == 'credit_note'
           ? [{'id': 'not-an-id', 'credit_note_number': 'PRIVATE-NOTE'}]
           : [],
@@ -105,6 +106,37 @@ class RotatingInvoiceApi extends InvoiceFixture {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('invoice transaction times use authoritative UTC and hide malformed source ($ar)', (tester) async {
+      final api = InvoiceFixture()..transactionClocks = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: InvoicePage(api: api, sessionId: 7, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      final utc = find.textContaining('\u2068UTC\u2069');
+      await tester.scrollUntilVisible(utc, 160,
+        scrollable: find.byType(Scrollable).first);
+      expect(utc, findsOneWidget);
+      if (!ar) {
+        final label = tester.widget<Text>(utc).data!;
+        expect(label, anyOf(contains('15:32'), contains('3:32')));
+      }
+      expect(Directionality.of(tester.element(utc)),
+        ar ? TextDirection.rtl : TextDirection.ltr);
+      final hidden = find.textContaining(ar ? '329 وحدة صغرى AED · —' : '329 minor units AED · —');
+      await tester.scrollUntilVisible(hidden, 100,
+        scrollable: find.byType(Scrollable).first);
+      expect(hidden, findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('2026-11-25T19:32'), findsNothing);
+      expect(api.requests, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final digits in [0, 2, 3]) {
     for (final arabic in [false, true]) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -127,6 +128,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   bool consent = false, loading = false, tiles = false, foreground = true;
   bool checkingCapabilities = false;
   int capabilityGeneration = 0;
+  StreamSubscription<int>? sessionSubscription;
   String requiredConnector = '';
   // Do not reuse a prior account's in-memory station choices when an
   // authenticated discovery client changes before new catalog results arrive.
@@ -150,6 +152,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    subscribeSession();
     tiles = foreground && widget.tilesEnabled;
     if (sessionCurrent && widget.origin != null) {
       originLat.text = '${widget.origin!.latitude}';
@@ -160,67 +163,60 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     loadCapabilities();
   }
 
+  void resetPrivateRoute({required bool accountChanged}) {
+    generation++;
+    capabilityGeneration++;
+    checkingCapabilities = false;
+    originLat.clear();
+    originLng.clear();
+    destinationLat.clear();
+    destinationLng.clear();
+    clearEnergy();
+    stops.clear();
+    requiredConnector = '';
+    consent = false;
+    estimate = null;
+    error = null;
+    loading = false;
+    tiles = false;
+    if (accountChanged) {
+      awaitingFreshAccountCatalog = true;
+      capabilities = null;
+    }
+  }
+
+  void subscribeSession() {
+    final client = widget.client;
+    if (client == null) return;
+    sessionSubscription = client.sessionEvents?.listen((_) {
+      if (mounted && identical(widget.client, client) && !client.currentSession()) {
+        setState(() => resetPrivateRoute(accountChanged: true));
+      }
+    });
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final resumed = state == AppLifecycleState.resumed;
-    if (resumed == foreground) return;
-    foreground = resumed;
-    if (!resumed) {
-      // Coordinates and the selected catalog stops are sensitive route intent.
-      // A backgrounded widget must not display them, keep a map tile alive,
-      // or accept a late Geoapify/Google Maps response or consent dialog.
-      generation++;
-      capabilityGeneration++;
-      checkingCapabilities = false;
-      originLat.clear();
-      originLng.clear();
-      destinationLat.clear();
-      destinationLng.clear();
-      clearEnergy();
-      stops.clear();
-      requiredConnector = '';
-      consent = false;
-      estimate = null;
-      error = null;
-      loading = false;
-      tiles = false;
-    }
-    if (mounted) setState(() {});
+    if (!mounted || resumed == foreground) return;
+    setState(() {
+      foreground = resumed;
+      if (!resumed) resetPrivateRoute(accountChanged: false);
+    });
   }
 
   @override
   void didUpdateWidget(covariant RoutePlannerView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.client, widget.client) || !sessionCurrent) {
-      // A new authenticated client is a different discovery context.
-      // Do not carry private coordinates, old stations, a route estimate or
-      // an outstanding external-navigation consent across that boundary.
-      generation++;
-      capabilityGeneration++;
-      checkingCapabilities = false;
-      awaitingFreshAccountCatalog = true;
-      stops.clear();
-      // Initial route inputs from the new widget may still have been cached
-      // by the old signed-in account. A client rotation invalidates all four
-      // private coordinates, even when the caller passes an old origin again.
-      // Require an explicit new-account entry or fresh discovery selection.
-      originLat.clear();
-      originLng.clear();
-      destinationLat.clear();
-      destinationLng.clear();
-      clearEnergy();
-      requiredConnector = '';
-      consent = false;
-      estimate = null;
-      error = null;
-      loading = false;
-      // A new account also requires fresh opt-in before OSM tile traffic.
-      tiles = false;
-      capabilities = null;
+    if (!identical(oldWidget.client, widget.client)) {
+      unawaited(sessionSubscription?.cancel());
+      resetPrivateRoute(accountChanged: true);
+      subscribeSession();
       loadCapabilities();
+    } else if (!(widget.client?.currentSession() ?? true)) {
+      resetPrivateRoute(accountChanged: true);
     } else if (awaitingFreshAccountCatalog &&
         !identical(oldWidget.stations, widget.stations)) {
-      // The caller has supplied a new catalog snapshot for this client.
       awaitingFreshAccountCatalog = false;
     }
   }
@@ -235,11 +231,19 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         identical(widget.client, client) && sessionCurrent;
     try {
       final result = await client.capabilities();
-      if (active() && current == generation) {
-        setState(() => capabilities = result);
+      if (active()) {
+        if (!result.routing) {
+          // A provider withdrawal supersedes any earlier itinerary consent,
+          // even if the driver edited that itinerary while checking.
+          invalidate();
+          setState(() => capabilities = result);
+        } else if (current == generation) {
+          setState(() => capabilities = result);
+        }
       }
     } catch (_) {
-      if (active() && current == generation) {
+      if (active()) {
+        invalidate();
         setState(() => capabilities = null);
       }
     } finally {
@@ -268,7 +272,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         double.parse(vendorDigits(lng.text.trim())),
       );
   List<GeoPoint>? points() {
-    if (!sessionCurrent || !form.currentState!.validate()) return null;
+    if (!mounted || !sessionCurrent || !(form.currentState?.validate() ?? false)) return null;
     return [
       point(originLat, originLng),
       ...stops.map((s) => GeoPoint(s.latitude!, s.longitude!)),
@@ -279,7 +283,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   Future<void> preview() async {
     final currentPoints = points();
     if (currentPoints == null ||
-        incompatibleStops ||
+        loading || incompatibleStops ||
         !consent ||
         capabilities?.routing != true ||
         widget.client == null || !sessionCurrent)
@@ -300,7 +304,13 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     } catch (e) {
       if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => error = e);
     } finally {
-      if (mounted && generation == current && identical(widget.client, client) && sessionCurrent) setState(() => loading = false);
+      if (mounted && generation == current && identical(widget.client, client)) {
+        if (sessionCurrent) {
+          setState(() => loading = false);
+        } else if (!client.currentSession()) {
+          setState(() => resetPrivateRoute(accountChanged: true));
+        }
+      }
     }
   }
 
@@ -346,7 +356,8 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               launchUrl(uri, mode: LaunchMode.externalApplication));
       if (!opened) throw StateError('unavailable');
     } catch (_) {
-      if (mounted)
+      if (mounted && sessionCurrent && generation == intentGeneration &&
+          identical(widget.client, intentClient))
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -360,7 +371,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
     }
   }
 
-  Widget field(String key, TextEditingController value, bool latitude) =>
+  Widget field(String key, TextEditingController value, bool latitude, String endpointTitle) =>
       TextFormField(
         key: Key(key),
         controller: value,
@@ -371,9 +382,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         textDirection: TextDirection.ltr,
         onChanged: (_) => invalidate(),
         decoration: InputDecoration(
-          labelText: latitude
+          labelText: '$endpointTitle: ${latitude
               ? t('Latitude (−90 to 90)', 'خط العرض (−90 إلى 90)')
-              : t('Longitude (−180 to 180)', 'خط الطول (−180 إلى 180)'),
+              : t('Longitude (−180 to 180)', 'خط الطول (−180 إلى 180)')}',
         ),
         validator: (text) {
           final n = double.tryParse(vendorDigits(text?.trim() ?? ''));
@@ -396,9 +407,9 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          field('$prefix-lat', lat, true),
-          field('$prefix-lng', lng, false),
+          Semantics(header: true, child: Text(title, style: Theme.of(context).textTheme.titleLarge)),
+          field('$prefix-lat', lat, true, title),
+          field('$prefix-lng', lng, false, title),
           if (capabilities?.geocoding == true && widget.client != null)
             ExpansionTile(
               title: Text(t('Find an address', 'البحث عن عنوان')),
@@ -406,6 +417,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                 AddressSearch(
                   client: widget.client!,
                   onSelected: (place) {
+                    if (!mounted || !sessionCurrent) return;
                     lat.text = '${place.point.latitude}';
                     lng.text = '${place.point.longitude}';
                     invalidate();
@@ -420,6 +432,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(sessionSubscription?.cancel());
     generation++;
     for (final c in [originLat, originLng, destinationLat, destinationLng, ...energyFields.values]) {
       c.dispose();
@@ -530,6 +543,15 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
         body: Center(child: Text(t('Account changed. Reopen route planning.', 'تغير الحساب. أعد فتح تخطيط المسار.'))),
       );
     }
+    final consentGeneration = generation;
+    final consentClient = widget.client;
+    final renderedStations = widget.stations;
+    bool currentIntent() => mounted && sessionCurrent &&
+        generation == consentGeneration &&
+        identical(widget.client, consentClient);
+    bool currentCatalog() => currentIntent() &&
+        !awaitingFreshAccountCatalog &&
+        identical(renderedStations, widget.stations);
     final lines =
         estimate?.segments
             .where((line) => line.every((p) => p.latitude.abs() <= 85.05112878))
@@ -579,6 +601,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                         onPressed: i == 0
                             ? null
                             : () {
+                                if (!currentIntent() || i >= stops.length) return;
                                 final s = stops.removeAt(i);
                                 stops.insert(i - 1, s);
                                 invalidate();
@@ -588,6 +611,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                       IconButton(
                         tooltip: t('Remove stop', 'إزالة التوقف'),
                         onPressed: () {
+                          if (!currentIntent() || i >= stops.length) return;
                           stops.removeAt(i);
                           invalidate();
                         },
@@ -619,6 +643,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                       ),
                   ],
                   onChanged: (value) {
+                    if (!currentIntent() || !['','CCS2','Type2','CHAdeMO'].contains(value)) return;
                     requiredConnector = value ?? '';
                     invalidate();
                   },
@@ -669,7 +694,11 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
                                 (!matchesAdvertisedConnector(station) || stops.length >= 3))
                         ? null
                         : (selected) {
+                            if (!currentCatalog() || !valid(station) ||
+                                !widget.stations.any((s) => identical(s, station))) return;
                             if (selected == true) {
+                              if (stops.length >= 3 || !matchesAdvertisedConnector(station) ||
+                                  stops.any((s) => s.id == station.id)) return;
                               stops.add(station);
                             } else {
                               stops.removeWhere((s) => s.id == station.id);
@@ -706,7 +735,18 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               CheckboxListTile(
                 key: const Key('route-provider-consent'),
                 value: consent,
-                onChanged: (v) => setState(() => consent = v ?? false),
+                onChanged: (v) {
+                  if (!mounted || !sessionCurrent ||
+                      generation != consentGeneration ||
+                      !identical(widget.client, consentClient)) return;
+                  if (v != true) {
+                    // Withdrawal must also discard an in-flight or displayed
+                    // route, including its derived whole-route energy estimate.
+                    invalidate();
+                  } else {
+                    setState(() => consent = true);
+                  }
+                },
                 title: Text(
                   t(
                     'Send these coordinates and stops to Geoapify for a route estimate.',
@@ -718,11 +758,17 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               key: const Key('route-preview'),
               onPressed: loading || incompatibleStops || !consent || capabilities?.routing != true
                   ? null
-                  : preview,
+                  : () { if (currentIntent()) preview(); },
               icon: const Icon(Icons.route),
               label: Text(t('Preview provider route', 'معاينة مسار المزود')),
             ),
-            if (loading) const LinearProgressIndicator(),
+            if (loading)
+              Semantics(
+                liveRegion: true,
+                child: LinearProgressIndicator(
+                  semanticsLabel: t('Estimating route', 'جارٍ تقدير المسار'),
+                ),
+              ),
             if (error != null)
               Semantics(
                 liveRegion: true,
@@ -765,7 +811,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
               ),
             if (estimate != null && !tiles)
               OutlinedButton(
-                onPressed: () => setState(() => tiles = true),
+                onPressed: () { if (currentIntent() && estimate != null) setState(() => tiles = true); },
                 child: Text(
                   t(
                     'Show map — sends viewed area/IP to OpenStreetMap',
@@ -825,7 +871,7 @@ class _RoutePlannerViewState extends State<RoutePlannerView> with WidgetsBinding
             energyReviewPanel(),
             OutlinedButton.icon(
               key: const Key('route-navigation'),
-              onPressed: incompatibleStops ? null : navigate,
+              onPressed: incompatibleStops ? null : () { if (currentIntent()) navigate(); },
               icon: const Icon(Icons.navigation_outlined),
               label: Text(
                 t(

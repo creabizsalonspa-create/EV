@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +9,9 @@ import 'test_support.dart';
 
 class PricingApi extends FixtureApi {
   final publications = <Map<String, dynamic>>[];
-  bool uncertain = false, expired = false;
+  int reads = 0;
+  Completer<void>? pendingPublication;
+  bool uncertain = false, expired = false, futureFirst = false, missingAuthority = false;
   int price = 125, version = 1;
   @override
   Future<dynamic> request(
@@ -21,6 +24,7 @@ class PricingApi extends FixtureApi {
     expect(path, 'stations/8/tariffs');
     if (method == 'POST') {
       publications.add({...body!});
+      if (pendingPublication != null) await pendingPublication!.future;
       price = body['rate_minor_per_kwh'] as int;
       version++;
       if (uncertain) {
@@ -29,21 +33,25 @@ class PricingApi extends FixtureApi {
       }
       return {'id': version};
     }
+    reads++;
+    final effective = {
+      'id': version, 'station_id': 8,
+      'rate_minor_per_kwh': price, 'tax_bps': 500,
+      'commission_bps': 1250, 'minor_units': 2, 'currency': 'AED',
+      'effective_from': '2026-10-27T00:00:00Z',
+    };
     return {
       'data': [
-        {
-          'id': version,
-          'rate_minor_per_kwh': price,
-          'tax_bps': 500,
-          'commission_bps': 1250,
-          'minor_units': 2,
-          'currency': 'AED',
-          'effective_from': '2026-10-27T00:00:00Z',
-        },
+        if (futureFirst) {...effective, 'id': 99,
+          'rate_minor_per_kwh': 999, 'effective_from': '2026-12-01T00:00:00Z'},
+        effective,
       ],
+      if (!missingAuthority) 'active_tariff': effective,
+      'active_tariff_context_matches': true,
+      'tariff_as_of': '2026-11-25T00:00:00Z',
       'current_page': 1,
       'last_page': 1,
-      'total': 1,
+      'total': futureFirst ? 2 : 1,
       'pricing_context': {
         'currency': 'AED',
         'minor_units': 2,
@@ -73,6 +81,50 @@ Widget app(PricingApi api, VoidCallback expired) => MaterialApp(
   ),
 );
 void main() {
+  testWidgets('session revocation clears tariff editor and rejects retained publish callback', (tester) async {
+    final api = PricingApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    final button = find.widgetWithText(FilledButton, 'نشر إصدار التسعير');
+    final callback = tester.widget<FilledButton>(button).onPressed!;
+    final reads = api.reads;
+    await api.forgetSession();
+    await tester.pumpAndSettle();
+    callback();
+    await tester.pumpAndSettle();
+    expect(find.byType(TextFormField), findsNothing);
+    expect(find.byKey(const Key('effective-tariff-version')), findsNothing);
+    expect(api.publications, isEmpty);
+    expect(api.reads, reads);
+  });
+  testWidgets('backgrounding during tariff publication prevents late readback and replay', (tester) async {
+    final api = PricingApi()..pendingPublication = Completer<void>();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    final button = find.text('نشر إصدار التسعير');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    expect(api.publications, hasLength(1));
+    final reads = api.reads;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.pendingPublication!.complete();
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(api.reads, reads);
+    expect(find.byType(TextFormField), findsNothing);
+    await tester.tap(find.text('تحديث سجل التسعير'));
+    await tester.pumpAndSettle();
+    expect(api.reads, reads + 1);
+    expect(api.publications, hasLength(1));
+    expect(find.byType(TextFormField), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
   test(
     'exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators',
     () {
@@ -97,6 +149,20 @@ void main() {
           expect(decimalMinor(minorDecimal(amount, digits), digits), amount);
     },
   );
+  testWidgets('future history cannot prefill effective price; missing authority blocks publishing', (tester) async {
+    final api = PricingApi()..futureFirst = true;
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text, '1.25');
+    expect(find.byKey(const Key('effective-tariff-version')), findsOneWidget);
+    api.missingAuthority = true;
+    await tester.tap(find.text('تحديث سجل التسعير'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('effective-tariff-version')), findsNothing);
+    expect(find.byType(TextFormField), findsNothing);
+    expect(api.publications, isEmpty);
+  });
   testWidgets(
     'vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel',
     (tester) async {
@@ -115,6 +181,7 @@ void main() {
       expect(api.publications.single['commission_bps'], 0);
       expect(api.publications.single['expected_currency'], 'AED');
       expect(api.publications.single['expected_minor_units'], 2);
+      expect(api.publications.single['expected_active_tariff_id'], 1);
       expect(
         api.publications.single['idempotency_key'],
         matches(RegExp(r'^[a-f0-9]{32}$')),
@@ -144,13 +211,19 @@ void main() {
             .onPressed,
         isNull,
       );
-      await tester.ensureVisible(find.text('تحديث سجل التسعير'));
-      await tester.tap(find.text('تحديث سجل التسعير'));
+      final refresh = find.text('تحديث سجل التسعير');
+      await tester.scrollUntilVisible(refresh, -250,
+        scrollable: find.descendant(of: find.byType(ListView),
+          matching: find.byType(Scrollable)).first);
+      await tester.tap(refresh);
       await tester.pumpAndSettle();
       expect(find.text('2.75 AED / kWh'), findsOneWidget);
       expect(api.publications.length, 1);
       api.expired = true;
-      await tester.tap(find.text('تحديث سجل التسعير'));
+      await tester.scrollUntilVisible(refresh, -250,
+        scrollable: find.descendant(of: find.byType(ListView),
+          matching: find.byType(Scrollable)).first);
+      await tester.tap(refresh);
       await tester.pumpAndSettle();
       expect(expired, isTrue);
       expect(find.text('2.75 AED / kWh'), findsNothing);

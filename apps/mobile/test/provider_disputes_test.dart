@@ -1,6 +1,7 @@
 import 'package:creabiz_ev/support.dart' show providerDisputeNotificationTarget;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/provider_disputes.dart';
 import 'test_support.dart';
@@ -19,12 +20,24 @@ Map<String, dynamic> receipt() => {
 
 class DisputeApi extends FixtureApi {
   bool live = true, admin = false;
+  String eventType = 'charge.dispute.created';
+  String eventStatus = 'needs_response';
+  String eventTime = '2026-11-12 10:00:00';
+  String operationStatus = 'uncertain';
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void rotate() { epoch++; changes.add(epoch); }
   final methods = <String>[];
   Completer<dynamic>? pending;
+  Map<String, dynamic>? listResponse;
   final queries = <Map<String, String>>[];
   @override
-  bool Function() sessionFence() =>
-      () => live;
+  bool Function() sessionFence() {
+    final captured = epoch;
+    return () => live && captured == epoch;
+  }
   @override
   Future<dynamic> request(
     String path, {
@@ -49,22 +62,22 @@ class DisputeApi extends FixtureApi {
         'can_reconcile': admin,
         'events': [
           {
-            'type': 'charge.dispute.created',
-            'status': 'needs_response',
-            'created_at': '2026-11-12 10:00:00',
+            'type': eventType,
+            'status': eventStatus,
+            'created_at': eventTime,
           },
         ],
         'evidence_submissions': admin
             ? [
                 {
-                  'status': 'uncertain',
+                  'status': operationStatus,
                   'submit': 0,
                   'retry_until': '2026-11-15 10:00:00',
                 },
               ]
             : [],
       };
-    return {
+    return listResponse ?? {
       'data': [receipt()],
       'current_page': 1,
       'last_page': 1,
@@ -74,6 +87,116 @@ class DisputeApi extends FixtureApi {
 }
 
 void main() {
+  for (final ar in [false, true]) {
+    testWidgets('provider receipt labels and source clocks are localized ($ar)', (tester) async {
+      final api = DisputeApi()
+        ..admin = true
+        ..eventTime = '2026-02-30 10:00:00';
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ProviderDisputesView(api: api, onExpired: () {}, initialDisputeId: 7),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text(ar ? 'حالة المزود: تم خسارة النزاع' : 'Provider status: Lost'), findsOneWidget);
+      expect(find.textContaining(ar ? 'تم إنشاء النزاع' : 'Dispute created'), findsOneWidget);
+      expect(find.textContaining(ar ? 'وقت الحدث غير متاح' : 'Event time unavailable'), findsOneWidget);
+      expect(find.textContaining('2026-02-30'), findsNothing);
+      expect(find.textContaining('charge.dispute.created'), findsNothing);
+      expect(find.textContaining('needs_response'), findsNothing);
+      expect(api.methods.every((method) => method == 'GET'), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  test('provider receipt accepts only canonical dispute states', () {
+    for (final status in [
+      'warning_needs_response', 'warning_under_review', 'warning_closed',
+      'needs_response', 'under_review', 'won', 'lost',
+    ]) {
+      expect(providerDispute({...receipt(), 'status': status})['status'], status);
+    }
+    for (final status in [null, 1, '', 'refunded', 'private-provider-token']) {
+      expect(() => providerDispute({...receipt(), 'status': status}),
+          throwsFormatException);
+    }
+  });
+  testWidgets('unknown provider history tokens fail closed and recover through list',
+      (tester) async {
+    final api = DisputeApi()..admin = true;
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(
+      home: ProviderDisputesView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    for (var field = 0; field < 3; field++) {
+      api.eventType = field == 0 ? 'private-invalid-token' : 'provider.inspect';
+      api.eventStatus = field == 1 ? 'private-invalid-token' : 'needs_response';
+      api.operationStatus = field == 2 ? 'private-invalid-token' : 'confirmed';
+      await tester.tap(find.text('Inspect receipt'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsNothing);
+      expect(find.textContaining('private-invalid-token'), findsNothing);
+      expect(find.text('Could not load provider receipts. Refresh to retry.'),
+          findsOneWidget);
+      await tester.tap(find.text('Refresh list'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsOneWidget);
+    }
+    api.operationStatus = 'confirmed';
+    await tester.tap(find.text('Inspect receipt'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Provider inspection'), findsOneWidget);
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+  test('provider dispute page binds requested page and exact unique receipt IDs', () {
+    final first = <String, dynamic>{
+      'data': [for (var i = 1; i <= 25; i++) {...receipt(), 'id': i}],
+      'current_page': 1, 'last_page': 2, 'total': 26, 'per_page': 25,
+    };
+    expect(providerDisputePage(first, 1).items.length, 25);
+    final last = {...first, 'data': [{...receipt(), 'id': 26}], 'current_page': 2};
+    expect(providerDisputePage(last, 2).items.single['id'], 26);
+    expect(providerDisputePage({'data': [], 'current_page': 1, 'last_page': 1,
+      'total': 0}, 1).items, isEmpty);
+    for (final invalid in [
+      {...first, 'current_page': 2},
+      {...first, 'last_page': 3},
+      {...first, 'total': -1},
+      {...first, 'per_page': 20},
+      {...first, 'data': [for (var i = 0; i < 25; i++) receipt()]},
+      {...first, 'data': [receipt()]},
+      {...last, 'data': [{...receipt(), 'id': 0}]},
+    ]) {
+      expect(() => providerDisputePage(invalid, 1), throwsFormatException);
+    }
+    expect(() => providerDisputePage({...last, 'data': [{...receipt(), 'id': 0}]}, 2),
+      throwsFormatException);
+    expect(() => providerDisputePage({...last, 'data': [{...receipt(), 'invoice_id': -1}]}, 2),
+      throwsFormatException);
+  });
+  testWidgets('invalid receipt page has no private actions; explicit refresh recovers', (tester) async {
+    final api = DisputeApi()..listResponse = {
+      'data': [receipt(), receipt()], 'current_page': 1, 'last_page': 1, 'total': 2,
+    };
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    await tester.pumpWidget(MaterialApp(home: ProviderDisputesView(api: api, onExpired: () {})));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #19'), findsNothing);
+    expect(find.text('Inspect receipt'), findsNothing);
+    expect(find.text('Could not load provider receipts. Refresh to retry.'), findsOneWidget);
+    api.listResponse = null;
+    await tester.tap(find.text('Refresh list'));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #19'), findsOneWidget);
+    expect(api.queries.last['page'], '1');
+    expect(api.methods.every((method) => method == 'GET'), isTrue);
+  });
   test('rejects live, secret-bearing and wrong-identity provider receipts', () {
     expect(
       () => providerDispute({...receipt(), 'real_money_moved': true}),
@@ -239,4 +362,56 @@ void main() {
     expect(api.methods.every((method) => method == 'GET'), isTrue);
   });
 
+
+  for (final ar in [false, true]) {
+    testWidgets('revoked dispute view redacts immediately and cannot reopen old receipt ($ar)', (tester) async {
+      final api = DisputeApi();
+      addTearDown(api.close);
+      addTearDown(api.changes.close);
+      Widget screen(int? id) => MaterialApp(
+        locale: Locale(ar ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ProviderDisputesView(api: api, onExpired: () {}, initialDisputeId: id),
+      );
+      await tester.pumpWidget(screen(null));
+      await tester.pumpAndSettle();
+      final invoice = ar ? 'الفاتورة #19' : 'Invoice #19';
+      expect(find.text(invoice), findsOneWidget);
+      final staleInspect = tester.widget<TextButton>(find.widgetWithText(TextButton, ar ? 'عرض الإيصال' : 'Inspect receipt')).onPressed!;
+      final count = api.calls.length;
+      api.rotate();
+      await tester.pumpAndSettle();
+      expect(find.text(invoice), findsNothing);
+      staleInspect();
+      await tester.pumpAndSettle();
+      expect(api.calls.length, count);
+      await tester.pumpWidget(screen(8));
+      await tester.pumpAndSettle();
+      expect(api.calls.length, count, reason: 'A changed notification cannot rebind a revoked same-API route.');
+      expect(find.text(ar ? 'الفاتورة #20' : 'Invoice #20'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('retained dispute callback cannot open old target after new notification', (tester) async {
+    final api = DisputeApi();
+    addTearDown(api.close);
+    addTearDown(api.changes.close);
+    Widget screen(int? id) => MaterialApp(home: ProviderDisputesView(
+      api: api, onExpired: () {}, initialDisputeId: id,
+    ));
+    await tester.pumpWidget(screen(null));
+    await tester.pumpAndSettle();
+    final inspect = tester.widget<TextButton>(find.widgetWithText(TextButton, 'Inspect receipt')).onPressed!;
+    await tester.pumpWidget(screen(8));
+    await tester.pumpAndSettle();
+    expect(find.text('Invoice #20'), findsOneWidget);
+    final count = api.calls.length;
+    inspect();
+    await tester.pumpAndSettle();
+    expect(api.calls.length, count);
+    expect(find.text('Invoice #20'), findsOneWidget);
+    expect(find.text('Invoice #19'), findsNothing);
+  });
 }
