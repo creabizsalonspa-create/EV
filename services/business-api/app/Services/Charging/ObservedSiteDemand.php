@@ -9,46 +9,63 @@ class ObservedSiteDemand
     {
         $events = [];
         foreach ($spans as $id => [$start, $end, $evse, $watts]) {
-            $events[$start][] = [$evse, $id, $watts];
-            $events[$end][] = [$evse, $id, null];
+            $events[$start][$evse][] = [$id, $watts];
+            $events[$end][$evse][] = [$id, null];
         }
         ksort($events, SORT_NUMERIC);
         $times = array_keys($events);
         $active = [];
+        $siteWatts = 0;
+        $knownEvses = 0;
+        $ambiguousEvses = 0;
         $maximum = null;
         $observed = 0;
         $ambiguous = 0;
+
         foreach ($times as $index => $time) {
-            foreach ($events[$time] as [$evse, $id, $watts]) {
-                if ($watts === null) {
-                    unset($active[$evse][$id]);
-                    if (! $active[$evse]) {
-                        unset($active[$evse]);
-                    }
-                } else {
-                    $active[$evse][$id] = $watts;
-                }
-            }
             $seconds = ($times[$index + 1] ?? $time) - $time;
             if ($seconds <= 0) {
-                continue;
+                break;
             }
-            $sum = 0;
-            $known = false;
-            foreach ($active as $readings) {
-                if (count($readings) !== 1) {
-                    $ambiguous += $seconds;
 
-                    continue;
+            $newContributions = [];
+            foreach ($events[$time] as $evse => $changes) {
+                $previousCount = count($active[$evse] ?? []);
+                if ($previousCount === 1) {
+                    $siteWatts -= reset($active[$evse]);
+                    $knownEvses--;
                 }
-                $watts = reset($readings);
-                abort_unless($sum <= OperationalAnalytics::MAX - $watts, 409, 'Report exceeds exact numeric bounds.');
-                $sum += $watts;
-                $known = true;
+                $ambiguousEvses -= (int) ($previousCount > 1);
+
+                foreach ($changes as [$id, $watts]) {
+                    if ($watts === null) {
+                        unset($active[$evse][$id]);
+                    } else {
+                        $active[$evse][$id] = $watts;
+                    }
+                }
+
+                $count = count($active[$evse] ?? []);
+                if ($count === 0) {
+                    unset($active[$evse]);
+                } elseif ($count === 1) {
+                    $newContributions[] = reset($active[$evse]);
+                    $knownEvses++;
+                }
+                $ambiguousEvses += (int) ($count > 1);
             }
-            if ($known) {
+
+            // An EVSE ending at this instant is no longer active before
+            // any new contribution is counted, regardless of source order.
+            foreach ($newContributions as $watts) {
+                abort_unless($siteWatts <= OperationalAnalytics::MAX - $watts, 409, 'Report exceeds exact numeric bounds.');
+                $siteWatts += $watts;
+            }
+
+            $ambiguous += $ambiguousEvses * $seconds;
+            if ($knownEvses > 0) {
                 $observed += $seconds;
-                $maximum = $maximum === null ? $sum : max($maximum, $sum);
+                $maximum = $maximum === null ? $siteWatts : max($maximum, $siteWatts);
             }
         }
 
