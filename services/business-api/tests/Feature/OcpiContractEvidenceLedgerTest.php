@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
+use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Crypt;
@@ -346,6 +347,63 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         $this->deleteJson($protocol, [], ['Authorization' => 'Token '.base64_encode($rotated->json('data.token'))])->assertOk();
         $this->assertSame(6, $requests);
         $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'revoked']);
+    }
+
+    public function test_catalog_sync_requires_current_review_without_blocking_historical_reads(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        config(['ocpi.contract_review_authorization_required' => true,
+            'ocpi.connections.contract-evidence-test' => ['origin' => 'https://partner.example',
+                'authorization_token' => 'synthetic-token']]);
+        $provider->forceFill(['authorized' => true, 'version' => '2.2.1', 'endpoints' => [
+            'locations' => 'https://partner.example/locations',
+            'tariffs' => 'https://partner.example/tariffs',
+            'sessions' => 'https://partner.example/sessions',
+            'cdrs' => 'https://partner.example/cdrs',
+        ]])->save();
+        $client = app(PartnerClient::class);
+        $synchronizer = app(RecordSynchronizer::class);
+        $this->actingAs($admin);
+        $reads = [];
+        $expire = false;
+        Http::fake(function ($request) use ($provider, &$reads, &$expire) {
+            $reads[] = $request->url();
+            if ($expire) {
+                DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+                    ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => []]);
+        });
+        foreach (['locations', 'tariffs'] as $module) {
+            try {
+                $client->synchronize($provider->fresh(), $module, $synchronizer);
+                $this->fail('Missing contract review must not synchronize catalog.');
+            } catch (OcpiException) {
+                $this->assertSame([], $reads);
+            }
+        }
+        $this->assertNull($provider->fresh()->last_synced_at);
+        $this->assertSame([], $client->pull($provider->fresh(), 'sessions'));
+        $this->assertSame([], $client->pull($provider->fresh(), 'cdrs'));
+        $this->assertCount(2, $reads);
+        $this->postJson($path, $this->review())->assertCreated();
+        $expire = true;
+        try {
+            $client->synchronize($provider->fresh(), 'locations', $synchronizer);
+            $this->fail('Expired review during source response must not publish catalog.');
+        } catch (OcpiException) {
+            $this->assertCount(3, $reads);
+        }
+        $this->assertNull($provider->fresh()->last_synced_at);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => $this->review()['valid_until']]);
+        $expire = false;
+        $counts = $client->synchronize($provider->fresh(), 'tariffs', $synchronizer);
+        $this->assertSame(0, $counts['created']);
+        $this->assertNotNull($provider->fresh()->last_synced_at);
+        $this->assertCount(4, $reads);
     }
 
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
