@@ -9,6 +9,7 @@ import 'subscriptions_test.dart' show SubscriptionApi;
 
 class RecoveryApi extends FixtureApi {
   bool lost = false, deny = false, invalidPrecision = false;
+  String? createdAt;
   int posts = 0;
   final pages = <int>[];
   Completer<dynamic>? pending;
@@ -33,7 +34,7 @@ class RecoveryApi extends FixtureApi {
     return {
       'data': [
         path.endsWith('events')
-            ? {'id': 5, 'status': 'uncertain'}
+            ? {'id': 5, 'status': 'uncertain', 'created_at': createdAt}
             : {
                 'id': 9,
                 'status': 'uncertain',
@@ -43,6 +44,7 @@ class RecoveryApi extends FixtureApi {
                 'amount_minor': 999,
                 'minor_units': invalidPrecision ? 7 : 2,
                 'currency': 'AED',
+                'created_at': createdAt,
                 'identity': 'private secret diagnostic',
               },
       ],
@@ -129,6 +131,25 @@ Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
     );
 
 void main() {
+  for (final arabic in [false, true]) {
+    testWidgets(
+      'payment recovery normalizes source clocks in locale ($arabic)',
+      (tester) async {
+        const wireTime = '2026-11-21T08:00:00+04:00';
+        final api = RecoveryApi()..createdAt = wireTime;
+        addTearDown(api.close);
+        await tester.pumpWidget(app(api, ar: arabic));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(RegExp(r'4:00.*\u2068UTC\u2069$')),
+          findsOneWidget,
+        );
+        expect(find.text(wireTime), findsNothing);
+        expect(api.posts, 0);
+      },
+    );
+  }
+
   testWidgets(
     'subscription reminder opens its scoped subscription without collection or mutation',
     (t) async {

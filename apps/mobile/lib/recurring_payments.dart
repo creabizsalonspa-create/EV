@@ -4,6 +4,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'invoice_history.dart';
 import 'money_input.dart';
+import 'reservation_times.dart';
 
 const recurringEn = {
   'active': 'Active',
@@ -450,7 +451,9 @@ class _RecurringState extends State<RecurringPaymentsView> {
                         ),
                         Text('${row['exp_month']}/${row['exp_year']}'),
                         Text(t('${row['status']}')),
-                        Text('${t('expiry')}: ${row['consent_expires_at']}'),
+                        Text(
+                          '${t('expiry')}: ${serverEventTime(context, row['consent_expires_at'])}',
+                        ),
                         if (row['id'] == result!['default_method_id'])
                           Text(t('default')),
                         if (row['status'] == 'active')
@@ -484,7 +487,7 @@ class _RecurringState extends State<RecurringPaymentsView> {
                           ),
                       ] else if (kind == 'enrollments') ...[
                         Text('#${row['id']} · ${row['status']}'),
-                        Text('${row['expires_at']}'),
+                        Text(serverEventTime(context, row['expires_at'])),
                         btn(
                           'inspect',
                           () => mutate(
@@ -518,9 +521,14 @@ class _RecurringState extends State<RecurringPaymentsView> {
                           Text(
                             '${row['latest_collection']['failure_code'] ?? ''}',
                           ),
-                          Text(
-                            '${row['latest_collection']['next_attempt_at'] ?? ''}',
-                          ),
+                          if (row['latest_collection']['next_attempt_at'] !=
+                              null)
+                            Text(
+                              serverEventTime(
+                                context,
+                                row['latest_collection']['next_attempt_at'],
+                              ),
+                            ),
                         ],
                         if (row['collection_policy']?['enabled'] == true ||
                             row['collection_policy']?['enabled'] == 1)
@@ -552,7 +560,7 @@ class _RecurringState extends State<RecurringPaymentsView> {
                       ] else ...[
                         Text('${row['subject']}'),
                         Text(t('${row['kind']}')),
-                        Text('${row['created_at']}'),
+                        Text(serverEventTime(context, row['created_at'])),
                       ],
                     ],
                   ),
