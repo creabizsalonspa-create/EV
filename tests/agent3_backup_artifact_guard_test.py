@@ -159,6 +159,23 @@ class ArchiveTests(unittest.TestCase):
                 'bytes': len(expected),
             })
 
+    def test_manifest_checks_preserve_numeric_and_boolean_types(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dump, manifest = root / 'db.dump', root / 'manifest.json'
+            sample_db(dump)
+            args = ['--pg-dump', str(dump), '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            original = manifest.read_text()
+            for bad in ('0', '0.0', '1e999'):
+                with self.subTest(value=bad):
+                    manifest.write_text(original.replace('"production_ready": false', '"production_ready": ' + bad))
+                    self.assertEqual(guard.main(['check'] + args), 1)
+            manifest.write_text('[' * 5000 + '0' + ']' * 5000)
+            self.assertEqual(guard.main(['check'] + args), 1)
+            manifest.write_text(original)
+            self.assertEqual(guard.main(['check'] + args), 0)
+
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);db=root/'db.dump';private=root/'p.tar.gz';manifest=root/'m.json'

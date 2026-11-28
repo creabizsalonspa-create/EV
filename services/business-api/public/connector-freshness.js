@@ -19,11 +19,14 @@ window.EvConnectorFreshness = (() => {
         const unknown = {state: 'unknown', observedAt: null};
         if (!value || value.evidence !== 'SIMULATED_SOURCE' || value.physical_availability_verified !== false
             || value.max_age_seconds !== 300 || !Number.isFinite(elapsed) || elapsed < 0) return unknown;
-        if (value.state !== 'stale' && (value.state !== 'recent' || !statuses.includes(value.reported_status))) return unknown;
+        const staleAtSource = value.state === 'stale';
+        if (staleAtSource
+            ? value.reported_status !== null
+            : value.state !== 'recent' || !statuses.includes(value.reported_status)) return unknown;
         const checked = strictUtc(value.checked_at), observed = strictUtc(value.observed_at), until = strictUtc(value.valid_until);
         if (!checked || !observed || !until || difference(observed, checked) > 0 || difference(until, observed) !== 300000) return unknown;
         const remaining = difference(until, checked);
-        if (value.state === 'stale' && remaining > 0) return unknown;
+        if (staleAtSource !== (remaining <= 0)) return unknown;
         return {state: remaining <= elapsed ? 'stale' : value.reported_status, observedAt: value.observed_at};
     }
     const state = (value, elapsed = 0) => observation(value, elapsed).state;

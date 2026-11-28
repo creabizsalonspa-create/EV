@@ -158,9 +158,11 @@ def inspect(pg_dump, private_tar=None):
             'Database archive changed during validation')
     return result
 
+def canonical_manifest(record):
+    return json.dumps(record, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+
 def manifest_mac(record, key):
-    canonical = json.dumps(record, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    return hmac.new(key, canonical, hashlib.sha256).hexdigest()
+    return hmac.new(key, canonical_manifest(record), hashlib.sha256).hexdigest()
 
 def signed_manifest(record, key):
     return {**record, 'authentication': 'run-local-hmac-sha256',
@@ -186,11 +188,14 @@ def read_strict_json(payload):
             data[key] = value
         return data
 
-    def nonfinite(value):
-        raise ArchiveError('Non-standard manifest JSON numeric constant')
+    def unsupported_number(value):
+        raise ArchiveError('Backup manifest supports only integer JSON numbers')
 
-    return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
-                      parse_constant=nonfinite)
+    try:
+        return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
+                          parse_constant=unsupported_number, parse_float=unsupported_number)
+    except RecursionError:
+        raise ArchiveError('Backup manifest JSON structure is too deeply nested') from None
 
 
 def main(argv=None):
@@ -234,7 +239,10 @@ def main(argv=None):
                 require('authentication' not in saved and 'manifest_hmac_sha256' not in saved,
                         'Signed manifest requires run-local HMAC key')
                 expected = inspect(args.pg_dump,args.private_tar)
-            require(saved == expected, 'Backup bytes differ from integrity record')
+            # Python treats False == 0 and True == 1. Compare the canonical
+            # typed JSON image so a proof cannot exchange numbers for flags.
+            require(canonical_manifest(saved) == canonical_manifest(expected),
+                    'Backup bytes differ from integrity record')
     except (OSError, ValueError, ArchiveError) as exc:
         print(f'FAIL: {exc}',file=sys.stderr)
         return 1
