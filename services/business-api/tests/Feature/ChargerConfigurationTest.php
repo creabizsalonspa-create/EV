@@ -35,19 +35,20 @@ class ChargerConfigurationTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(string $protocol, bool $lost = false, ?callable $duringToken = null): void
+    private function source(string $protocol, bool $lost = false, ?callable $duringToken = null, bool $invertedWire = false): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($protocol, $lost, $duringToken) {
+        $wire = now('UTC')->toImmutable();
+        Http::fake(function ($r) use ($protocol, $lost, $duringToken, $invertedWire, $wire) {
             if (str_ends_with($r->url(), '/graphql')) {
                 $query = $r->data()['query'];
                 $data = match (true) {
                     str_contains($query, 'ChargingStations') => ['ChargingStations' => [['id' => 7, 'isOnline' => true, 'protocol' => 'ocpp'.$protocol]]],
-                    str_contains($query, 'requestMessageId') => ['OCPPMessages' => [['id' => 12, 'createdAt' => now()->toISOString(), 'type' => 3, 'payload' => $protocol === '1.6'
+                    str_contains($query, 'requestMessageId') => ['OCPPMessages' => [['id' => 12, 'createdAt' => now()->toISOString(), 'timestamp' => $wire->addSeconds($invertedWire ? 0 : 1)->toISOString(), 'type' => 3, 'payload' => $protocol === '1.6'
                         ? ['configurationKey' => [['key' => 'HeartbeatInterval', 'readonly' => true, 'value' => '30'], ['key' => 'MeterValueSampleInterval', 'readonly' => true, 'value' => 'PRIVATE-SHOULD-NOT-RENDER'], ['key' => 'NumberOfConnectors', 'readonly' => true, 'value' => '1'], ['key' => 'AuthorizationKey', 'readonly' => true, 'value' => 'PRIVATE-SOURCE-CREDENTIAL']]]
                         : ['getVariableResult' => [['component' => ['name' => 'OCPPCommCtrlr'], 'variable' => ['name' => 'HeartbeatInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => '30'], ['component' => ['name' => 'SampledDataCtrlr'], 'variable' => ['name' => 'TxUpdatedInterval'], 'attributeStatus' => 'Accepted', 'attributeValue' => 'PRIVATE-SHOULD-NOT-RENDER'], ['component' => ['name' => 'ClockCtrlr'], 'variable' => ['name' => 'TimeZone'], 'attributeStatus' => 'Accepted', 'attributeValue' => 'UTC']]]]]],
-                    default => ['OCPPMessages' => [['id' => 11, 'createdAt' => now()->toISOString()]]],
+                    default => ['OCPPMessages' => [['id' => 11, 'createdAt' => now()->addSeconds(2)->toISOString(), 'timestamp' => $wire->addSeconds($invertedWire ? 1 : 0)->toISOString()]]],
                 };
 
                 return Http::response(['data' => $data]);
@@ -80,6 +81,24 @@ class ChargerConfigurationTest extends TestCase
         }
         $this->assertDatabaseCount('charging_sessions', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_correlated_reply_with_inverted_wire_time_stays_unobserved(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($protocol, invertedWire: true);
+            $id = $this->postJson($f['path'], [
+                'idempotency_key' => 'inverted-wire-'.$protocol,
+                'reason' => 'Inspect synthetic operating settings',
+            ])->assertCreated()->json('id');
+
+            $this->postJson($f['path'].'/'.$id.'/observe')->assertConflict();
+            $this->assertDatabaseHas('charger_configuration_reads', [
+                'id' => $id, 'status' => 'transport_submitted',
+                'observed_at' => null, 'snapshot_ciphertext' => null,
+            ]);
+        }
     }
 
     public static function malformedStationCases(): array
@@ -282,7 +301,7 @@ class ChargerConfigurationTest extends TestCase
         Http::fake(function ($r) {
             $query = $r->data()['query'];
             $rows = str_contains($query, 'ChargingStations') ? ['ChargingStations' => [['id' => 7, 'isOnline' => false, 'protocol' => 'ocpp1.6']]]
-                : ['OCPPMessages' => str_contains($query, 'requestMessageId') ? [['id' => 12, 'createdAt' => now()->toISOString(), 'type' => 4, 'payload' => 'PRIVATE DEVICE ERROR']] : [['id' => 11, 'createdAt' => now()->toISOString()]]];
+                : ['OCPPMessages' => str_contains($query, 'requestMessageId') ? [['id' => 12, 'createdAt' => now()->toISOString(), 'timestamp' => now()->toISOString(), 'type' => 4, 'payload' => 'PRIVATE DEVICE ERROR']] : [['id' => 11, 'createdAt' => now()->toISOString(), 'timestamp' => now()->toISOString()]]];
 
             return Http::response(['data' => $rows]);
         });
