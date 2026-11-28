@@ -408,7 +408,7 @@ window.EvPrivacyRequests = (() => {
                                         // Do not abort a committed security mutation merely because the tab hides.
                                         const receipt = await state.request("account/privacy-requests/" + row.id + "/secure-account", "POST", body);
                                         if (state.generation !== generation || !state.request) return;
-                                        if (receipt?.request_id !== row.id || receipt.case_status !== row.status ||
+                                        if (receipt?.request_id !== row.id || !["pending", "reviewing", "blocked_external"].includes(receipt.case_status) ||
                                             !Number.isSafeInteger(receipt.derived_copies_discarded) || receipt.derived_copies_discarded < 0 ||
                                             receipt.derived_copies_discarded > 250 || receipt.sessions_revoked !== true ||
                                             receipt.sign_in_required !== true || receipt.automated_erasure_performed !== false ||
