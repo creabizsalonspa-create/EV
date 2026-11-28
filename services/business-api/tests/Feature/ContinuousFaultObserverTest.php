@@ -56,6 +56,43 @@ class ContinuousFaultObserverTest extends TestCase
         Http::fakeSequence()->push(['data' => ['ChargingStations' => [['id' => $station, 'protocol' => $f['protocol']]]]])->push(['data' => ['StatusNotifications' => $events, 'newest' => [['id' => $newest]]]]);
     }
 
+    public function test_observer_batch_advances_between_bindings_even_after_one_source_failure(): void
+    {
+        $first = $this->fixture('1.6');
+        $second = $this->fixture('2.0.1');
+        $third = $this->fixture('1.6');
+        $observer = $this->mock(ContinuousFaultObserver::class);
+        $observer->shouldReceive('observe')->once()->ordered()->with($first['binding'])
+            ->andThrow(new HttpException(503, 'Private outage response example'));
+        $observer->shouldReceive('observe')->once()->ordered()->with($second['binding'])
+            ->andReturn(['binding_id' => $second['binding'], 'events' => 0]);
+        $observer->shouldReceive('observe')->once()->ordered()->with($third['binding'])
+            ->andReturn(['binding_id' => $third['binding'], 'events' => 0]);
+
+        $this->artisan('csms:observe-faults', ['--once' => true, '--limit' => 2])
+            ->expectsOutput('Binding '.$first['binding'].' requires source/access review. No command sent. [review:source_unavailable]')
+            ->doesntExpectOutput('Private outage response example')
+            ->expectsOutput(json_encode(['next_binding_after' => $second['binding'], 'evidence' => 'SIMULATED_SOURCE'], JSON_THROW_ON_ERROR))
+            ->assertFailed();
+        $this->artisan('csms:observe-faults', ['--once' => true, '--limit' => 2, '--after' => $second['binding']])
+            ->expectsOutput(json_encode(['binding_id' => $third['binding'], 'events' => 0, 'evidence' => 'SIMULATED_SOURCE'], JSON_THROW_ON_ERROR))
+            ->assertSuccessful();
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_observer_rejects_unbounded_or_conflicting_ranges(): void
+    {
+        $f = $this->fixture();
+        $observer = $this->mock(ContinuousFaultObserver::class);
+        $observer->shouldNotReceive('observe');
+        $this->artisan('csms:observe-faults', ['--once' => true, '--limit' => 101])->assertExitCode(2);
+        $this->artisan('csms:observe-faults', ['--once' => true, '--after' => -1])->assertExitCode(2);
+        $this->artisan('csms:observe-faults', ['--once' => true, '--after' => $f['binding'], '--binding' => $f['binding']])
+            ->assertExitCode(2);
+        Http::assertNothingSent();
+    }
+
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];

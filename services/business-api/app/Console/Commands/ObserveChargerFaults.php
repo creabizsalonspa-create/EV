@@ -10,7 +10,7 @@ use Throwable;
 
 class ObserveChargerFaults extends Command
 {
-    protected $signature = 'csms:observe-faults {--once} {--interval=15} {--binding=}';
+    protected $signature = 'csms:observe-faults {--once} {--interval=15} {--binding=} {--limit=25} {--after=0}';
 
     protected $description = 'Continuously ingest bounded source fault/recovery events with durable per-mapping cursors; never send device commands';
 
@@ -62,8 +62,13 @@ class ObserveChargerFaults extends Command
             return self::FAILURE;
         }
         $interval = filter_var($this->option('interval'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 5, 'max_range' => 60]]);
+        $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 100]]);
+        $after = filter_var($this->option('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
         $id = $this->option('binding');
-        if ($interval === false || ($id !== null && (! ctype_digit((string) $id) || (int) $id < 1 || strlen((string) $id) > 18))) {
+        if ($interval === false || $limit === false || $after === false
+            || ($id !== null && ($after !== 0 || ! ctype_digit((string) $id) || (int) $id < 1 || strlen((string) $id) > 18))) {
+            $this->error('Use interval 5–60, limit 1–100, and either one binding ID or an after cursor.');
+
             return self::INVALID;
         }
         $lock = fopen(storage_path('framework/csms-fault-worker.lock'), 'c');
@@ -75,7 +80,15 @@ class ObserveChargerFaults extends Command
         try {
             do {
                 $failed = 0;
-                $bindings = DB::table('csms_bindings')->whereNotNull('vendor_charger_id')->where('identifier', 'like', 'ev-test-%')->when($id, fn ($q) => $q->where('id', (int) $id))->orderBy('id')->lazyById(100);
+                // Limit work and remote requests per pass. The extra row indicates
+                // whether the next pass should resume or wrap to the first binding.
+                // Each binding keeps its existing independently committed source cursor.
+                $page = DB::table('csms_bindings')->whereNotNull('vendor_charger_id')
+                    ->where('identifier', 'like', 'ev-test-%')->where('id', '>', $after)
+                    ->when($id !== null, fn ($q) => $q->where('id', (int) $id))
+                    ->orderBy('id')->limit($limit + 1)->get(['id']);
+                $bindings = $page->take($limit);
+                $after = $page->count() > $limit ? (int) $bindings->last()->id : 0;
                 foreach ($bindings as $binding) {
                     try {
                         $this->line(json_encode($observer->observe($binding->id) + ['evidence' => 'SIMULATED_SOURCE'], JSON_THROW_ON_ERROR));
@@ -85,6 +98,10 @@ class ObserveChargerFaults extends Command
                     }
                 }
                 if ($this->option('once')) {
+                    if ($after > 0) {
+                        $this->line(json_encode(['next_binding_after' => $after, 'evidence' => 'SIMULATED_SOURCE'], JSON_THROW_ON_ERROR));
+                    }
+
                     return $failed ? self::FAILURE : self::SUCCESS;
                 }
                 sleep($interval);
