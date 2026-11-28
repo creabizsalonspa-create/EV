@@ -66,7 +66,7 @@ Future<void> fill(WidgetTester tester) async {
     await tester.enterText(field,item[1]);
   }
   final button = find.text('Record internal review');
-  await tester.testTextInput.hide();
+  tester.testTextInput.hide();
   await tester.pumpAndSettle();
   await tester.scrollUntilVisible(button, 150, scrollable: find.byType(Scrollable).first);
   await tester.ensureVisible(button);
