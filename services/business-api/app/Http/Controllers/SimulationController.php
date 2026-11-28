@@ -22,13 +22,26 @@ use Illuminate\Support\Facades\DB;
 
 class SimulationController extends Controller
 {
-    private function check(Request $r, ChargingSession $s): Reservation
+    /** Lock the current local simulator lineage before mutating any energy or status. */
+    private function scopedLocalSession(Request $request, ChargingSession $snapshot, bool $meter): ChargingSession
     {
-        $b = Reservation::findOrFail($s->reservation_id);
-        $station = Station::findOrFail($b->station_id);
-        abort_unless($r->user()->id === $b->user_id || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id) || $r->user()->role === 'admin', 404);
+        $actor = app(ChargingActorConsent::class)->capture($request->user());
+        $hint = ChargingSession::findOrFail($snapshot->id);
+        $reservationHint = Reservation::findOrFail($hint->reservation_id);
+        $station = Station::whereKey($reservationHint->station_id)->lockForUpdate()->firstOrFail();
+        $reservation = Reservation::whereKey($reservationHint->id)->lockForUpdate()->firstOrFail();
+        $session = ChargingSession::whereKey($hint->id)->lockForUpdate()->firstOrFail();
+        abort_unless($session->reservation_id === $reservation->id && $reservation->station_id === $station->id, 409, 'Session target changed.');
+        abort_unless(($actor->role === 'customer' && $actor->id === $reservation->user_id)
+            || ($actor->role === 'vendor' && $actor->id === $station->vendor_id)
+            || $actor->role === 'admin', 404);
+        abort_if(SessionLink::where('charging_session_id', $session->id)->exists(), 409, 'CSMS-linked sessions require authenticated source events.');
+        abort_unless($station->source === 'simulator' && $session->roaming_order_id === null, 409, 'Only local simulator sessions can be changed here.');
+        if ($meter) {
+            abort_unless($actor->role === 'vendor' && $actor->id === $station->vendor_id, 403);
+        }
 
-        return $b;
+        return $session;
     }
 
     private function audit(Request $r, string $action, int $id): void
@@ -72,9 +85,11 @@ class SimulationController extends Controller
         abort_unless($r->user()->id === $reservation->user_id, 404);
 
         return DB::transaction(function () use ($r, $reservation) {
-            app(ChargingActorConsent::class)->capture($r->user());
-            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
+            $actor = app(ChargingActorConsent::class)->capture($r->user());
+            $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $b = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless($actor->role === 'customer' && $actor->id === $b->user_id, 404);
+            abort_unless($b->station_id === $station->id && $station->source === 'simulator', 409, 'Reservation source changed.');
             $old = ChargingSession::where('reservation_id', $b->id)->first();
             if ($old) {
                 return response()->json($old);
@@ -105,14 +120,10 @@ class SimulationController extends Controller
 
     public function meter(Request $r, ChargingSession $session)
     {
-        $b = $this->check($r, $session);
-        abort_if(SessionLink::where('charging_session_id', $session->id)->exists(), 409, 'A CSMS-linked session accepts only authenticated source meter events.');
-        $station = Station::findOrFail($b->station_id);
-        abort_unless($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id, 403);
         $v = $r->validate(['energy_wh' => 'required|integer|min:0|max:1000000']);
 
         return DB::transaction(function () use ($r, $session, $v) {
-            $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $s = $this->scopedLocalSession($r, $session, true);
             abort_unless($s->status === 'charging', 409, 'Session is stopped.');
             abort_unless($v['energy_wh'] >= $s->energy_wh, 409, 'Cumulative meter cannot decrease.');
             $s->update($v);
@@ -124,11 +135,8 @@ class SimulationController extends Controller
 
     public function stop(Request $r, ChargingSession $session)
     {
-        $this->check($r, $session);
-        abort_if(SessionLink::where('charging_session_id', $session->id)->exists(), 409, 'Use the CSMS stop command; completion requires the source final meter.');
-
         return DB::transaction(function () use ($r, $session) {
-            $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $s = $this->scopedLocalSession($r, $session, false);
             if ($s->status === 'stopped') {
                 return $s;
             }
