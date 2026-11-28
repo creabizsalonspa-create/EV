@@ -5,6 +5,7 @@ const execFile = promisify(require("node:child_process").execFile);
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { graph, poll } = require("./helpers/csms-local.cjs");
 const { SimulatedCharger } = require("./helpers/csms-local.cjs");
+const { stationIdentity, statusSequence, requireReadIdentity } = require("./helpers/ocpp-source-matrix.cjs");
 async function businessAccount(role) {
   const client = await new BusinessClient().register(role);
   if (
@@ -139,16 +140,16 @@ async function protocol(version, profile, actors) {
       assert(Number.isFinite(Date.parse(heartbeat.currentTime)));
       // Fault, outage and recovery are simulator-status events only:
       // never use a physical charger or infer an actual current rating.
+      const observedBefore = Date.now() - 10000;
       const states = [
         ["Available", "NoError"],
         ["Faulted", "GroundFailure"],
         ["Unavailable", "NoError"],
         ["Available", "NoError"],
-      ];
-      const observedBefore = Date.now() - 10000;
-      for (let i = 0; i < states.length; i++) {
-        const [state, error] = states[i];
-        const timestamp = new Date(observedBefore + i * 1000).toISOString();
+      ].map(([state, error], i) => [
+        state, error, new Date(observedBefore + i * 1000).toISOString(),
+      ]);
+      for (const [state, error, timestamp] of states) {
         const result = await call(
           "StatusNotification",
           version === "ocpp1.6"
@@ -172,12 +173,7 @@ async function protocol(version, profile, actors) {
           "query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id chargePointVendor chargePointModel firmwareVersion protocol}}",
           { name: station },
         );
-        if (!Array.isArray(rows.ChargingStations) ||
-            rows.ChargingStations.length !== 1) return null;
-        const row = rows.ChargingStations[0];
-        return row.chargePointVendor === profile.vendor &&
-            row.chargePointModel === profile.model &&
-            row.firmwareVersion === profile.firmware ? row : null;
+        return stationIdentity(rows.ChargingStations, version, profile);
       }, "Typed OCPP manufacturer/model/firmware lineage");
       assert(Number.isInteger(source.id) && source.id > 0);
       assert([version.replace("ocpp", ""), version].includes(source.protocol));
@@ -186,17 +182,7 @@ async function protocol(version, profile, actors) {
           "query($id:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$id}},order_by:{id:desc},limit:8){id evseId connectorId connectorStatus errorCode timestamp}}",
           { id: source.id },
         );
-        if (!Array.isArray(rows.StatusNotifications)) return null;
-        const latest = rows.StatusNotifications.filter(
-          (entry) => entry.connectorId === 1 &&
-            // OCPP 1.6 identifies the physical connector directly and does
-            // not transmit an EVSE ID. A CSMS may normalize its EVSE field
-            // differently; do not infer a charger-side EVSE identity from it.
-            (version === "ocpp1.6" || entry.evseId === 1),
-        ).slice(0, states.length);
-        if (latest.map((e) => e.connectorStatus).join(",") !==
-            states.map((row) => row[0]).reverse().join(",")) return null;
-        return latest;
+        return statusSequence(rows.StatusNotifications, version, states);
       }, "OCPP outage/fault/recovery source-history sequence");
       assert.equal(notifications.length, states.length);
       if (version === "ocpp1.6") {
@@ -211,11 +197,7 @@ async function protocol(version, profile, actors) {
         Array.from({length: 8}, () => graph(identityQuery, {name: station})),
       );
       for (const read of reads) {
-        assert.equal(read.ChargingStations.length, 1);
-        assert.equal(read.ChargingStations[0].id, source.id);
-        assert.equal(read.ChargingStations[0].chargePointVendor, profile.vendor);
-        assert.equal(read.ChargingStations[0].chargePointModel, profile.model);
-        assert.equal(read.ChargingStations[0].firmwareVersion, profile.firmware);
+        requireReadIdentity(read, version, profile, source.id);
       }
       const tokenResponse = await fetch("http://127.0.0.1:8080/dev/token", {
         method: "POST",

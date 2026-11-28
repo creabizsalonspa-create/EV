@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test:e2e": "node --test tests/browser-role.test.cjs && node tests/browser.cjs",
-    "test:ocpp": "node --test tests/pilot-evidence-audit.cjs && node tests/ocpp.cjs",
+    "test:ocpp": "node --test tests/pilot-evidence-audit.cjs tests/helpers/ocpp-source-matrix.test.cjs && node tests/ocpp.cjs",
     "test:pilot-evidence": "node --test tests/pilot-evidence-audit.cjs",
     "test:frontend": "node tests/frontend.cjs",
     "test:localization": "node tests/localization.cjs",
