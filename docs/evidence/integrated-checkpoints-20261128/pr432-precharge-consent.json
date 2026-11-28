@@ -1,0 +1,66 @@
+{
+  "pr": 432,
+  "source_sha": "8ad31f1ce65617ca45ee64b746f45530457e28a6",
+  "integrated_sha": "9285aa1646b91c6d47b72d047285510edf1ab530",
+  "atom_ids": [
+    "2.4.7"
+  ],
+  "required_checks": [
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146420/job/140868543128"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146420/job/140868543342"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140868543287"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140868543522"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140868543527"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140868543572"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140868543587"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46109146407/job/140884912880"
+    }
+  ],
+  "production_accepted": false,
+  "scope": "Customer pre-charge estimate, fee disclosure, explicit approval and expiry enforcement across Laravel, web and Flutter.",
+  "verification": {
+    "tested_paths_preserved": 20,
+    "laravel": "14 PostgreSQL feature tests and 238 assertions, plus a separate 23-assertion concurrent acceptance and start test.",
+    "browser": "Chromium exercised consent expiry, required a fresh quote before starting, recovered a dropped start response and observed the resulting invoice.",
+    "native": "Both hosted Native jobs passed, including English and Arabic quote expiry and uncertain-start widget cases."
+  }
+}
