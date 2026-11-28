@@ -20,7 +20,7 @@ Mount `routes/campaigns.php` in existing authenticated/throttled `/api` and `/ap
 
 | Endpoint | Contract |
 | --- | --- |
-| GET `commercial/campaign-packages` | Own vendor/Admin invoice eligibility, billing evidence, exact currency/precision, cycle and snapshotted entitlements. No provider references or credentials. |
+| GET `commercial/campaign-packages` | Own vendor/Admin invoice eligibility, billing evidence, exact currency/precision, cycle and snapshotted entitlements. Eligible packages include `capacity.remaining_slots` and `capacity.remaining_units`; ineligible packages return `capacity: null`. Draft creation rechecks capacity under lock. No provider references or credentials. |
 | GET `commercial/campaign-stations` | Vendor-only owned station `{id,name,country}` choices; does not grant operational controls. |
 | GET `commercial/campaigns` | Scoped campaign page with reserved/delivered units and attributed server clicks. `human_impressions_verified=false`, `additional_cash_charge=false`. |
 | POST `commercial/campaigns` | Vendor `{invoice_id,station_id,title,title_ar,description,description_ar,country,region:null|string,placement,budget_units,starts_at,ends_at,idempotency_key}`. Returns201 `{campaign}`. Key is actor-scoped and bound to normalized immutable payload. |

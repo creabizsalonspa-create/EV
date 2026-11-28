@@ -47,6 +47,24 @@ class CampaignService
         return [(int) $row->reserved, (int) $row->slots];
     }
 
+    public function packageCapacity(int $invoice, int $vendor): array
+    {
+        $this->enabled();
+        [, $entitlements] = $this->billing($invoice, $vendor);
+
+        return $this->remainingCapacity($invoice, $entitlements);
+    }
+
+    private function remainingCapacity(int $invoice, array $entitlements): array
+    {
+        [$reserved, $slots] = $this->usage($invoice);
+
+        return [
+            'remaining_slots' => max(0, $entitlements['campaign_slots'] - $slots),
+            'remaining_units' => max(0, $entitlements['campaign_units'] - $reserved),
+        ];
+    }
+
     private function currentActor(User $snapshot, int $status = 403): User
     {
         $current = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
@@ -104,8 +122,8 @@ class CampaignService
             $station = DB::table('stations')->where('id', $v['station_id'])->where('vendor_id', $vendor->id)->lockForUpdate()->first();
             abort_unless($station && $station->country === $v['country'], 404);
             abort_unless(CarbonImmutable::parse($v['starts_at'])->gte(CarbonImmutable::parse($invoice->period_start)) && CarbonImmutable::parse($v['ends_at'])->lte(CarbonImmutable::parse($invoice->period_end)) && CarbonImmutable::parse($v['ends_at'])->isFuture(), 409, 'Campaign dates must fit the paid billing cycle.');
-            [$reserved, $slots] = $this->usage($invoice->id);
-            abort_unless($slots < $e['campaign_slots'] && $v['budget_units'] <= $e['campaign_units'] - $reserved, 409, 'Paid campaign slot or delivery-unit limit exceeded.');
+            $capacity = $this->remainingCapacity($invoice->id, $e);
+            abort_unless($capacity['remaining_slots'] > 0 && $v['budget_units'] <= $capacity['remaining_units'], 409, 'Paid campaign slot or delivery-unit limit exceeded.');
             $id = DB::table('commercial_campaigns')->insertGetId($v + ['vendor_id' => $vendor->id, 'request_key' => $key, 'fingerprint' => $fingerprint, 'status' => 'draft', 'created_at' => now(), 'updated_at' => now()]);
             $this->event($id, $vendor->id, 'created', 'Paid package units reserved; not an additional cash charge.');
 

@@ -135,6 +135,7 @@ async function sponsorPanelRegression() {
       .getByRole("button", { name: "Create sponsored campaign", exact: true })
       .click();
     await v.locator("[name=invoice_id]").selectOption(String(f.invoice));
+    assert.equal(await v.locator("[name=budget_units]").getAttribute("max"), "3");
     await v.locator("[name=station_id]").selectOption(String(f.station));
     await v
       .locator("[name=title]")
@@ -161,6 +162,16 @@ async function sponsorPanelRegression() {
     const id = body.campaign.id;
     assert.equal(body.campaign.additional_cash_charge, false);
     assert.equal(await v.locator("img").count(), 0);
+    await v.getByRole("button", { name: "Paid package eligibility", exact: true }).click();
+    const capacity = v.locator(`[data-campaign-capacity="${f.invoice}"]`);
+    await capacity.getByText("Available delivery units", { exact: true }).waitFor();
+    assert.match(await capacity.textContent(), /Available campaign slots · 0 · Available delivery units · 0/);
+    await v.getByRole("button", { name: "Create sponsored campaign", exact: true }).click();
+    await v.getByText("Choose an owned station and a paid package with an available campaign slot and delivery units.").waitFor();
+    assert.equal(await v.locator("[name=invoice_id]").count(), 0);
+    await v.getByRole("button", { name: "Campaign list", exact: true }).click();
+    await v.locator(`[data-campaign-record="${id}"]`)
+      .getByRole("button", { name: "Review campaign", exact: true }).click();
     async function decision(panel, p, button, reason) {
       const form = panel
         .locator("form")

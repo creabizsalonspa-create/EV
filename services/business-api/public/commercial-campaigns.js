@@ -237,6 +237,17 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 text("span", ` · ${p.entitlements.campaign_units || 0}`),
             );
             row.append(terms);
+            if (p.capacity) {
+                const remaining = text("p", "");
+                remaining.dataset.campaignCapacity = String(p.invoice_id);
+                remaining.append(
+                    t("span", "Available campaign slots", "خانات الحملات المتاحة"),
+                    text("span", ` · ${p.capacity.remaining_slots} · `),
+                    t("span", "Available delivery units", "وحدات التسليم المتاحة"),
+                    text("span", ` · ${p.capacity.remaining_units}`),
+                );
+                row.append(remaining);
+            }
             content.append(row);
         }
         if (!data.data.length)
@@ -258,13 +269,46 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         if (!alive() || seq !== generation) return;
         content.replaceChildren();
         nav();
-        const eligible = packages.data.filter((p) => p.campaign_eligible);
+        if (packages.current_page > 1)
+            button(
+                content,
+                "Previous package choices",
+                "خيارات الحزم السابقة",
+                () => create(packagePage - 1, stationPage),
+            );
+        if (packages.current_page < packages.last_page)
+            button(
+                content,
+                "Next package choices",
+                "خيارات الحزم التالية",
+                () => create(packagePage + 1, stationPage),
+            );
+        if (stations.current_page > 1)
+            button(
+                content,
+                "Previous station choices",
+                "خيارات المحطات السابقة",
+                () => create(packagePage, stationPage - 1),
+            );
+        if (stations.current_page < stations.last_page)
+            button(
+                content,
+                "Next station choices",
+                "خيارات المحطات التالية",
+                () => create(packagePage, stationPage + 1),
+            );
+        const eligible = packages.data.filter(
+            (p) =>
+                p.campaign_eligible &&
+                p.capacity?.remaining_slots > 0 &&
+                p.capacity.remaining_units > 0,
+        );
         if (!eligible.length || !stations.data.length) {
             content.append(
                 t(
                     "p",
-                    "An eligible paid package and an owned station are required. Existing subscriptions and station operations remain separate.",
-                    "يلزم توفر حزمة مدفوعة مؤهلة ومحطة مملوكة. تبقى إدارة الاشتراكات والمحطات مستقلة.",
+                    "Choose an owned station and a paid package with an available campaign slot and delivery units.",
+                    "اختر محطة مملوكة وحزمة مدفوعة بها خانة حملة ووحدات تسليم متاحة.",
                 ),
             );
             return;
@@ -276,7 +320,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 "شروط الحملة ثابتة. لتغيير المحتوى أو الميزانية، ألغ الحملة وأنشئ أخرى. تعود الوحدات غير المستخدمة عند الإلغاء فقط؛ تبقى الوحدات المسلمة مستهلكة.",
             ),
         );
-        form(
+        const draft = form(
             content,
             [
                 {
@@ -381,34 +425,16 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                 if (alive()) await detail(result.campaign.id);
             },
         );
-        if (packages.current_page > 1)
-            button(
-                content,
-                "Previous package choices",
-                "خيارات الحزم السابقة",
-                () => create(packagePage - 1, stationPage),
+        const invoice = draft.elements.namedItem("invoice_id");
+        const budget = draft.elements.namedItem("budget_units");
+        const updateBudgetLimit = () => {
+            const selected = eligible.find(
+                (p) => String(p.invoice_id) === invoice.value,
             );
-        if (packages.current_page < packages.last_page)
-            button(
-                content,
-                "Next package choices",
-                "خيارات الحزم التالية",
-                () => create(packagePage + 1, stationPage),
-            );
-        if (stations.current_page > 1)
-            button(
-                content,
-                "Previous station choices",
-                "خيارات المحطات السابقة",
-                () => create(packagePage, stationPage - 1),
-            );
-        if (stations.current_page < stations.last_page)
-            button(
-                content,
-                "Next station choices",
-                "خيارات المحطات التالية",
-                () => create(packagePage, stationPage + 1),
-            );
+            budget.max = String(selected?.capacity.remaining_units ?? 0);
+        };
+        invoice.addEventListener("change", updateBudgetLimit);
+        updateBudgetLimit();
     }
     async function list(page = 1) {
         const seq = ++generation,
