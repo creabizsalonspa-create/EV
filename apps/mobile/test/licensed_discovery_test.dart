@@ -73,6 +73,39 @@ Map<String, dynamic> sample() => {
     'live_status_verified': false,
   },
 };
+Map<String, dynamic> federatedSample({bool unavailable = false}) => {
+  'evidence': 'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',
+  'distance_basis': 'great_circle',
+  'complete_geographic_coverage': false,
+  'live_status_verified': false,
+  'combined_total': null,
+  'published': {
+    'data': [
+      {
+        'kind': 'catalog',
+        'key': 'catalog:1',
+        'station': {'id': 1, 'name': 'Platform fixture'},
+      },
+      {
+        'kind': 'partner',
+        'key': 'partner:8',
+        'record_id': 8,
+        'evidence': 'PARTNER_REPORTED_UNVERIFIED',
+        'availability': 'unknown',
+        'reservable': false,
+        'remote_control': false,
+        'location': {'name': 'Partner fixture'},
+      },
+    ],
+    'total': 26,
+    'per_page': 25,
+    'current_page': 1,
+    'last_page': 2,
+  },
+  'licensed': unavailable
+      ? {'state': 'unavailable', 'reason': 'not_configured', 'sample': null}
+      : {'state': 'observed', 'sample': sample()},
+};
 Map<String, dynamic> capabilities({bool enabled = true}) => {
   'provider': 'open_charge_map',
   'enabled': enabled,
@@ -88,6 +121,7 @@ Map<String, dynamic> capabilities({bool enabled = true}) => {
 
 class LicensedApi extends FixtureApi {
   bool enabled = true;
+  bool federatedUnavailable = false;
   int epoch = 0;
   Object? problem;
   Completer<dynamic>? pending;
@@ -110,7 +144,27 @@ class LicensedApi extends FixtureApi {
     submitted = body;
     if (pending != null) return pending!.future;
     if (problem != null) throw problem!;
-    return sample();
+    return path == 'discovery/federated-nearby'
+        ? federatedSample(unavailable: federatedUnavailable)
+        : sample();
+  }
+}
+
+class SessionEventLicensedApi extends LicensedApi {
+  final changes = StreamController<int>.broadcast(sync: true);
+
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+
+  void rotate() {
+    epoch++;
+    changes.add(epoch);
+  }
+
+  @override
+  void close() {
+    unawaited(changes.close());
+    super.close();
   }
 }
 
@@ -146,6 +200,7 @@ Widget app(
   ForegroundLocationReader? location,
   Future<bool> Function(Uri)? open,
   Future<bool> Function(Uri)? navigation,
+  VoidCallback? onExpired,
 }) => MaterialApp(
   locale: Locale(ar ? 'ar' : 'en'),
   supportedLocales: const [Locale('en'), Locale('ar')],
@@ -156,6 +211,7 @@ Widget app(
   ],
   home: LicensedDiscoveryScreen(
     api: api,
+    onExpired: onExpired,
     locationReader: location,
     openSource: open,
     openNavigation: navigation,
@@ -170,6 +226,7 @@ Future<void> prepare(
   TileProvider? tiles,
   Future<bool> Function(Uri)? open,
   Future<bool> Function(Uri)? navigation,
+  VoidCallback? onExpired,
 }) async {
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   await tester.pumpWidget(
@@ -180,6 +237,7 @@ Future<void> prepare(
       open: open,
       tiles: tiles,
       navigation: navigation,
+      onExpired: onExpired,
     ),
   );
   await tester.pumpAndSettle();
@@ -201,6 +259,82 @@ Future<void> search(WidgetTester tester) async {
 }
 
 void main() {
+  test('validates federated source boundaries and leaves totals separate', () {
+    final observed = FederatedNearbyResult.fromJson(federatedSample());
+    expect(observed.publishedTotal, 26);
+    expect(observed.published.map((row) => row.partner), [false, true]);
+    expect(observed.licensed?.reports.single.id, 'ocm:123');
+    final unavailable = FederatedNearbyResult.fromJson(
+      federatedSample(unavailable: true),
+    );
+    expect(unavailable.published.length, 2);
+    expect(unavailable.licensed, isNull);
+    final bad = federatedSample();
+    (bad['published']['data'] as List).last['remote_control'] = true;
+    expect(() => FederatedNearbyResult.fromJson(bad), throwsFormatException);
+    expect(
+      () => FederatedNearbyResult.fromJson({
+        ...federatedSample(),
+        'combined_total': 27,
+      }),
+      throwsFormatException,
+    );
+  });
+
+  testWidgets('federated search keeps published results when source fails', (
+    tester,
+  ) async {
+    final api = SessionEventLicensedApi()..federatedUnavailable = true;
+    addTearDown(api.close);
+    await prepare(tester, api);
+    final button = find.byKey(const Key('federated-nearby-search'));
+    await tester.ensureVisible(button);
+    expect(api.submitted, isNull);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.calls.last, 'POST discovery/federated-nearby');
+    expect(api.submitted, {
+      'consent': true,
+      'latitude': 25.2,
+      'longitude': 55.3,
+      'radius_km': 25.0,
+    });
+    expect(find.text('Platform catalog · Platform fixture'), findsOneWidget);
+    expect(find.text('Partner report · Partner fixture'), findsOneWidget);
+    expect(
+      find.text('Licensed crowd reports are unavailable.'),
+      findsOneWidget,
+    );
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Platform catalog · Platform fixture'), findsNothing);
+    expect(find.text('Partner report · Partner fixture'), findsNothing);
+  });
+
+  testWidgets('federated search does not discard source-only filters', (
+    tester,
+  ) async {
+    final api = LicensedApi();
+    addTearDown(api.close);
+    await prepare(tester, api);
+    final filter = find.byKey(const Key('licensed-operator_contains'));
+    await tester.ensureVisible(filter);
+    await tester.enterText(filter, 'Provider');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('federated-nearby-search'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.submitted, isNull);
+    expect(
+      find.text(
+        'Clear crowd-report filters and use AE, US or CA (or leave country blank).',
+      ),
+      findsOneWidget,
+    );
+  });
+
   test('consumes exact native Laravel license/provenance/quality contract', () {
     final fixture = jsonDecode(
       File(
@@ -489,6 +623,81 @@ void main() {
       );
     },
   );
+  for (final ar in [false, true]) {
+    testWidgets(
+      'rendered licensed map and private drafts clear on same API revocation ($ar)',
+      (tester) async {
+        final api = SessionEventLicensedApi();
+        addTearDown(api.close);
+        final tiles = LicensedTiles();
+        await prepare(tester, api, ar: ar, tiles: tiles);
+        await search(tester);
+        await tester.ensureVisible(
+          find.byKey(const Key('licensed-map-toggle')),
+        );
+        await tester.tap(find.byKey(const Key('licensed-map-toggle')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('licensed-report-map')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(FlutterMap), findsOneWidget);
+        expect(tiles.requests, greaterThan(0));
+        expect(api.calls.length, 2);
+        api.rotate();
+        await tester.pumpAndSettle();
+        expect(find.byType(FlutterMap), findsNothing);
+        expect(find.byKey(const Key('licensed-latitude')), findsNothing);
+        expect(find.byKey(const Key('licensed-consent')), findsNothing);
+        expect(find.text('<img src=x>'), findsNothing);
+        expect(
+          find.text(
+            ar
+                ? 'أعد فتح الاكتشاف بعد تسجيل الدخول.'
+                : 'Reopen discovery after signing in.',
+          ),
+          findsOneWidget,
+        );
+        expect(api.calls.length, 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final status in [401, 419]) {
+    for (final replaced in [false, true]) {
+      testWidgets(
+        'session invalidation preserves only current expiry notification ($status/$replaced)',
+        (tester) async {
+          final api = SessionEventLicensedApi();
+          addTearDown(api.close);
+          int expired = 0;
+          await prepare(tester, api, onExpired: () => expired++);
+          final pending = Completer<dynamic>();
+          api.pending = pending;
+          await tester.ensureVisible(find.byKey(const Key('licensed-search')));
+          await tester.tap(find.byKey(const Key('licensed-search')));
+          await tester.pump();
+          api.rotate();
+          final invalidatedEpoch = api.epoch;
+          if (replaced) api.rotate();
+          pending.completeError(
+            ApiException(
+              status,
+              'Session expired',
+              expirationIsCurrent: () => api.epoch == invalidatedEpoch,
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(expired, replaced ? 0 : 1);
+          expect(find.byKey(const Key('licensed-consent')), findsNothing);
+          expect(api.calls.length, 2);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('account transition rejects held report', (tester) async {
     final api = LicensedApi()..pending = Completer<dynamic>();
     await prepare(tester, api);

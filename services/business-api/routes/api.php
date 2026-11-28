@@ -11,6 +11,7 @@ use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
+use App\Http\Controllers\FederatedNearbyDiscoveryController;
 use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\NotificationCenterController;
@@ -58,6 +59,7 @@ Route::prefix('v1')->group(function () {
     });
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/discovery/search', [UnifiedDiscoveryController::class, 'index'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:catalog']);
+    Route::post('/discovery/federated-nearby', [FederatedNearbyDiscoveryController::class, 'search'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:catalog', 'throttle:discovery-lookups']);
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {
         Route::post('/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'read'])->where('privacyCase', '[0-9]{1,18}')->middleware('throttle:authentication');
