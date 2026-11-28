@@ -34,6 +34,8 @@ class AdminStaffPermissionController extends Controller
             );
             $input = $request->validate([
                 'company_id' => 'sometimes|integer|min:1',
+                'user_id' => 'sometimes|integer|min:1',
+                'admin_hold' => 'sometimes|in:yes,no',
                 'status' => 'sometimes|in:active,invited,revoked',
                 'page' => 'sometimes|integer|min:1|max:100000',
             ]);
@@ -49,7 +51,18 @@ class AdminStaffPermissionController extends Controller
                 $query->where('status', $input['status']);
             }
 
-            $page = $query->orderByDesc('id')->paginate(25);
+            if (isset($input['user_id'])) {
+                $query->where('user_id', $input['user_id']);
+            }
+            if (isset($input['admin_hold'])) {
+                if ($input['admin_hold'] === 'yes') {
+                    $query->whereNotNull('admin_revoked_at');
+                } else {
+                    $query->whereNull('admin_revoked_at');
+                }
+            }
+
+            $page = $query->orderByDesc('id')->paginate(25)->appends($input);
             $rows = $page->getCollection();
             $companies = VendorCompany::query()
                 ->whereIn('id', $rows->pluck('company_id'))
