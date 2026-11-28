@@ -212,14 +212,14 @@ void main(){
  testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
   roomy(tester);final first=UnifiedApi(),second=UnifiedApi();addTearDown(first.close);addTearDown(second.close);await tester.pumpWidget(app(first,(_){}));
   await tester.enterText(find.byKey(const Key('unified-query')),'Private place');
-  await tester.ensureVisible(find.byType(ExpansionTile));await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
+  await tester.ensureVisible(find.byKey(const Key('unified-advanced-filters')));await tester.tap(find.byKey(const Key('unified-advanced-filters')));await tester.pumpAndSettle();
   final operator=find.byKey(const Key('unified-operator'));await tester.ensureVisible(operator);await tester.enterText(operator,'Private operator');
   await tester.pumpWidget(app(second,(_){}));await tester.pumpAndSettle();
   // Identity change remounts the form with collapsed private inputs.
   // Reopen it to verify the previous account's advanced draft is absent.
   expect(operator,findsNothing);
-  await tester.ensureVisible(find.byType(ExpansionTile));
-  await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
+  await tester.ensureVisible(find.byKey(const Key('unified-advanced-filters')));
+  await tester.tap(find.byKey(const Key('unified-advanced-filters')));await tester.pumpAndSettle();
   expect(tester.widget<TextField>(operator).controller!.text,isEmpty);
   await tester.scrollUntilVisible(find.byKey(const Key('unified-query')),-300,scrollable:find.byType(Scrollable).first);
   expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
@@ -230,7 +230,7 @@ void main(){
  for(final ar in [false,true]){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
-   final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
+   final expand=find.byKey(const Key('unified-advanced-filters'));await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
    for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','min_power_kw':'٤٠','max_power_kw':'٦٠','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
     final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
    }

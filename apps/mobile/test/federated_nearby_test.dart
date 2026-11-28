@@ -18,7 +18,7 @@ Map<String,dynamic> fixtureReply()=> {
     'provider':'open_charge_map','evidence':'OPEN_LICENSED_DISCOVERY_ONLY','availability':'unknown',
     'remote_control':false,'reservable':false,'billing_eligible':false,'license_policy':'PER_RECORD_ATTRIBUTION_REQUIRED',
     'count':1,'results':[
-      {'id':'ocm:123','name':'<img src=x>','latitude':25.22,'longitude':55.32,'source_status_evidence':'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
+      <String,dynamic>{'id':'ocm:123','name':'<img src=x>','latitude':25.22,'longitude':55.32,'source_status_evidence':'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
         'availability':'unknown','remote_control':false,'reservable':false,'billing_eligible':false,
         'data_license':'CC BY-SA 4.0','attribution':'Open Charge Map / Fixture',
         'source_url':'https://openchargemap.org/site/poi/details/123'},
