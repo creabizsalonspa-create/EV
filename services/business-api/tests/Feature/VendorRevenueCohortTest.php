@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Models\TariffVersion;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Carbon\Carbon;
@@ -35,7 +36,7 @@ class VendorRevenueCohortTest extends TestCase
         $this->admin = User::factory()->create(['role' => 'admin']);
     }
 
-    private function invoice(int $amountMinor, string $label, bool $capture): object
+    private function invoice(int $amountMinor, string $label, bool $capture, bool $allocated = false): object
     {
         $station = Station::create([
             'vendor_id' => $this->vendor->id,
@@ -57,9 +58,17 @@ class VendorRevenueCohortTest extends TestCase
             'total_minor' => $amountMinor, 'stopped_at' => now(),
         ]);
         $finance = app(FinanceService::class);
+        if ($allocated) {
+            $tariff = TariffVersion::create([
+                'station_id' => $station->id, 'created_by' => $this->admin->id,
+                'rate_minor_per_kwh' => 100, 'tax_bps' => 1000, 'commission_bps' => 1000,
+                'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->subMinute(),
+            ]);
+            $finance->snapshotSession($session, $tariff);
+        }
         $invoice = $finance->issue($session, $this->customer->id);
         if ($capture) {
-            $finance->pay($invoice, $this->customer->id, $amountMinor, 'cohort-pay-'.$label);
+            $finance->pay($invoice, $this->customer->id, (int) $invoice->total_minor, 'cohort-pay-'.$label);
         }
 
         return $invoice;
@@ -195,6 +204,46 @@ class VendorRevenueCohortTest extends TestCase
         $this->getJson($base.'?currency=AED&from=2026-11-09&to=2026-11-09')
             ->assertOk()->assertJsonPath('totals.invoice_count', 0);
         $this->assertSame($count, DB::table('finance_entries')->count());
+    }
+
+    public function test_cumulative_tax_or_commission_reversal_cannot_exceed_original_allocation(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'overallocated-refund', true, true);
+        $this->assertSame(10, (int) $invoice->tax_minor);
+        $this->assertSame(10, (int) $invoice->commission_minor);
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 110);
+        // Each imported refund is individually within the original allocation
+        // and has balanced postings. Together they reverse 12 of 10 tax units.
+        foreach ([1, 2] as $index) {
+            $key = 'cohort-tax-overallocation-'.$index;
+            $journal = DB::table('finance_journals')->insertGetId([
+                'invoice_id' => $invoice->id, 'kind' => 'refund', 'idempotency_key' => $key,
+                'fingerprint' => hash('sha256', $key), 'currency' => 'AED',
+                'amount_minor' => 6, 'created_at' => now(),
+            ]);
+            DB::table('finance_entries')->insert([
+                ['journal_id' => $journal, 'account' => 'tax_payable:AE', 'debit_minor' => 6, 'credit_minor' => 0, 'created_at' => now()],
+                ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 0, 'credit_minor' => 6, 'created_at' => now()],
+            ]);
+            DB::table('finance_refunds')->insert([
+                'invoice_id' => $invoice->id, 'journal_id' => $journal, 'actor_id' => $this->admin->id,
+                'credit_note_number' => 'SIM-CN-'.$key, 'amount_minor' => 6, 'tax_minor' => 6,
+                'commission_minor' => 0, 'vendor_minor' => 0, 'reason' => 'Synthetic imported reversal',
+                'evidence' => 'SIMULATED', 'created_at' => now(),
+            ]);
+            if ($index === 1) {
+                $this->getJson($base.$scope)->assertOk()->assertJsonPath('totals.refunded_minor', 6);
+            }
+        }
+        $count = DB::table('finance_journals')->count();
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->assertSame($count, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('finance_refunds', 2);
     }
 
     public function test_balanced_orphan_journal_is_not_silently_omitted(): void

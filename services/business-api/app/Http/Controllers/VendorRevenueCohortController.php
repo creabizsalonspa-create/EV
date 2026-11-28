@@ -133,7 +133,9 @@ final class VendorRevenueCohortController extends Controller
                 ->selectRaw("SUM(CASE WHEN {$valid} = 1 THEN p.amount_minor ELSE 0 END) AS amount_minor, MIN({$valid}) AS source_valid")
                 ->groupBy('p.invoice_id');
             if ($kind !== 'payment') {
-                $query->selectRaw("SUM(CASE WHEN {$valid} = 1 THEN p.vendor_minor ELSE 0 END) AS vendor_minor");
+                foreach (['vendor_minor', 'commission_minor', 'tax_minor'] as $component) {
+                    $query->selectRaw("SUM(CASE WHEN {$valid} = 1 THEN p.{$component} ELSE 0 END) AS {$component}");
+                }
             }
 
             return $query;
@@ -146,7 +148,7 @@ final class VendorRevenueCohortController extends Controller
             $invoiceValid .= " AND typeof(i.minor_units) = 'integer' AND typeof(i.total_minor) = 'integer' AND typeof(i.vendor_minor) = 'integer' AND typeof(i.commission_minor) = 'integer' AND typeof(i.tax_minor) = 'integer'";
         }
         $invoiceValid .= ' AND a.issuance_count = 1 AND a.source_valid = 1';
-        $invoiceValid .= ' AND COALESCE(p.source_valid,1) = 1 AND COALESCE(r.source_valid,1) = 1 AND COALESCE(c.source_valid,1) = 1 AND COALESCE(p.amount_minor,0) + COALESCE(c.amount_minor,0) <= i.total_minor AND COALESCE(r.amount_minor,0) <= COALESCE(p.amount_minor,0) AND COALESCE(r.vendor_minor,0) + COALESCE(c.vendor_minor,0) <= i.vendor_minor';
+        $invoiceValid .= ' AND COALESCE(p.source_valid,1) = 1 AND COALESCE(r.source_valid,1) = 1 AND COALESCE(c.source_valid,1) = 1 AND COALESCE(p.amount_minor,0) + COALESCE(c.amount_minor,0) <= i.total_minor AND COALESCE(r.amount_minor,0) <= COALESCE(p.amount_minor,0) AND COALESCE(r.vendor_minor,0) + COALESCE(c.vendor_minor,0) <= i.vendor_minor AND COALESCE(r.commission_minor,0) + COALESCE(c.commission_minor,0) <= i.commission_minor AND COALESCE(r.tax_minor,0) + COALESCE(c.tax_minor,0) <= i.tax_minor';
 
         // All period buckets are computed from one SQL snapshot with no per-invoice
         // loop and with SQL expressions valid on both SQLite and PostgreSQL.
