@@ -214,6 +214,43 @@ class PartnerBillingReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
     }
 
+    public function test_balanced_misposted_partner_capture_is_not_certified_in_any_financial_report(): void
+    {
+        [$owner, $driver, , $invoice, , , , $provider] = $this->scenario();
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation';
+        $this->actingAs($owner)->getJson($path.'?kind=charges')->assertOk()
+            ->assertJsonPath('data.0.billing.status', 'test_invoice_linked');
+        $amount = $invoice->total_minor;
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'partner-misposted-capture',
+            'fingerprint' => hash('sha256', 'partner-misposted-capture'),
+            'currency' => $invoice->currency, 'amount_minor' => $amount, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => $amount, 'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'vendor_payable:'.$owner->id, 'debit_minor' => 0, 'credit_minor' => $amount, 'created_at' => now()],
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $driver->id, 'amount_minor' => $amount,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        foreach (['charges', 'credits'] as $kind) {
+            $this->getJson($path.'?kind='.$kind)->assertOk()
+                ->assertJsonPath('data.0.billing.status', 'source_requires_review')
+                ->assertJsonMissingPath('data.0.billing.invoice')
+                ->assertJsonMissingPath('data.0.billing.paid_minor');
+            $this->get($path.'/csv?kind='.$kind)->assertOk()
+                ->assertSee('source_requires_review')->assertDontSee($invoice->number);
+            $this->get($path.'/pdf?kind='.$kind)->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        }
+        $this->assertDatabaseCount('finance_journals', $before);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_private_exports_preserve_exact_units_filters_and_credit_references_without_collection(): void
     {
         [$owner, $driver, $other, $invoice, $credit, $intent, , $provider] = $this->scenario('KWD', 3, '0.251', 251, 500);
