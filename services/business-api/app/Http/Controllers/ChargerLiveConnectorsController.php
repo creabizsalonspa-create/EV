@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SourceStatusTime;
 use Illuminate\Http\Request;
@@ -15,29 +17,14 @@ use Illuminate\Support\Facades\DB;
  */
 final class ChargerLiveConnectorsController extends Controller
 {
-    private function approvedSourceEndpoint(): bool
+    private function sourceAuthority(): array
     {
-        $url = config('csms.graphql_url');
-        if (! is_string($url) || strlen($url) > 512) {
-            return false;
-        }
-        $parts = parse_url($url);
-        if (! is_array($parts) ||
-            ! in_array($parts['scheme'] ?? null, ['http', 'https'], true) ||
-            ! is_string($parts['host'] ?? null) || $parts['host'] === '' ||
-            isset($parts['user']) || isset($parts['pass']) ||
-            isset($parts['query']) || isset($parts['fragment'])) {
-            return false;
-        }
+        $secret = config('csms.graphql_secret');
+        abort_unless(app()->environment(['local', 'testing']) &&
+            config('csms.session_bridge_enabled') && is_string($secret) && strlen($secret) >= 32, 503,
+            'Local source connector monitoring is disabled.');
 
-        // Never deliver a privileged Hasura secret over plaintext to a
-        // hostname other than a fixed local loopback / sandbox service.
-        return $parts['scheme'] === 'https' ||
-            in_array(strtolower($parts['host']), [
-                'localhost', '127.0.0.1', '[::1]',
-                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
-                'charging-graphql',
-            ], true);
+        return [app(CsmsGraphqlTransport::class)->requireApproved(), hash('sha256', $secret)];
     }
 
     private function inventory(object $binding, VendorCharger $charger): array
@@ -83,9 +70,9 @@ final class ChargerLiveConnectorsController extends Controller
         return $projection;
     }
 
-    private function sourceStation(RemoteSessionAuthorization $source, object $binding, VendorCharger $charger): array
+    private function sourceStation(callable $graph, object $binding, VendorCharger $charger): array
     {
-        $rows = $source->graph(
+        $rows = $graph(
             'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
             ['name' => $binding->identifier]
         )['ChargingStations'] ?? null;
@@ -115,18 +102,25 @@ final class ChargerLiveConnectorsController extends Controller
         ChargerResetController $guard,
         RemoteSessionAuthorization $source
     ) {
-        abort_unless(app()->environment(['local', 'testing']) &&
-            config('csms.session_bridge_enabled') &&
-            $this->approvedSourceEndpoint() &&
-            strlen((string) config('csms.graphql_secret')) >= 32, 503,
-            'Local source connector monitoring is disabled.');
+        $authority = $this->sourceAuthority();
+        $actor = app(MaintenanceActor::class);
+        $actor->checkBearer($r->user());
         $binding = $guard->scope($r, $company, $charger);
         $local = $this->inventory($binding, $charger);
-        $station = $this->sourceStation($source, $binding, $charger);
+        $graph = function (string $query, array $variables) use ($source, $authority): array {
+            // Station reads and connector observations must all come from
+            // the same configured source with the same credential.
+            abort_unless($this->sourceAuthority() === $authority, 503, 'Connector source changed during inspection.');
+            $result = $source->graph($query, $variables);
+            abort_unless($this->sourceAuthority() === $authority, 503, 'Connector source changed during inspection.');
+
+            return $result;
+        };
+        $station = $this->sourceStation($graph, $binding, $charger);
 
         // Query at most 100 connectors and 1000 events. Missing per-target
         // evidence remains unknown; no stale or truncated source is healthy.
-        $data = $source->graph(
+        $data = $graph(
             'query($station:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1001){id connectorDatabaseId evseId connectorId connectorStatus errorCode timestamp}}',
             ['station' => $station['id']]
         );
@@ -205,7 +199,7 @@ final class ChargerLiveConnectorsController extends Controller
         // The same station must still be the uniquely authenticated source
         // after the inventory read; a silent disconnect invalidates a recent
         // status despite any earlier "online" flag.
-        $after = $this->sourceStation($source, $binding, $charger);
+        $after = $this->sourceStation($graph, $binding, $charger);
         abort_unless($after['id'] === $station['id'] &&
             $after['protocol'] === $station['protocol'] &&
             $after['firmwareVersion'] === $station['firmwareVersion'] &&
@@ -222,6 +216,9 @@ final class ChargerLiveConnectorsController extends Controller
             $fresh->protocol === $binding->protocol &&
             $this->inventory($fresh, VendorCharger::findOrFail($charger->id)) === $local,
             409, 'Owned local connector topology changed during inspection.');
+
+        $actor->checkBearer($r->user());
+        abort_unless($this->sourceAuthority() === $authority, 503, 'Connector source changed during inspection.');
 
         $localTargets = array_fill_keys(array_column($local, 'target'), true);
         $sourceTopologyMatches = count($local) === count($known) &&

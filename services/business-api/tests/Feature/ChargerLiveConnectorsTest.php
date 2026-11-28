@@ -10,10 +10,12 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ChargerLiveConnectorsTest extends TestCase
@@ -82,14 +84,15 @@ class ChargerLiveConnectorsTest extends TestCase
         ];
     }
 
-    private function source(array $fixture, string $case = 'healthy', string $endpoint = 'https://source.test/graphql'): void
+    private function source(array $fixture, string $case = 'healthy', string $endpoint = 'https://source.test/graphql', ?Closure $duringRequest = null): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
         $stationReads = 0;
-        Http::fake(function ($request) use ($fixture, $case, $endpoint, &$stationReads) {
+        Http::fake(function ($request) use ($fixture, $case, $endpoint, $duringRequest, &$stationReads) {
             $this->assertSame($endpoint, $request->url());
             $this->assertSame(str_repeat('x', 64), $request->header('x-hasura-admin-secret')[0] ?? null);
+            $duringRequest?->__invoke();
             if (str_contains($request['query'], 'ChargingStations')) {
                 $stationReads++;
                 $row = [
@@ -232,6 +235,56 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
         }
+    }
+
+    public static function sourceChanges(): array
+    {
+        return [
+            '1.6 source origin changes during station read' => ['1.6', 1, 'csms.graphql_url', 'https://replacement.test/graphql'],
+            '1.6 key changes during connector read' => ['1.6', 2, 'csms.graphql_secret', str_repeat('y', 64)],
+            '1.6 bridge disabled during source recheck' => ['1.6', 3, 'csms.session_bridge_enabled', false],
+            '2.0.1 key changes during station read' => ['2.0.1', 1, 'csms.graphql_secret', str_repeat('y', 64)],
+            '2.0.1 bridge disabled during connector read' => ['2.0.1', 2, 'csms.session_bridge_enabled', false],
+            '2.0.1 source origin changes during source recheck' => ['2.0.1', 3, 'csms.graphql_url', 'https://replacement.test/graphql'],
+        ];
+    }
+
+    #[DataProvider('sourceChanges')]
+    public function test_live_connector_projection_requires_one_stable_authenticated_source(string $protocol, int $afterRead, string $key, string|bool $value): void
+    {
+        $f = $this->fixture($protocol);
+        $reads = 0;
+        $this->source($f, duringRequest: function () use (&$reads, $afterRead, $key, $value) {
+            if (++$reads === $afterRead) {
+                config([$key => $value]);
+            }
+        });
+
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertServiceUnavailable()
+            ->assertJsonMissingPath('connectors')->assertDontSee('replacement.test')->assertDontSee(str_repeat('y', 64));
+        Http::assertSentCount($afterRead);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+    }
+
+    public function test_bearer_revoked_during_the_source_read_cannot_receive_the_projection(): void
+    {
+        $f = $this->fixture('2.0.1');
+        $token = $f['owner']->createToken('live connector status');
+        $reads = 0;
+        $this->source($f, duringRequest: function () use (&$reads, $token) {
+            if (++$reads === 2) {
+                $token->accessToken->delete();
+            }
+        });
+
+        $path = str_replace('/api/', '/api/v1/', $f['url']);
+        $this->withToken($token->plainTextToken)->getJson($path)->assertForbidden()
+            ->assertJsonMissingPath('connectors');
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
     }
 
     public function test_known_local_charging_graphql_compose_host_allows_authenticated_read_only_source(): void
