@@ -44,6 +44,28 @@ Map<String, dynamic> nativeCampaign(
   return row;
 }
 
+Map<String, dynamic> campaignPackage(Map<String, dynamic> row, int owner) {
+  final eligible = row['campaign_eligible'];
+  final capacity = row['capacity'];
+  if (row['vendor_id'] != owner || eligible is! bool) {
+    throw const FormatException('Foreign campaign package.');
+  }
+  if (!eligible && capacity == null) {
+    return {...row, 'available_units': 0};
+  }
+  if (!eligible || capacity is! Map) {
+    throw const FormatException('Missing campaign capacity.');
+  }
+
+  final slots = capacity['remaining_slots'];
+  final units = capacity['remaining_units'];
+  if (slots is! int || slots < 0 || slots > 1000000 ||
+      units is! int || units < 0 || units > 1000000) {
+    throw const FormatException('Invalid campaign capacity.');
+  }
+  return {...row, 'available_units': slots > 0 ? units : 0};
+}
+
 Map<String, dynamic> nativeCampaignIntent(dynamic value) {
   final body = Map<String, dynamic>.from(value as Map);
   const keys = {
@@ -443,19 +465,15 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         publisherReceipts = campaignPage(receipt['deliveries'], receiptPage, 'id',
             (row) => campaignDelivery(row,id));
       }
-      if (creating && actorRole == 'vendor') {
+      if (creating && actorRole == 'vendor' && journal?.pending == null) {
         availablePackages = campaignPage(
           await api.request(
             'commercial/campaign-packages',
             query: {'page': '$packagePage'},
           ),
-          packagePage, 'invoice_id', (row) {
-            if (row['invoice_id'] is! int ||
-                row['vendor_id'] != actor ||
-                row['campaign_eligible'] is! bool)
-              throw const FormatException('Foreign package.');
-            return row;
-          },
+          packagePage,
+          'invoice_id',
+          (row) => campaignPackage(row, actor),
         );
         if (!current(request)) return;
         ownedStations = campaignPage(
@@ -485,13 +503,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
         deliveryPage = receiptPage;
         packages = availablePackages;
         stations = ownedStations;
-        if (!(packages?.items.any(
-              (row) =>
-                  row['invoice_id'] == invoiceId &&
-                  row['campaign_eligible'] == true,
-            ) ??
-            false))
-          invoiceId = null;
+        if (selectedPackageUnits == 0) invoiceId = null;
         if (!(stations?.items.any((row) => row['id'] == stationId) ?? false))
           stationId = null;
       });
@@ -500,6 +512,13 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     } finally {
       if (mounted && generation == request) setState(() => busy = false);
     }
+  }
+
+  int get selectedPackageUnits {
+    for (final row in packages?.items ?? const []) {
+      if (row['invoice_id'] == invoiceId) return row['available_units'] as int;
+    }
+    return 0;
   }
 
   Future<void> create({bool resolve = false}) async {
@@ -515,8 +534,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
       if (journal.pending != null) {
         body = nativeCampaignIntent(journal.pending!['body']);
       } else {
-        if (resolve || packages == null || stations == null ||
-            !packages!.items.any((row) => row['invoice_id'] == invoiceId && row['campaign_eligible'] == true)) return;
+        final availableUnits = selectedPackageUnits;
+        if (resolve || stations == null || availableUnits == 0) return;
         final station = stations!.items.firstWhere(
           (row) => row['id'] == stationId,
         );
@@ -536,7 +555,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
             throw const FormatException('Complete bilingual creative.');
         }
         final units = int.tryParse(vendorDigits(values['budget_units']!));
-        if (units == null || units < 1 || units > 1000000)
+        if (units == null || units < 1 || units > availableUnits)
           throw const FormatException('Invalid delivery budget.');
         if (!campaignUtc(
           values['ends_at']!,
@@ -555,8 +574,8 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     } catch (_) {
       setState(
         () => error = t(
-          'Choose a paid package and owned station; complete bilingual text, whole units and exact UTC dates within the package cycle.',
-          'اختر باقة مدفوعة ومحطة مملوكة؛ أكمل النص باللغتين والوحدات الصحيحة وتواريخ UTC الدقيقة ضمن دورة الباقة.',
+          'Choose a paid package and owned station. Enter whole units within the available capacity, bilingual text and exact UTC dates.',
+          'اختر باقة مدفوعة ومحطة مملوكة. أدخل وحدات صحيحة ضمن السعة المتاحة ونصاً باللغتين وتواريخ UTC دقيقة.',
         ),
       );
       return;
@@ -751,6 +770,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
     final renderedApi = widget.api;
     bool editable() => current(renderedGeneration) && identical(renderedApi,widget.api) && !busy;
     final saved = visible ? operation?.pending : null;
+    final packageUnits = selectedPackageUnits;
     final row = visible ? detail : null;
     return Scaffold(
       appBar: AppBar(title: Text(t('Vendor campaigns', 'حملات المورّد'))),
@@ -818,7 +838,7 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                   ),
                   items: [
                     for (final package in packages!.items)
-                      if (package['campaign_eligible'] == true)
+                      if ((package['available_units'] as int) > 0)
                         DropdownMenuItem(
                           value: package['invoice_id'] as int,
                           child: Text(
@@ -830,6 +850,11 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                       ? null
                       : (value) { if (editable()) setState(() { invoiceId = value; invalidateConsent(); }); },
                 ),
+                if (!packages!.items.any((row) => (row['available_units'] as int) > 0))
+                  Text(t(
+                    'No packages on this page have an available campaign slot and delivery units.',
+                    'لا توجد في هذه الصفحة باقات بها خانة حملة ووحدات تسليم متاحة.',
+                  )),
                 pages(packages!, packagePage, (value) {
                   packagePage = value;
                   load();
@@ -889,6 +914,12 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
                       ? 500
                       : 100,
                   decoration: InputDecoration(
+                    helperText: key == 'budget_units' && packageUnits > 0
+                        ? t(
+                            'Available delivery units: $packageUnits',
+                            'وحدات التسليم المتاحة: $packageUnits',
+                          )
+                        : null,
                     labelText: switch (key) {
                       'title' => t('Title (English)', 'العنوان (الإنجليزية)'),
                       'title_ar' => t('Title (Arabic)', 'العنوان (العربية)'),
@@ -930,7 +961,10 @@ class _VendorCampaignsState extends State<VendorCampaignsView>
               ),
             ),
             FilledButton(
-              onPressed: busy || !consent || !enabled ? null : guardIntent(() { create(); }),
+              onPressed: busy || !consent || !enabled ||
+                  (saved == null && packageUnits == 0)
+                  ? null
+                  : guardIntent(() { create(); }),
               child: Text(
                 saved == null
                     ? t('Create draft', 'إنشاء مسودة')
