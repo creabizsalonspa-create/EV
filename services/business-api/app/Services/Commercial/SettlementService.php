@@ -61,6 +61,31 @@ class SettlementService
             409, 'Settlement invoice amounts require reconciliation.');
     }
 
+    /** Validate individual receipt linkage before aggregating signed ledger facts. */
+    private function receiptTotal(object $invoice, string $table, string $kind): int
+    {
+        $total = 0;
+        $receipts = DB::table($table.' as p')->leftJoin('finance_journals as j', 'j.id', '=', 'p.journal_id')
+            ->where('p.invoice_id', $invoice->id)->select('p.amount_minor', 'p.journal_id',
+                'j.invoice_id as journal_invoice_id', 'j.kind as journal_kind', 'j.currency as journal_currency',
+                'j.amount_minor as journal_amount_minor')->orderBy('p.id')->cursor();
+        $seen = [];
+        foreach ($receipts as $receipt) {
+            $amount = self::exactMinor($receipt->amount_minor);
+            abort_unless($amount > 0 && $receipt->journal_invoice_id !== null
+                && (int) $receipt->journal_invoice_id === (int) $invoice->id
+                && $receipt->journal_kind === $kind && $receipt->journal_currency === $invoice->currency
+                && self::exactMinor($receipt->journal_amount_minor) === $amount
+                && ! isset($seen[$receipt->journal_id]), 409, 'Settlement receipt evidence requires reconciliation.');
+            $seen[$receipt->journal_id] = true;
+            $total = self::addMinor($total, $amount);
+        }
+        abort_unless(DB::table('finance_journals')->where('invoice_id', $invoice->id)
+            ->where('kind', $kind)->count() === count($seen), 409, 'Settlement receipt evidence requires reconciliation.');
+
+        return $total;
+    }
+
     public function balances(int $vendor, string $currency, int $holdDays = 0, bool $lock = false): array
     {
         $query = DB::table('finance_invoices')->where('vendor_id', $vendor)->where('currency', $currency)->orderBy('id');
@@ -73,13 +98,13 @@ class SettlementService
         $tax = 0;
         $refunded = 0;
         foreach ($query->get() as $invoice) {
-            $paid = self::exactMinor(DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor'));
+            $paid = $this->receiptTotal($invoice, 'finance_payments', 'payment');
             $refunds = DB::table('finance_refunds')->where('invoice_id', $invoice->id);
-            $refund = self::exactMinor((clone $refunds)->sum('amount_minor'));
+            $refund = $this->receiptTotal($invoice, 'finance_refunds', 'refund');
             $vendorRefund = self::exactMinor((clone $refunds)->sum('vendor_minor'));
             $commissionRefund = self::exactMinor((clone $refunds)->sum('commission_minor'));
             $taxRefund = self::exactMinor((clone $refunds)->sum('tax_minor'));
-            $credited = self::exactMinor(DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->sum('amount_minor'));
+            $credited = $this->receiptTotal($invoice, 'finance_unpaid_credits', 'unpaid_credit');
             $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
             $invoiceTotal = self::exactMinor($invoice->total_minor);
             $invoiceVendor = self::exactMinor($invoice->vendor_minor);

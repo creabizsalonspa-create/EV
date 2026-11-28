@@ -548,6 +548,31 @@ class SettlementTest extends TestCase
         $this->assertDatabaseCount('finance_journals', $before);
     }
 
+    public function test_balanced_orphan_payment_journal_cannot_be_ignored_by_earnings_or_reservation(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'settlement-orphan-posting',
+            'fingerprint' => hash('sha256', 'settlement-orphan-posting'),
+            'currency' => 'AED', 'amount_minor' => 1, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'receivable:user:'.$this->customer->id, 'debit_minor' => 0, 'credit_minor' => 1, 'created_at' => now()],
+        ]);
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id;
+        $this->actingAs($this->vendor)->getJson($base.'/statement?currency=AED')->assertConflict();
+        $this->getJson($base.'/earnings?currency=AED')->assertConflict();
+        $this->postJson($base.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'orphan-protected-draft',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_settlements', 0);
+        $this->assertDatabaseCount('finance_payments', 1);
+        $this->assertDatabaseCount('finance_journals', 3);
+    }
+
     public function test_invoice_allocation_and_cumulative_reversal_bounds_are_exact(): void
     {
         $bounds = new \ReflectionMethod(SettlementService::class, 'requireInvoiceBounds');
