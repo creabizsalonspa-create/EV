@@ -31,6 +31,32 @@ class ObservedSiteDemandTest extends TestCase
         $this->assertSame(0, app(ObservedSiteDemand::class)->project([[0, 10, 1, 0]])['maximum_observed_site_interval_average_w']);
     }
 
+    public function test_simultaneous_evse_handoff_removes_previous_power_before_checked_addition(): void
+    {
+        $maximum = 9_007_199_254_740_991;
+        $report = app(ObservedSiteDemand::class)->project([
+            [10, 20, 2, $maximum],
+            [0, 10, 1, $maximum],
+        ]);
+
+        $this->assertSame($maximum, $report['maximum_observed_site_interval_average_w']);
+        $this->assertSame(20, $report['demand_observed_seconds']);
+        $this->assertSame(0, $report['demand_ambiguous_evse_seconds']);
+    }
+
+    public function test_staggered_overlaps_restore_each_evse_and_preserve_measured_zero(): void
+    {
+        $report = app(ObservedSiteDemand::class)->project([
+            [0, 20, 1, 100], [5, 10, 1, 300],
+            [0, 20, 2, 0], [8, 12, 2, 200],
+            [22, 24, 2, 0],
+        ]);
+
+        $this->assertSame(100, $report['maximum_observed_site_interval_average_w']);
+        $this->assertSame(20, $report['demand_observed_seconds']);
+        $this->assertSame(9, $report['demand_ambiguous_evse_seconds']);
+    }
+
     public function test_concurrent_sum_rejects_inexact_numbers_instead_of_overflowing(): void
     {
         $this->expectException(HttpException::class);
