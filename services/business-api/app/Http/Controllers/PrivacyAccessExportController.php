@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\AccountPrivacyRequest;
 use App\Models\User;
 use App\Security\AdminTransactionAuthority;
+use App\Security\PrivacyOwnerAuthority;
 use App\Services\Identity\AccountSecondFactor;
 use App\Services\Privacy\AccountDataExport;
+use App\Services\Privacy\PrivateCopyIntegrity;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -38,10 +41,13 @@ class PrivacyAccessExportController extends Controller
             $owner = User::whereKey($privacyCase->user_id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($owner->role, ['customer', 'vendor'], true) && $owner->account_status === 'active', 409, 'Assisted fulfillment is required for this account.');
             $case = AccountPrivacyRequest::whereKey($privacyCase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($case->user_id === $owner->id && $case->user_id !== $admin->id, 409, 'Privacy case ownership changed.');
             abort_unless($case->kind === 'access', 409, 'Only access requests support a personal copy.');
             $prior = DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->first();
             if ($prior) {
-                abort_unless((int) $prior->prepared_by === $admin->id && hash_equals($prior->request_key, $v['request_key']), 409, 'A copy already exists; refresh the request.');
+                abort_unless((int) $prior->user_id === $owner->id && $case->status === 'closed_review'
+                    && (int) $prior->prepared_by === $admin->id && hash_equals($prior->request_key, $v['request_key']),
+                    409, 'A copy already exists or requires review; refresh the request.');
 
                 return response()->json(['request_id' => $case->id, 'copy' => $exports->metadata($case->id)])->header('Cache-Control', 'no-store, private');
             }
@@ -73,8 +79,12 @@ class PrivacyAccessExportController extends Controller
             abort_unless($copy && (int) $copy->user_id === $owner->id && $case->kind === 'access' && $case->status === 'closed_review', 404);
             abort_if($copy->purged_at || $copy->revoked_at || ! $copy->payload_encrypted || $copy->expires_at <= now()->toDateTimeString(), 410, 'This private copy has expired or been discarded. Submit a new access request.');
             $factor->consume($owner, $v['second_factor_code'] ?? '');
-            $body = Crypt::decryptString($copy->payload_encrypted);
-            abort_unless(strlen($body) === (int) $copy->byte_length && hash_equals($copy->sha256, hash('sha256', $body)), 409, 'Private copy integrity failed.');
+            try {
+                $body = Crypt::decryptString($copy->payload_encrypted);
+            } catch (DecryptException) {
+                abort(409, 'Private copy integrity failed.');
+            }
+            PrivateCopyIntegrity::verify($body, (int) $copy->byte_length, $copy->sha256, (int) $owner->id, (int) $case->id);
             $this->audit($owner->id, 'viewed', $case->id);
 
             return response($body)->header('Content-Type', 'application/json; charset=UTF-8')->header('Cache-Control', 'no-store, private')->header('X-Content-Type-Options', 'nosniff');
@@ -86,9 +96,11 @@ class PrivacyAccessExportController extends Controller
         abort_unless($privacyCase->user_id === $r->user()->id, 404);
 
         return DB::transaction(function () use ($r, $privacyCase) {
-            $owner = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
-            abort_unless($owner->account_status === 'active' && (int) $owner->auth_epoch === (int) $r->user()->auth_epoch, 403);
-            $copy = DB::table('account_privacy_exports')->where('privacy_request_id', $privacyCase->id)->where('user_id', $owner->id)->lockForUpdate()->first();
+            $owner = PrivacyOwnerAuthority::requireCurrent($r->user());
+            $case = AccountPrivacyRequest::whereKey($privacyCase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($case->user_id === $owner->id && $case->kind === 'access'
+                && $case->status === 'closed_review', 404);
+            $copy = DB::table('account_privacy_exports')->where('privacy_request_id', $case->id)->where('user_id', $owner->id)->lockForUpdate()->first();
             abort_unless($copy, 404);
             if (! $copy->revoked_at) {
                 DB::table('account_privacy_exports')->where('id', $copy->id)->update(['payload_encrypted' => null, 'purged_at' => now(), 'revoked_at' => now()]);

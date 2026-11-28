@@ -12,9 +12,12 @@ async function withPrivacyFixture(run) {
   $accounts[$role]=['id'=>$user->id,'email'=>$user->email,'password'=>$password];
  }
  $copyOwner=App\Models\User::findOrFail($accounts['copycustomer']['id']);
- $case=App\Models\AccountPrivacyRequest::create(['user_id'=>$copyOwner->id,'kind'=>'access','status'=>'closed_review','request_details_encrypted'=>Illuminate\Support\Facades\Crypt::encryptString('Synthetic native access-copy fixture only.')]);
- $payload=app(App\Services\Privacy\AccountDataExport::class)->snapshot($copyOwner,$case);
- Illuminate\Support\Facades\DB::table('account_privacy_exports')->insert(['privacy_request_id'=>$case->id,'user_id'=>$copyOwner->id,'prepared_by'=>$accounts['admin']['id'],'request_key'=>'synthetic-copy-'.$run,'payload_encrypted'=>Illuminate\Support\Facades\Crypt::encryptString($payload),'sha256'=>hash('sha256',$payload),'byte_length'=>strlen($payload),'expires_at'=>now()->addDay(),'created_at'=>now()]);
+ $case=App\Models\AccountPrivacyRequest::create(['user_id'=>$copyOwner->id,'kind'=>'access','status'=>'reviewing','request_details_encrypted'=>Illuminate\Support\Facades\Crypt::encryptString('Synthetic native access-copy fixture only.')]);
+ $admin=App\Models\User::findOrFail($accounts['admin']['id']);
+ $request=Illuminate\Http\Request::create('/synthetic-local-privacy-copy','POST',['password'=>$accounts['admin']['password'],'request_key'=>'synthetic-copy-'.$run]);
+ $request->setUserResolver(fn()=>$admin);
+ $response=app(App\Http\Controllers\PrivacyAccessExportController::class)->prepare($request,$case,app(App\Services\Privacy\AccountDataExport::class));
+ if ($response->getStatusCode()!==201 || $case->fresh()->status!=='closed_review') throw new RuntimeException('Synthetic authorized copy preparation failed.');
  echo json_encode(['copy_request_id'=>$case->id,'fixture_only'=>true,'base'=>'http://127.0.0.1:8000','run'=>$run,'accounts'=>$accounts]);
  `;
   const container = process.env.EV_PRIVACY_PHP_CONTAINER;
