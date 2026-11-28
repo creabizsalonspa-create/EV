@@ -49,10 +49,7 @@ final class OpenChargeMapDiscoveryController extends Controller
         ]);
 
         if (! self::configured()) {
-            return self::privateResponse([
-                'message' => 'Approved Open Charge Map source is not configured. Local station and partner catalog search remains available.',
-                'reason' => 'not_configured',
-            ], 503);
+            return self::unconfiguredResponse();
         }
 
         $key = (string) config('discovery.ocm_api_key');
@@ -76,13 +73,29 @@ final class OpenChargeMapDiscoveryController extends Controller
             // Cache only the normalized, attribution-safe provider subset
             // under the geographic/country identity. Filtering by locally
             // reported connector details must not trigger duplicate OCM calls.
-            $source = $sources->read($cacheIdentity, $key, fn () => $quality->observe(fn () => $adapter->search(
-                (float) $input['latitude'],
-                (float) $input['longitude'],
-                (float) $input['radius_km'],
-                $key,
-                $input['country'] ?? null,
-            )));
+            $source = $sources->read($cacheIdentity, $key, function () use ($quality, $adapter, $input, $key) {
+                // The cache/egress lease may have been acquired after the
+                // original configuration check. Do not send a retired key.
+                self::assertConfigurationCurrent($key);
+                try {
+                    $sample = $quality->observe(fn () => $adapter->search(
+                        (float) $input['latitude'],
+                        (float) $input['longitude'],
+                        (float) $input['radius_km'],
+                        $key,
+                        $input['country'] ?? null,
+                    ));
+                } catch (LookupFailure $error) {
+                    // Do not establish a new cooldown from a retired source.
+                    self::assertConfigurationCurrent($key);
+                    throw $error;
+                }
+                // The cache may only admit a result under the configuration
+                // that authorized its fetch; do not publish it after restoration.
+                self::assertConfigurationCurrent($key);
+
+                return $sample;
+            });
             $source = $adapter->filterReported($source);
             $adapter->assertGeography($source, (float) $input['latitude'], (float) $input['longitude'],
                 (float) $input['radius_km'], $input['country'] ?? null);
@@ -98,8 +111,18 @@ final class OpenChargeMapDiscoveryController extends Controller
                 $input['access_contains'] ?? null,
             );
 
+            // A provider response or cached report is not releasable after
+            // the approved source configuration changes during this lookup.
+            if (! self::configurationCurrent($key)) {
+                return self::unconfiguredResponse();
+            }
+
             return self::privateResponse($result);
         } catch (LookupFailure $error) {
+            if (! self::configurationCurrent($key)) {
+                return self::unconfiguredResponse();
+            }
+
             $response = self::privateResponse([
                 'message' => 'Licensed discovery source temporarily unavailable. Manual station searches remain available.',
                 'reason' => $error->reason,
@@ -110,6 +133,26 @@ final class OpenChargeMapDiscoveryController extends Controller
 
             return $response;
         }
+    }
+
+    private static function configurationCurrent(string $key): bool
+    {
+        return self::configured() && hash_equals($key, config('discovery.ocm_api_key'));
+    }
+
+    private static function assertConfigurationCurrent(string $key): void
+    {
+        if (! self::configurationCurrent($key)) {
+            throw new LookupFailure('not_configured', 503);
+        }
+    }
+
+    private static function unconfiguredResponse()
+    {
+        return self::privateResponse([
+            'message' => 'Approved Open Charge Map source is not configured. Local station and partner catalog search remains available.',
+            'reason' => 'not_configured',
+        ], 503);
     }
 
     private static function configured(): bool
