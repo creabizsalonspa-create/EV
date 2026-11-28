@@ -69,12 +69,8 @@ class OperationsCredentials
 
     private function url(string $url, bool $tls): void
     {
-        $parts = parse_url($url);
-        abort_unless(is_array($parts) && isset($parts['host']) && ! isset($parts['query']) && ! isset($parts['fragment']) && strlen($url) <= 2048 && ! preg_match('/[\x00-\x20\x7f\\\\]/', $url) && in_array($parts['scheme'] ?? null, $tls ? ['https'] : ['http', 'https'], true), 503);
-        // Reject ambiguous host encodings and all embedded credentials.
-        abort_if(isset($parts['user']) || isset($parts['pass']), 503);
-        abort_unless(preg_match('/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/D', $parts['host'])
-            && (! isset($parts['port']) || ($parts['port'] >= 1 && $parts['port'] <= 65535)), 503);
+        $parts = CsmsEndpoint::parse($url);
+        abort_unless($parts !== null && (! $tls || $parts['scheme'] === 'https'), 503);
         if ($parts['scheme'] === 'http') {
             abort_unless(in_array($parts['host'], ['127.0.0.1', 'localhost', '[::1]', 'citrine'], true), 503);
         }
