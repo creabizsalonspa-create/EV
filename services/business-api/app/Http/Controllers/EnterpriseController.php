@@ -11,9 +11,11 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Security\AdminTransactionAuthority;
 use App\Security\CurrentFinanceReader;
+use DateTimeZone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class EnterpriseController extends Controller
 {
@@ -58,6 +60,16 @@ class EnterpriseController extends Controller
                 'commerce_enabled' => false,
             ];
             $row = DB::table('regions')->where('country', $country)->lockForUpdate()->first();
+            // Keep existing configurations editable while requiring IANA
+            // country data for any new or changed regional time zone.
+            if ($row?->timezone !== $values['timezone']) {
+                $zones = DateTimeZone::listIdentifiers(DateTimeZone::PER_COUNTRY, $country);
+                if (! in_array($values['timezone'], $zones, true)) {
+                    throw ValidationException::withMessages([
+                        'timezone' => 'Choose a time zone assigned to this country in the IANA time zone database.',
+                    ]);
+                }
+            }
             if (! $row) {
                 abort_unless($expected === 0, 409, 'Regional configuration changed. Refresh before saving.');
                 // A concurrent first writer cannot be overwritten by another

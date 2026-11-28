@@ -67,6 +67,30 @@ class EnterpriseTest extends TestCase
         $this->assertSame(1, collect($regions)->firstWhere('country', 'AE')['configuration_revision']);
     }
 
+    public function test_new_or_changed_region_time_zones_match_the_country_and_existing_rows_remain_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin);
+        $values = ['currency' => 'CAD', 'minor_units' => 2, 'timezone' => 'America/New_York'];
+        $this->putJson('/api/regions/CA', $values)->assertUnprocessable()->assertJsonValidationErrors('timezone');
+        $this->putJson('/api/regions/ZZ', $values)->assertUnprocessable()->assertJsonValidationErrors('timezone');
+        $this->assertDatabaseMissing('regions', ['country' => 'CA']);
+        $this->assertDatabaseMissing('regions', ['country' => 'ZZ']);
+        $this->putJson('/api/regions/CA', array_replace($values, ['timezone' => 'America/St_Johns']))
+            ->assertOk()->assertJsonPath('configuration_revision', 1)->assertJsonPath('timezone', 'America/St_Johns');
+        $values['expected_revision'] = 1;
+        $this->putJson('/api/regions/CA', $values)->assertUnprocessable()->assertJsonValidationErrors('timezone');
+        $this->assertDatabaseHas('regions', ['country' => 'CA', 'configuration_revision' => 1, 'timezone' => 'America/St_Johns']);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'region.configured')->count());
+
+        DB::table('regions')->where('country', 'CA')->update(['timezone' => 'UTC']);
+        $this->putJson('/api/regions/CA', array_replace($values, ['timezone' => 'UTC', 'tax_bps' => 0]))
+            ->assertOk()->assertJsonPath('configuration_revision', 2)->assertJsonPath('tax_bps', 0);
+        $this->putJson('/api/regions/CA', array_replace($values, ['timezone' => 'America/Toronto', 'expected_revision' => 2]))
+            ->assertOk()->assertJsonPath('configuration_revision', 3)->assertJsonPath('timezone', 'America/Toronto')
+            ->assertJsonPath('commerce_enabled', fn ($value) => $value === false || $value === 0);
+    }
+
     public function test_customer_fleet_pages_are_stable_private_and_complete(): void
     {
         $owner = User::factory()->create();
@@ -209,13 +233,13 @@ class EnterpriseTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin, 'web');
         $payload = [
-            'currency' => 'XZZ',
+            'currency' => 'NZD',
             'minor_units' => 2,
-            'timezone' => 'Asia/Dubai',
+            'timezone' => 'Pacific/Auckland',
             'tax_bps' => 1200,
             'commerce_enabled' => true,
         ];
-        $country = 'XZ';
+        $country = 'NZ';
 
         DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
         $this->putJson('/api/regions/'.$country, $payload)->assertForbidden();
@@ -247,7 +271,7 @@ class EnterpriseTest extends TestCase
         $this->actingAs($freshAdmin, 'web')
             ->putJson('/api/regions/'.$country, $payload)
             ->assertOk()->assertJsonPath('country', $country)
-            ->assertJsonPath('currency', 'XZZ')
+            ->assertJsonPath('currency', 'NZD')
             ->assertJsonPath('commerce_enabled', fn ($enabled) => $enabled === false || $enabled === 0);
 
         $this->assertDatabaseHas('audit_events', [

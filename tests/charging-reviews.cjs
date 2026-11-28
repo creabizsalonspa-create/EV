@@ -175,6 +175,16 @@ async function main() {
     assert.equal(String((await receipt.json()).configuration_revision), revision);
     await editRegion.waitFor();
     await ap.waitForFunction(() => !document.querySelector("#region-config").inert);
+    const wrongZone = ap.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === "/api/regions/AE",
+    );
+    await regionalForm.locator('[name="timezone"]').fill("America/Toronto");
+    await regionalForm.locator("button").click();
+    assert.equal((await wrongZone).status(), 422);
+    await ap.getByText("Choose a valid time zone for the selected country.", {exact: true}).waitFor();
+    await editRegion.click();
+    assert.equal(await regionalForm.locator('[name="timezone"]').inputValue(), "Asia/Dubai");
     // A genuine no-op is not allowed to acknowledge a revision increment.
     // Alter only the response; the real API still receives the same no-op.
     await ap.route("**/api/regions/AE", async route => {
