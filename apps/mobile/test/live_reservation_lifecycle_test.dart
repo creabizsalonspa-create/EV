@@ -1,3 +1,4 @@
+import 'local_fixture_origin.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +12,17 @@ void main() {
       final f =
           jsonDecode(await File(path!).readAsString()) as Map<String, dynamic>;
       expect(f['fixture_only'], true);
-      final api = EvApi(Uri.parse('http://127.0.0.1:8000'));
+      final api = EvApi(localFixtureOrigin());
       addTearDown(api.close);
       await api.signIn(f['customer'], f['password']);
+      Future<void> assertNoSessionOrInvoice() async {
+        for (final endpoint in ['simulations', 'finance/invoices']) {
+          final page = await api.request(endpoint);
+          expect(page['total'], 0, reason: endpoint);
+          expect(page['data'], isEmpty, reason: endpoint);
+        }
+      }
+      await assertNoSessionOrInvoice();
       final before = await api.request('reservations');
       final current = (before['data'] as List).firstWhere(
         (r) => r['id'] == f['current'],
@@ -52,6 +61,17 @@ void main() {
         ),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
       );
+      // Expiry and arrival are distinct from admission: neither creates
+      // money or a session. A direct start on the expired booking also fails.
+      await expectLater(
+        api.request(
+          'reservations/${f['unused']}/simulate-start',
+          method: 'POST',
+          body: {},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      await assertNoSessionOrInvoice();
       await api.signOut();
       await api.signIn(f['owner'], f['password']);
       await expectLater(

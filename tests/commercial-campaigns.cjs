@@ -4,6 +4,7 @@ const { chromium } = require("playwright"),
   { randomBytes } = require("node:crypto"),
   fs = require("node:fs"),
   assert = require("node:assert/strict");
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 // Exercise the exact browser panel, independently of the real Laravel fixture
 // below. This deliberately models a shrinking eligible inventory and retained
 // DOM callbacks rather than replacing the production validation function.
@@ -148,18 +149,44 @@ async function sponsorPanelRegression() {
       .fill("اختبار حزمة مدفوعة دون إثبات مشاهدة بشرية");
     await v.locator("[name=placement]").selectOption("station_detail");
     await v.locator("[name=budget_units]").fill("3");
-    const created = vendor.waitForResponse(
-      (r) =>
-        r.url().endsWith("/commercial/campaigns") &&
-        r.request().method() === "POST",
-    );
-    await v
-      .getByRole("button", { name: "Save campaign draft", exact: true })
-      .click();
-    const body = await (await created).json();
-    assert(body.campaign);
-    const id = body.campaign.id;
+    const attempts = [], receipts = [];
+    const createPath = "**/api/commercial/campaigns";
+    await vendor.route(createPath, async route => {
+      if (route.request().method() !== "POST") return route.continue();
+      attempts.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      assert.equal(response.status(), 201);
+      receipts.push(await response.json());
+      await route.abort("failed");
+    });
+    await v.getByRole("button", { name: "Save campaign draft", exact: true }).click();
+    const retryCreation = v.getByRole("button", { name: "Retry exact campaign creation", exact: true });
+    await retryCreation.waitFor();
+    await retryCreation.click();
+    await vendor.waitForFunction(() => !document.querySelector("[data-commercial-campaigns]").inert);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[0], attempts[1]);
+    assert.equal(receipts[0].campaign.id, receipts[1].campaign.id);
+    const body = receipts[0], id = body.campaign.id;
     assert.equal(body.campaign.additional_cash_charge, false);
+    assert.equal(await v.locator("[name=title]").count(), 0);
+    const saved = await vendor.evaluate(() => Object.entries(sessionStorage)
+      .filter(([k]) => k.startsWith("ev.campaign.creation.v1.")));
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0][1], attempts[0].idempotency_key);
+    await vendor.unroute(createPath);
+    // Reload loses private payload, not the saved opaque recovery identity.
+    await vendor.reload();
+    if (!(await v.isVisible())) await vendor.locator('a[href="#commercial-finance"]').click();
+    await v.getByRole("button", { name: "Open commercial campaigns", exact: true }).click();
+    await v.getByText("Unresolved campaign creation", { exact: true }).waitFor();
+    assert.equal(await retryCreation.count(), 0);
+    await v.getByRole("button", { name: "Recover or cancel unused creation", exact: true }).click();
+    await v.getByRole("button", { name: "Submit for review", exact: true }).waitFor();
+    assert.equal(await vendor.evaluate(() => Object.keys(sessionStorage)
+      .filter(k => k.startsWith("ev.campaign.creation.v1.")).length), 0);
+    const scoped = await vendor.request.get(base + "/api/commercial/campaigns");
+    assert.equal((await scoped.json()).data.filter(c => c.id === id).length, 1);
     assert.equal(await v.locator("img").count(), 0);
     async function decision(panel, p, button, reason) {
       const form = panel
@@ -176,6 +203,48 @@ async function sponsorPanelRegression() {
     );
     await v.getByText("Awaiting review", { exact: true }).waitFor();
     const { p: admin, panel: a } = await login("admin");
+    // Verify the real server-filtered review page, and reject a forged scope.
+    const reviewFilters = a.locator("[data-campaign-filters]");
+    await reviewFilters.locator("[name=status]").selectOption("submitted");
+    assert.equal(await a.locator("[data-campaign-record]").count(), 0);
+    const reviewFiltered = admin.waitForResponse(response =>
+      response.url().includes("/api/commercial/campaigns?") &&
+      new URL(response.url()).searchParams.get("status") === "submitted");
+    await reviewFilters.getByRole("button", { name: "Apply campaign filters", exact: true }).click();
+    const reviewFilteredResponse = await reviewFiltered;
+    assert.equal(reviewFilteredResponse.status(), 200);
+    const reviewFilteredData = await reviewFilteredResponse.json();
+    assert.equal(reviewFilteredData.scope.status, "submitted");
+    assert.ok(reviewFilteredData.data.every(c => c.status === "submitted"));
+    await a.locator(`[data-campaign-record="${id}"]`).waitFor();
+    const reviewBadScopePattern = /\/api\/commercial\/campaigns\?page=1&status=approved$/;
+    await admin.route(reviewBadScopePattern, async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.scope.status = "submitted";
+      await route.fulfill({ response, json: data });
+    });
+    await reviewFilters.locator("[name=status]").selectOption("approved");
+    await reviewFilters.getByRole("button", { name: "Apply campaign filters", exact: true }).click();
+    await a.getByText("Campaign filter source cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await a.locator("[data-campaign-record]").count(), 0);
+    await admin.unroute(reviewBadScopePattern);
+    await reviewFilters.getByRole("button", { name: "Clear campaign filters", exact: true }).click();
+    await a.locator(`[data-campaign-record="${id}"]`).waitFor();
+    // A stale/forged private detail must not expose an approval form.
+    const detailPattern = new RegExp("/api/commercial/campaigns/" + id + "\\?page=1$");
+    await admin.route(detailPattern, async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.campaign.control_revision = "999999";
+      await route.fulfill({ response, json: data });
+    });
+    await a.locator(`[data-campaign-record="${id}"]`)
+      .getByRole("button", { name: "Review campaign", exact: true }).click();
+    await a.getByText("Campaign revision does not match history.", { exact: true }).waitFor();
+    assert.equal(await a.getByRole("button", { name: "Approve sponsored campaign", exact: true }).count(), 0);
+    await admin.unroute(detailPattern);
+    await a.getByRole("button", { name: "Campaign list", exact: true }).click();
     await a
       .locator(`[data-campaign-record="${id}"]`)
       .getByRole("button", { name: "Review campaign", exact: true })
@@ -214,11 +283,34 @@ async function sponsorPanelRegression() {
       { data: JSON.parse(signed.raw) },
     );
     assert.equal(forged.status(), 401);
+    // Reload and repeated recovery consume the ordinary protected-read budget.
+    // Schedule a new phase without resetting limits or replaying any write.
+    await waitForFreshWindow({ wait: ms => vendor.waitForTimeout(ms) });
+    // Verify the exact response used by the UI and the rendered counters
+    // separately. An API discrepancy and a rendering failure must not be
+    // collapsed into a generic text-locator timeout.
+    const refreshed = vendor.waitForResponse(r =>
+      new URL(r.url()).pathname === "/api/commercial/campaigns" &&
+      r.request().method() === "GET" &&
+      new URL(r.url()).searchParams.get("page") === "1");
     await v.getByRole("button", { name: "Campaign list", exact: true }).click();
-    await v
-      .locator(`[data-campaign-record="${id}"]`)
-      .getByText(/1\/3/)
-      .waitFor();
+    const listResponse = await refreshed;
+    assert.equal(listResponse.status(), 200, "Campaign list refresh must succeed");
+    const listed = (await listResponse.json()).data.find(c => c.id === id);
+    assert(listed, "Refreshed campaign list must include the exact campaign");
+    assert.equal(listed.delivered_units, 1, "Signed delivery must appear in canonical list count");
+    assert.equal(listed.budget_units, 3);
+    assert.equal(listed.verified_server_clicks, 0);
+    await vendor.waitForFunction(() => !document.querySelector("[data-commercial-campaigns]").inert);
+    const record = v.locator(`[data-campaign-record="${id}"]`);
+    assert.equal(await record.count(), 1, "Verified list must render the exact campaign");
+    const deliveryCount = record.locator("[data-campaign-delivery-count]");
+    assert.equal(await deliveryCount.count(), 1);
+    assert(await deliveryCount.isVisible());
+    assert.equal(await deliveryCount.textContent(), "1/3");
+    const clickCount = record.locator("[data-campaign-click-count]");
+    assert(await clickCount.isVisible());
+    assert.equal(await clickCount.textContent(), "0");
     await v
       .locator(`[data-campaign-record="${id}"]`)
       .getByRole("button", { name: "Review campaign", exact: true })
@@ -256,6 +348,8 @@ async function sponsorPanelRegression() {
     assert(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await station.getByText("حملة برعاية " + run, { exact: true }).waitFor();
     await station.getByText("العروض المموّلة", { exact: true }).click();
+    // Customer catalog translation/refresh and moderation form a new phase.
+    await waitForFreshWindow({ wait: ms => customer.waitForTimeout(ms) });
     await decision(
       a,
       admin,
