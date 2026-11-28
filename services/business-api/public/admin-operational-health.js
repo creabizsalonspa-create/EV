@@ -32,6 +32,7 @@ window.EvAdminOperationalHealth = (() => {
                 !resolved.every(v => v && Object.hasOwn(incidentNames, v.condition_key) && v.state === 'resolved' && typeof v.opened_at === 'string' && typeof v.resolved_at === 'string') ||
                 new Set([...i.open, ...resolved].map(v => v.condition_key)).size !== i.open.length + resolved.length) return false;
             if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
+            if(i.inbox_alerts_enabled!==undefined && typeof i.inbox_alerts_enabled!=='boolean')return false;
             if(i.scanner!==undefined && (!i.scanner || !['recent','stale','unknown'].includes(i.scanner.state) || i.scanner.max_age_seconds!==150 ||
                 (i.scanner.state==='unknown')!==(i.scanner.last_completed_at===null) ||
                 (i.scanner.last_completed_at!==null&&typeof i.scanner.last_completed_at!=='string')))return false;
@@ -61,6 +62,27 @@ window.EvAdminOperationalHealth = (() => {
             }
         } finally {if(own===revision&&attempt===sequence)refresh.disabled=false;}
     }
+    async function changeSubscription(enabled, own, run) {
+        if (!api || document.hidden || own !== revision || run !== sequence) return;
+        erase();
+        const attempt = sequence, controller = new AbortController();
+        request = controller;
+        refresh.disabled = true;
+        status.replaceChildren(n('span', 'Saving inbox alert preference…', 'جارٍ حفظ تفضيل تنبيهات صندوق الوارد…'));
+        try {
+            const result = await api('admin/operational-health/subscription', 'PUT', {enabled}, controller.signal);
+            if (own !== revision || attempt !== sequence || controller.signal.aborted || document.hidden) return;
+            if (result?.enabled !== enabled) throw Error('Unexpected preference receipt');
+            await load();
+        } catch {
+            if (own === revision && attempt === sequence && !controller.signal.aborted) {
+                erase();
+                status.replaceChildren(n('span', 'Preference could not be confirmed. Refresh to check its status.', 'تعذر تأكيد التفضيل. حدّث للتحقق من حالته.'));
+            }
+        } finally {
+            if (own === revision && attempt === sequence) refresh.disabled = false;
+        }
+    }
     async function load() {
         if(!api||document.hidden)return;erase();const own=revision, run=sequence, controller=new AbortController();request=controller;refresh.disabled=true;
         status.replaceChildren(n('span','Reading private process observations…','جارٍ قراءة ملاحظات العمليات الخاصة…'));
@@ -87,6 +109,16 @@ window.EvAdminOperationalHealth = (() => {
             if(d.incidents) {
                 const i=d.incidents;output.append(n('h4','Operational incident timeline (read-only)','السجل الزمني للحوادث التشغيلية (للقراءة فقط)'));
                 output.append(n('p','Conditions are derived from local observations only. No external alert was delivered or command retried.','الحالات مستمدة من الملاحظات المحلية فقط. لم يُرسل تنبيه خارجي ولم تُعَد أي أوامر.'));
+                if (i.store_readable && i.inbox_alerts_enabled !== undefined) {
+                    const enabled = i.inbox_alerts_enabled;
+                    output.append(n('p', 'Receive new incident alerts in your own inbox.', 'استلم تنبيهات الحوادث الجديدة في صندوق الوارد الخاص بك.'));
+                    const setting = enabled
+                        ? n('button', 'Turn off incident inbox alerts', 'أوقف تنبيهات الحوادث في صندوق الوارد')
+                        : n('button', 'Turn on incident inbox alerts', 'فعّل تنبيهات الحوادث في صندوق الوارد');
+                    setting.type = 'button';
+                    setting.onclick = () => changeSubscription(!enabled, own, run);
+                    output.append(setting);
+                }
                 if(i.scanner){output.append(n('h5','Incident scanner completion','اكتمال فحص الحوادث'),n('p',...states[i.scanner.state]));
                     if(i.scanner.last_completed_at!==null)output.append(plain('p',i.scanner.last_completed_at));
                     if(i.scanner.state!=='recent')output.append(n('p','No fresh committed scan; scheduler heartbeat alone is insufficient.','لا يوجد فحص مكتمل حديث؛ نبضة المجدول وحدها غير كافية.'));

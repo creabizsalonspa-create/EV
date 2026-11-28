@@ -133,3 +133,31 @@ test('operator review rejects forged receipts and late callbacks after account c
     release({condition_key:'scheduler_stale',transition_revision:1,incident_state:'open',external_actions:false,acknowledged_at:'2026-11-15T12:05:00Z'});
     await late;await flush();assert.equal(f.root.children.length,0);assert.equal(calls.length,4);
 });
+
+test('Admin can opt in for new inbox alerts explicitly and refreshes saved state', async () => {
+    const local = fixture(), calls = [], data = report();
+    data.incidents = {
+        store_readable: true, monitoring_enabled: true, automatic_retry: false,
+        external_alert_delivery: false, production_recovery_verified: false,
+        inbox_alerts_enabled: false, open: [], recent_events: [],
+    };
+    local.setActor({role: 'admin'}, async (path, method, payload) => {
+        calls.push([path, method]);
+        if (method === 'PUT') {
+            assert.equal(payload.enabled, true);
+            data.incidents.inbox_alerts_enabled = true;
+            return {enabled: true};
+        }
+        return data;
+    });
+    click(local);
+    await flush();
+    const enable = nodes(local.root, 'button').find(button => button.textContent === 'Turn on incident inbox alerts');
+    assert(enable);
+    await enable.onclick();
+    assert.deepEqual(calls, [
+        ['admin/operational-health', 'GET'], ['admin/operational-health/subscription', 'PUT'],
+        ['admin/operational-health', 'GET'],
+    ]);
+    assert(local.root.textContent.includes('Turn off incident inbox alerts'));
+});

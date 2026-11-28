@@ -2753,6 +2753,10 @@ async function refreshInbox() {
         const securityLabels = {"account.security.enabled": "Authenticator enabled for your account. If this was not you, change your password and contact support.", "account.security.disabled": "Authenticator disabled for your account. If this was not you, change your password and contact support.", "account.security.recovery_rotated": "Authenticator recovery codes replaced. If this was not you, change your password and contact support.", "account.security.recovery_used": "An authenticator recovery code was used. If this was not you, change your password and contact support."};
         const row = Object.hasOwn(securityLabels, m.kind)
             ? ui("p", securityLabels[m.kind])
+            : m.kind === "operations.incident.opened"
+            ? ui("p", document.documentElement.lang === "ar"
+                ? "حادث تشغيلي جديد. راجع ملاحظات العمليات في لوحة المسؤول."
+                : "New operational incident. Check process observations in the Admin overview.")
             : m.kind === "payment.provider_dispute.test"
             ? ui("p", "Test-provider dispute updated · invoice #{id}", {id: m.metadata?.invoice_id ?? "?"})
             : m.kind === "vehicle.battery.simulated"

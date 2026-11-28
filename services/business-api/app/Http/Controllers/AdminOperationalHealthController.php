@@ -36,12 +36,27 @@ final class AdminOperationalHealthController extends Controller
         }, 3);
     }
 
+    public function updateSubscription(Request $request, OperationalIncidents $incidents)
+    {
+        return DB::transaction(function () use ($request, $incidents) {
+            $actor = $this->currentAdmin($request);
+            $request->validate(['enabled' => 'required|boolean', 'user_id' => 'prohibited']);
+
+            return response()->json(['enabled' => $incidents->subscribe($actor, $request->boolean('enabled'))])
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function show(Request $request, OperationalHealth $health)
     {
         return DB::transaction(function () use ($request, $health) {
-            $this->currentAdmin($request);
+            $incidents = app(OperationalIncidents::class);
+            $actor = $this->currentAdmin($request);
             $report = $health->report();
-            $report['incidents'] = app(OperationalIncidents::class)->summary();
+            $report['incidents'] = $incidents->summary();
+            if ($report['incidents']['store_readable']) {
+                $report['incidents']['inbox_alerts_enabled'] = $incidents->subscribed($actor);
+            }
 
             return response()->json($report)->header('Cache-Control', 'private, no-store');
         });

@@ -2,6 +2,7 @@
 
 namespace App\Services\Operations;
 
+use App\Models\InboxNotification;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -101,6 +102,9 @@ final class OperationalIncidents
                     'condition_key' => $key, 'transition' => $present ? 'opened' : 'resolved',
                     'observed_at' => $now,
                 ]);
+                if ($present) {
+                    $this->notifySubscribers($key, $state ? (int) $state->transitions + 1 : 1);
+                }
                 $result[$present ? 'opened' : 'resolved']++;
             }
 
@@ -111,6 +115,54 @@ final class OperationalIncidents
 
             return $result;
         }, 3);
+    }
+
+    public function subscribed(User $actor): bool
+    {
+        return DB::table('operational_incident_subscriptions')
+            ->where('user_id', $actor->id)->where('auth_epoch', $actor->auth_epoch)->exists();
+    }
+
+    public function subscribe(User $actor, bool $enabled): bool
+    {
+        abort_unless(DB::transactionLevel() > 0 && $actor->role === 'admin'
+            && $actor->account_status === 'active', 403);
+        if ($this->subscribed($actor) === $enabled) {
+            return $enabled;
+        }
+
+        $identity = ['user_id' => $actor->id];
+        if ($enabled) {
+            DB::table('operational_incident_subscriptions')->updateOrInsert($identity, ['auth_epoch' => $actor->auth_epoch]);
+        } else {
+            DB::table('operational_incident_subscriptions')->where($identity)->delete();
+        }
+        DB::table('audit_events')->insert([
+            'actor_id' => $actor->id,
+            'action' => $enabled ? 'operations.incident_alerts_enabled' : 'operations.incident_alerts_disabled',
+            'subject' => (string) $actor->id,
+            'created_at' => now('UTC'),
+        ]);
+
+        return $enabled;
+    }
+
+    private function notifySubscribers(string $key, int $revision): void
+    {
+        // The scanner already holds the global scan lock, so each committed
+        // opening, its timeline event and each recipient's inbox row are atomic.
+        DB::table('operational_incident_subscriptions')->select('user_id')->chunkById(100, function ($subscriptions) use ($key, $revision) {
+            foreach ($subscriptions as $subscription) {
+                $user = User::whereKey($subscription->user_id)->lockForUpdate()->first();
+                if ($user && $user->role === 'admin' && $user->account_status === 'active' && $this->subscribed($user)) {
+                    InboxNotification::create([
+                        'user_id' => $user->id,
+                        'kind' => InboxNotification::OPERATIONAL_INCIDENT_OPENED,
+                        'metadata' => ['condition_key' => $key, 'transition_revision' => $revision],
+                    ]);
+                }
+            }
+        }, 'user_id');
     }
 
     /**

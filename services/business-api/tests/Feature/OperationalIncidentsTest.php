@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\InboxNotification;
 use App\Models\User;
+use App\Services\Notifications\EmailNotices;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use Carbon\CarbonImmutable;
@@ -67,6 +69,61 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('jobs', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_new_incident_notifies_only_current_opted_in_admin_once_per_opening(): void
+    {
+        $url = '/api/admin/operational-health/subscription';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $otherAdmin = User::factory()->create(['role' => 'admin']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $this->putJson($url, ['enabled' => true])->assertUnauthorized();
+        $this->actingAs($vendor)->putJson($url, ['enabled' => true])->assertForbidden();
+        $this->actingAs($admin)->putJson($url, ['enabled' => true, 'user_id' => $otherAdmin->id])->assertUnprocessable();
+        config(['notification_email.enabled' => true, 'app.url' => 'https://platform.example',
+            'mail.default' => 'array', 'mail.from.address' => 'notices@example.test']);
+        $this->putJson('/api/notifications/email', ['enabled' => true, 'confirmed' => true, 'expected_revision' => '0'])->assertOk();
+        $this->putJson($url, ['enabled' => true])->assertOk()->assertJsonPath('enabled', true);
+        $this->putJson($url, ['enabled' => true])->assertOk()->assertJsonPath('enabled', true);
+        $this->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('incidents.inbox_alerts_enabled', true);
+        $this->actingAs($otherAdmin)->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('incidents.inbox_alerts_enabled', false);
+
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $alerts = InboxNotification::where('kind', InboxNotification::OPERATIONAL_INCIDENT_OPENED);
+        $alert = (clone $alerts)->sole();
+        $this->assertSame($admin->id, $alert->user_id);
+        $this->assertSame(['condition_key' => 'scheduler_stale', 'transition_revision' => 1], $alert->metadata);
+        $this->assertSame(0, app(EmailNotices::class)->prepare());
+        $this->assertSame(0, InboxNotification::visibleTo($otherAdmin)->whereKey($alert->id)->count());
+
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame(2, (clone $alerts)->count());
+        $this->assertSame(3, (clone $alerts)->latest('id')->first()->metadata['transition_revision']);
+        $this->actingAs($admin)->putJson($url, ['enabled' => false])->assertOk()->assertJsonPath('enabled', false);
+        $this->putJson($url, ['enabled' => false])->assertOk();
+        $this->assertSame(2, DB::table('audit_events')->whereIn('action', [
+            'operations.incident_alerts_enabled', 'operations.incident_alerts_disabled',
+        ])->count());
+        $this->putJson($url, ['enabled' => true])->assertOk();
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer', 'auth_epoch' => 1]);
+        $this->assertSame(0, InboxNotification::visibleTo($admin->fresh())->whereKey($alert->id)->count());
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'admin', 'auth_epoch' => 2]);
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame(2, $alerts->count());
+        $this->assertDatabaseCount('notification_email_outbox', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_unknown_startup_does_not_fabricate_alerts_or_recovery(): void

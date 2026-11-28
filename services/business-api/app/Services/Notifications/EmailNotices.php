@@ -146,7 +146,7 @@ final class EmailNotices
             return 0;
         }
         $candidates = DB::table('inbox_notifications as n')->join('notification_email_preferences as p', 'p.user_id', '=', 'n.user_id')
-            ->where('p.enabled', true)->whereColumn('n.id', '>', 'p.after_notification_id')->whereNull('n.read_at')->where('n.created_at', '>=', now()->subDay())->where('n.created_at', '<=', now())
+            ->where('n.kind', '!=', InboxNotification::OPERATIONAL_INCIDENT_OPENED)->where('p.enabled', true)->whereColumn('n.id', '>', 'p.after_notification_id')->whereNull('n.read_at')->where('n.created_at', '>=', now()->subDay())->where('n.created_at', '<=', now())
             ->where(fn ($q) => $q->whereNull('p.last_attempted_at')->orWhere('p.last_attempted_at', '<=', now()->subMinutes(15)))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('notification_email_outbox as o')->whereColumn('o.user_id', 'p.user_id')->where('o.state', 'queued'))
             // A cancelled pre-claim receipt deliberately leaves the cursor
@@ -188,13 +188,13 @@ final class EmailNotices
                     ->whereColumn('recorded.user_id', 'inbox_notifications.user_id')
                     ->whereColumn('recorded.through_notification_id', 'inbox_notifications.id')
                     ->where('recorded.consent_revision', $preference->revision);
-                $notice = InboxNotification::visibleTo($user)->where('id', '>', $preference->after_notification_id)->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())->whereNull('read_at')
+                $notice = InboxNotification::visibleTo($user)->where('kind', '!=', InboxNotification::OPERATIONAL_INCIDENT_OPENED)->where('id', '>', $preference->after_notification_id)->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())->whereNull('read_at')
                     ->whereNotExists($unrecorded)->orderByDesc('id')->first();
                 if (! $notice) {
                     // Only skip a currently unrecorded, unread, in-window
                     // candidate that was not visible. A receipt recorded
                     // since the scan cannot consume a cursor via this path.
-                    $through = DB::table('inbox_notifications')->where('user_id', $user->id)
+                    $through = DB::table('inbox_notifications')->where('user_id', $user->id)->where('kind', '!=', InboxNotification::OPERATIONAL_INCIDENT_OPENED)
                         ->where('id', '>', $preference->after_notification_id)->where('id', '<=', $candidate->through_id)
                         ->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())
                         ->whereNull('read_at')->whereNotExists($unrecorded)->max('id');
@@ -221,7 +221,7 @@ final class EmailNotices
             return false;
         }
 
-        return InboxNotification::visibleTo($user)
+        return InboxNotification::visibleTo($user)->where('kind', '!=', InboxNotification::OPERATIONAL_INCIDENT_OPENED)
             ->where('id', '>', $receipt->after_notification_id)->where('id', '<=', $receipt->through_notification_id)
             ->where('created_at', '>=', now()->subDay())->where('created_at', '<=', now())
             ->whereNull('read_at')->exists();

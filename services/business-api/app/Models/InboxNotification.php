@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class InboxNotification extends Model
 {
+    public const OPERATIONAL_INCIDENT_OPENED = 'operations.incident.opened';
+
     protected $guarded = ['id'];
 
     protected $casts = ['metadata' => 'array'];
@@ -162,7 +164,7 @@ class InboxNotification extends Model
                     });
             })
             ->where(function (Builder $visible) use ($adminSimulatorKinds): void {
-                $visible->whereNotIn('kind', $adminSimulatorKinds)
+                $visible->whereNotIn('kind', [...$adminSimulatorKinds, self::OPERATIONAL_INCIDENT_OPENED])
                     ->orWhereExists(function ($active) {
                         $active->selectRaw('1')->from('users as active_admin')
                             ->whereColumn('active_admin.id', 'inbox_notifications.user_id')
