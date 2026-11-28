@@ -24,6 +24,51 @@ class OperationalIncidentsTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-15T12:00:00Z'));
     }
 
+    public function test_operator_review_is_occurrence_bound_idempotent_and_never_resolves_incidents(): void
+    {
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $url = '/api/admin/operational-health/acknowledge';
+        $body = ['condition_key' => 'scheduler_stale', 'transition_revision' => 1];
+        $this->postJson($url, $body)->assertUnauthorized();
+        foreach (['customer', 'vendor'] as $role) {
+            $this->actingAs(User::factory()->create(['role' => $role]))->postJson($url, $body)->assertForbidden();
+        }
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->postJson($url, $body + ['external_actions' => true])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('incident_state', 'open')->assertJsonPath('external_actions', false);
+        $this->postJson($url, $body)->assertOk()->assertJsonPath('transition_revision', 1);
+        $this->assertDatabaseCount('operational_incident_acknowledgements', 1);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'operations.incident_acknowledged')->count());
+        $this->assertDatabaseCount('operational_incident_events', 1);
+        $this->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('incidents.open.0.transition_revision', 1)
+            ->assertJsonPath('incidents.open.0.state', 'open')
+            ->assertJsonStructure(['incidents' => ['open' => [['acknowledged_at']]]]);
+        $this->postJson($url, array_replace($body, ['condition_key' => 'unknown']))->assertUnprocessable();
+        $this->postJson($url, array_replace($body, ['transition_revision' => 0]))->assertUnprocessable();
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->postJson($url, $body)->assertStatus(409);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->postJson($url, $body)->assertStatus(409);
+        $this->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('incidents.open.0.transition_revision', 3)
+            ->assertJsonPath('incidents.open.0.acknowledged_at', null);
+        DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
+        $this->postJson($url, array_replace($body, ['transition_revision' => 3]))->assertStatus(409);
+        $this->assertDatabaseCount('operational_incident_acknowledgements', 1);
+        $this->assertDatabaseCount('operational_incident_events', 3);
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_unknown_startup_does_not_fabricate_alerts_or_recovery(): void
     {
         $scanner = app(OperationalIncidents::class);
