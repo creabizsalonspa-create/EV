@@ -192,18 +192,24 @@
       "test_result": "passed",
       "merge_sha": "a3eb37c1595bd37d05a7607fdb8a2961921a8633",
       "evidence": "docs/evidence/integrated-checkpoints-20261128/pr443-station-policy.json"
+    },
+    "pr432pricing": {
+      "source_sha": "8ad31f1ce65617ca45ee64b746f45530457e28a6",
+      "test_result": "passed",
+      "merge_sha": "9285aa1646b91c6d47b72d047285510edf1ab530",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr432-customer-precharge-pricing.json"
     }
   },
   "weighted_percent": {
-    "coded": "62.89",
-    "tested": "62.89",
-    "merged": "62.89",
+    "coded": "63.18",
+    "tested": "63.18",
+    "merged": "63.18",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "3172649/5045040",
-    "tested": "3172649/5045040",
-    "merged": "3172649/5045040",
+    "coded": "199229/315315",
+    "tested": "199229/315315",
+    "merged": "199229/315315",
     "production_accepted": "0"
   },
   "categories": [
@@ -576,9 +582,9 @@
       "requirement": "Location/connector details and pricing terms",
       "atoms": 8,
       "counts": {
-        "coded": 6,
-        "tested": 6,
-        "merged": 6,
+        "coded": 7,
+        "tested": 7,
+        "merged": 7,
         "production_accepted": 0
       },
       "details": [
@@ -663,13 +669,13 @@
         {
           "id": "2.4.7",
           "software_atom": "Customer pre-charge estimate/fee acceptance",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr432pricing",
+          "note": "Verified authoritative fee estimates, explicit consent and expiry/start recovery across Laravel, web and Flutter. Exact source passed Platform and Native checks and merged in #432. Production acceptance remains separate.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
