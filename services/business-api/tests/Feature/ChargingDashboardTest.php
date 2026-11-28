@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargingDashboardController;
 use App\Models\ChargerCommand;
 use App\Models\Charging\OperationalCase;
 use App\Models\ChargingSession;
@@ -12,9 +13,11 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargingDashboardTest extends TestCase
@@ -231,15 +234,15 @@ class ChargingDashboardTest extends TestCase
         $this->link($owner, null);
         $token = $owner->createToken('dashboard')->accessToken;
         $snapshot = $owner->fresh()->withAccessToken($token);
-        $request = \Illuminate\Http\Request::create('/api/v1/charging-operations/dashboard');
+        $request = Request::create('/api/v1/charging-operations/dashboard');
         $request->setUserResolver(fn () => $snapshot);
-        $controller = app(\App\Http\Controllers\ChargingDashboardController::class);
+        $controller = app(ChargingDashboardController::class);
         $this->assertSame(200, $controller($request)->getStatusCode());
         $token->delete();
         try {
             $controller($request);
             $this->fail('A revoked bearer received dashboard records.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+        } catch (HttpException $error) {
             $this->assertSame(403, $error->getStatusCode());
         }
     }
