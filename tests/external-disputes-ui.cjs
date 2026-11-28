@@ -28,6 +28,7 @@ const { chromium } = require("playwright"),
       window.calls = [];
       window.failEvidence = true;
       window.forgeScope = false;
+      window.forgeCurrency = false;
       window.storedEvidence = [];
       const row = {
         id: 9,
@@ -70,7 +71,7 @@ const { chromium } = require("playwright"),
                 (!scope.invoice_id || scope.invoice_id === row.invoice_id) &&
                 (!scope.status || scope.status === row.status);
             if (forgeScope) scope.currency = "EUR";
-            return { data: matches ? [row] : [], total: matches ? 1 : 0,
+            return { data: matches ? [forgeCurrency ? {...row, currency: [row.currency]} : row] : [], total: matches ? 1 : 0,
               current_page: Number(query.get("page")), last_page: 1,
               per_page: Number(query.get("per_page")), scope,
               evidence: "STRIPE_TEST_CONTRACT", real_money_moved: false,
@@ -118,6 +119,13 @@ const { chromium } = require("playwright"),
     await page.getByText("Provider review scope cannot be verified.", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-dispute-id]").count(), 0);
     await page.evaluate(() => forgeScope = false);
+    await page.locator('[name=dispute_currency]').fill("");
+    await page.evaluate(() => forgeCurrency = true);
+    await page.getByRole("button", { name: "Load provider disputes", exact: true }).click();
+    await page.getByRole("status").getByText("Provider receipt cannot be verified.", { exact: true }).waitFor();
+    assert.equal(await page.locator("[data-dispute-id]").count(), 0);
+    await page.evaluate(() => forgeCurrency = false);
+    await page.locator('[name=dispute_currency]').fill("AED");
     await page
       .getByRole("button", { name: "Load provider disputes", exact: true })
       .click();

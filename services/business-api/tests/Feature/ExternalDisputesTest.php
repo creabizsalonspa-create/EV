@@ -181,6 +181,14 @@ class ExternalDisputesTest extends TestCase
             ->assertJsonPath('provider_actions_performed', false);
         $this->getJson($base.'/deadline-queue?currency=USD&window_hours=96')
             ->assertOk()->assertJsonPath('total', 0);
+        foreach ([$base, $base.'/deadline-queue'] as $endpoint) {
+            $this->getJson($endpoint.'?invoice_id=9007199254740991')
+                ->assertOk()->assertJsonPath('scope.invoice_id', 9007199254740991)
+                ->assertJsonPath('total', 0);
+            foreach (['9007199254740992', '999999999999999999', '1.5', '0001'] as $invalid) {
+                $this->getJson($endpoint.'?invoice_id='.$invalid)->assertUnprocessable();
+            }
+        }
         $this->assertSame($sent, count(Http::recorded()));
         $this->assertSame($before, DB::table('external_dispute_events')->count());
         $this->assertDatabaseCount('finance_refunds', 0);
