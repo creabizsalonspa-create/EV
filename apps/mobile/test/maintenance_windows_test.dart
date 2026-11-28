@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -5,7 +7,13 @@ import 'package:creabiz_ev/maintenance_windows.dart';
 import 'test_support.dart';
 
 class MaintenanceApi extends FixtureApi {
-  int creates=0;
+  int creates=0, reads=0, epoch=0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  @override
+  bool Function() sessionFence() { final captured=epoch; return ()=>captured==epoch; }
+  void revoke() { epoch++; changes.add(epoch); }
   Map<String,dynamic>? original;
   @override
   Future<dynamic> request(String path, {String method='GET', Map<String,dynamic>? body, Map<String,String> query=const {}}) async {
@@ -20,6 +28,7 @@ class MaintenanceApi extends FixtureApi {
       return {'id':7};
     }
     expect(method,'GET');
+    reads++;
     return {'current_page':1,'last_page':1,'total':original==null?0:1,'data':[
       if(original!=null){'id':7,'starts_at':original!['starts_at'],'ends_at':original!['ends_at'],'reason':original!['reason'],'cancelled_at':null},
     ]};
@@ -27,6 +36,27 @@ class MaintenanceApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets('revoked maintenance view drops private rows and retained submit cannot write', (tester) async {
+    final api=MaintenanceApi();
+    addTearDown(api.close);
+    tester.view.physicalSize=const Size(900,1600);
+    tester.view.devicePixelRatio=1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    api.original={'starts_at':'2027-01-15 09:00:00','ends_at':'2027-01-15 10:00:00','reason':'PRIVATE maintenance reason'};
+    await tester.pumpWidget(MaterialApp(home:MaintenanceWindowsView(api:api,companyId:1,chargerId:2,connectorId:3,canManage:true,operational:true,onExpired:(){})));
+    await tester.pumpAndSettle();
+    expect(find.text('PRIVATE maintenance reason'),findsOneWidget);
+    expect(find.textContaining('2027-01-15 09:00:00'),findsNothing);
+    final submit=tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Schedule maintenance')).onPressed!;
+    api.revoke();
+    await tester.pumpAndSettle();
+    submit();
+    await tester.pumpAndSettle();
+    expect(find.text('PRIVATE maintenance reason'),findsNothing);
+    expect(api.creates,0);
+    expect(api.reads,1);
+  });
   testWidgets('uncertain scheduling freezes the original intent and only retries explicitly', (tester) async {
     final api=MaintenanceApi();
     await tester.pumpWidget(MaterialApp(home:MaintenanceWindowsView(api:api,companyId:1,chargerId:2,connectorId:3,canManage:true,operational:true,onExpired:(){})));

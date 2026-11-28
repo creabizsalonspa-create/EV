@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 String firmwareTitle(BuildContext c) =>
     Localizations.localeOf(c).languageCode == 'ar'
@@ -386,7 +387,7 @@ class _FirmwareState extends State<ChargerFirmwareView>
                           '${op['sha256']}',
                           textDirection: TextDirection.ltr,
                         ),
-                        Text('${op['created_at']}'),
+                        Text(serverEventTime(context, op['created_at'])),
                         if (op['reviewed_at'] == null && manager && enabled)
                           TextButton(
                             onPressed: busy
