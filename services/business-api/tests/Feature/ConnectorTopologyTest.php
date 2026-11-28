@@ -13,6 +13,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\SessionBridge;
 use App\Services\CsmsDispatcher;
@@ -276,7 +277,7 @@ class ConnectorTopologyTest extends TestCase
         $body = $this->book($f, 0, 'detached-source');
         $booking = $this->postJson('/api/reservations', $body)->assertCreated()->json();
         $reservation = Reservation::findOrFail($booking['id']);
-        $topology = app(\App\Services\Charging\ConnectorTopology::class);
+        $topology = app(ConnectorTopology::class);
         $evse = DB::table('charging_evses')->where('id', $f['evses'][0]['id']);
         $this->assertSame($f['binding'], $topology->binding($reservation)->id);
         $evse->update(['binding_id' => null]);
@@ -302,7 +303,7 @@ class ConnectorTopologyTest extends TestCase
         $f = $this->topology();
         $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'application-identity'))->assertCreated()->json();
         $reservation = Reservation::findOrFail($booking['id']);
-        $topology = app(\App\Services\Charging\ConnectorTopology::class);
+        $topology = app(ConnectorTopology::class);
         $map = DB::table('charging_connector_mappings')->where('id', $f['maps'][0]['id']);
         $this->assertNull($topology->binding($reservation));
         $map->update(['source_connector_number' => 7]);
