@@ -14,12 +14,13 @@ export function mountHostedCheckout({
         : "commercial/hosted-checkouts";
     let sourceContext = null;
     const owner = actor()?.id,
+        role = actor()?.role,
         abort = new AbortController();
     let busy = false,
         epoch = 0,
         selected = null,
         page = 1;
-    const alive = () => container.isConnected && actor()?.id === owner;
+    const alive = () => container.isConnected && actor()?.id === owner && actor()?.role === role;
     const n = (tag, value) => {
         const e = document.createElement(tag);
         e.textContent = String(value ?? "");
@@ -56,6 +57,19 @@ export function mountHostedCheckout({
         const b = t("button", en, ar);
         b.type = "button";
         b.onclick = () => perform(action);
+        parent.append(b);
+        return b;
+    }
+    // Read-only activity requests have their own generation. They must not
+    // acquire the payment mutation lock or make the whole pane inert: a new
+    // explicit read may supersede an earlier unanswered read.
+    function activityButton(parent, en, ar, action) {
+        const b = t("button", en, ar);
+        b.type = "button";
+        b.onclick = () => {
+            if (!busy && alive() && parent.isConnected && parent.contains(b))
+                return action();
+        };
         parent.append(b);
         return b;
     }
@@ -200,6 +214,110 @@ export function mountHostedCheckout({
             throw Error("Unsupported hosted payment evidence.");
         return row;
     }
+    const eventLabels = {
+        prepared: ["Checkout prepared", "تم تجهيز عملية الدفع"],
+        provider_creation_dispatched: ["Provider setup requested", "تم طلب الإعداد لدى المزود"],
+        provider_session_observed: ["Provider session observed", "تم رصد جلسة المزود"],
+        provider_creation_uncertain: ["Provider setup outcome uncertain", "نتيجة الإعداد لدى المزود غير مؤكدة"],
+        provider_no_session_observed: ["Provider session unavailable", "جلسة المزود غير متاحة"],
+        provider_cancellation_observed: ["Provider cancellation observed", "تم رصد الإلغاء لدى المزود"],
+        provider_inspected: ["Provider status inspected", "تم فحص حالة المزود"],
+        capture_observed: ["Test capture recorded", "تم تسجيل تحصيل اختباري"],
+        cancellation_observed: ["Cancellation recorded", "تم تسجيل الإلغاء"],
+        mock_opened: ["Test checkout opened", "تم فتح عملية دفع اختبارية"],
+        mock_authorized: ["Test authorization recorded", "تم تسجيل تفويض اختباري"],
+        mock_declined: ["Test authorization declined", "تم رفض التفويض الاختباري"],
+        mock_abandoned: ["Test checkout abandoned", "تم ترك عملية الدفع الاختبارية"],
+        mock_cancelled: ["Test checkout cancelled", "تم إلغاء عملية الدفع الاختبارية"],
+        canonical_allocation_observed: ["Test allocation recorded", "تم تسجيل تخصيص اختباري"],
+        reconciliation_requires_review: ["Reconciliation requires review", "تتطلب المطابقة المراجعة"],
+        provider_case_requires_review: ["Provider case requires review", "تتطلب حالة المزود المراجعة"],
+    };
+    function eventInstant(value) {
+        const parts = typeof value === "string" &&
+            /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?Z?$/.exec(value);
+        if (!parts) return null;
+        const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number);
+        const calendar = new Date(0);
+        calendar.setUTCFullYear(year, month - 1, day);
+        calendar.setUTCHours(hour, minute, second, 0);
+        if (year < 1 || calendar.getUTCFullYear() !== year ||
+            calendar.getUTCMonth() + 1 !== month || calendar.getUTCDate() !== day ||
+            calendar.getUTCHours() !== hour || calendar.getUTCMinutes() !== minute ||
+            calendar.getUTCSeconds() !== second) return null;
+        const utc = new Date(value.replace(" ", "T").replace(/Z?$/, "Z"));
+        return Number.isFinite(utc.getTime()) ? utc : null;
+    }
+    const eventRequests = new WeakMap();
+    async function loadEvents(area, id, number) {
+        // History list pagination has its own epoch and does not retire the
+        // still-mounted checkout detail. The exact activity node is the scope;
+        // replacement, hidden-tab cleanup or actor revocation retires it.
+        const scoped = () => alive() && !document.hidden && area.isConnected
+            && selected === id && detail.contains(area);
+        if (!scoped() || !Number.isSafeInteger(number) || number < 1) return;
+        const request = {};
+        eventRequests.set(area, request);
+        const current = () => scoped() && eventRequests.get(area) === request;
+        const read = (page) => { if (current()) return loadEvents(area, id, page); };
+        area.replaceChildren();
+        const refresh = () => activityButton(
+            area, "Refresh activity", "تحديث النشاط", () => read(number),
+        );
+        try {
+            const response = await api(
+                `${endpoint}/${id}/events?page=${number}`, "GET", undefined, abort.signal,
+            );
+            if (!current()) return;
+            if (!response || !Array.isArray(response.data) ||
+                response.current_page !== number ||
+                !Number.isSafeInteger(response.last_page) || response.last_page < 1 ||
+                !Number.isSafeInteger(response.total) || response.total < 0 ||
+                response.per_page !== 25 ||
+                response.last_page !== Math.max(1, Math.ceil(response.total / 25)) ||
+                response.data.length !== (number > response.last_page
+                    ? 0 : Math.min(25, Math.max(0, response.total - (number - 1) * 25)))) {
+                throw Error("Invalid checkout event page.");
+            }
+            let previousId = null;
+            const rows = response.data.map((row) => {
+                const key = corporate ? "checkout_id" : "hosted_checkout_id";
+                if (row?.[key] !== id || !Number.isSafeInteger(row.id) || row.id < 1 ||
+                    typeof row.kind !== "string" ||
+                    (previousId !== null && row.id >= previousId)) {
+                    throw Error("Invalid checkout event.");
+                }
+                previousId = row.id;
+                const utc = eventInstant(row.created_at);
+                if (!utc) throw Error("Invalid checkout event time.");
+                const name = Object.hasOwn(eventLabels, row.kind)
+                    ? eventLabels[row.kind]
+                    : ["Checkout event recorded", "تم تسجيل حدث لعملية الدفع"];
+                const item = n("li", "");
+                const time = n("time", utc.toISOString().slice(0, 16).replace("T", " ") + " UTC");
+                time.dateTime = utc.toISOString();
+                item.append(t("span", ...name), document.createTextNode(" · "), time);
+                return item;
+            });
+            area.append(t("h5", "Checkout activity", "نشاط عملية الدفع"));
+            refresh();
+            if (rows.length) {
+                const list = n("ul", "");
+                list.append(...rows);
+                area.append(list);
+            } else {
+                area.append(t("p", "No checkout activity recorded.", "لا يوجد نشاط مسجل لعملية الدفع."));
+            }
+            if (number > 1) activityButton(area, "Previous activity", "النشاط السابق", () => read(number - 1));
+            if (number < response.last_page) activityButton(area, "Next activity", "النشاط التالي", () => read(number + 1));
+        } catch (error) {
+            if (!current() || ["AbortError", "SessionChangedError"].includes(error.name)) return;
+            const feedback = t("p", "Could not load checkout activity.", "تعذر تحميل نشاط عملية الدفع.");
+            feedback.setAttribute("role", "status");
+            area.replaceChildren(feedback);
+            refresh();
+        }
+    }
     function draw(row) {
         if (!alive()) return;
         selected = row.id;
@@ -216,6 +334,10 @@ export function mountHostedCheckout({
             ),
             n("p", `${row.evidence} · ${row.expires_at || "—"}`),
         );
+        const activity = n("section", "");
+        activity.dataset.checkoutActivity = "";
+        activityButton(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1));
+        card.append(activity);
         if (row.hosted_url) {
             const url = new URL(row.hosted_url);
             if (
