@@ -99,6 +99,35 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_customer_history_and_replay_reject_contradictory_redemption_owner(): void
+    {
+        [, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $other = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $source = DB::table('partner_reward_reviews')->find($review);
+        $approval = DB::table('partner_reward_review_events')->where('review_id', $review)
+            ->where('decision', 'approve')->first();
+        $key = 'contradictory-owner';
+        $request = hash('sha256', 'partner-reward-claim:'.$customer->id.':'.$key);
+        $redemption = DB::table('loyalty_redemptions')->insertGetId([
+            'user_id' => $other->id, 'reward_id' => $source->reward_id, 'points_cost' => 0,
+            'status' => 'pending', 'request_key' => $request, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('partner_reward_claims')->insert([
+            'review_id' => $review, 'approval_event_id' => $approval->id, 'user_id' => $customer->id,
+            'redemption_id' => $redemption, 'request_key' => $request, 'created_at' => now(),
+        ]);
+        $this->actingAs($customer)->getJson("$base/claims")->assertConflict();
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => $key])->assertConflict();
+        $this->postJson("$base/claim-intents/cancel", ['review_id' => $review, 'idempotency_key' => $key])->assertConflict();
+        $this->actingAs($other)->getJson("$base/claims")->assertOk()->assertJsonCount(0, 'data');
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_customer_claim_history_is_bounded_and_private(): void
     {
         [, $review] = $this->sandboxOffer();
