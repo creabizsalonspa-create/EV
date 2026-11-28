@@ -40,34 +40,6 @@ final class AppliedCommandReceipt
         return $time->format('Y-m-d H:i:s') === str_replace('T', ' ', substr($value, 0, 19)) ? $time : null;
     }
 
-    /** Reconstruct the exact canonical identity retained by SessionBridge::ingest. */
-    public static function fingerprintMatches(object $event, object $link, ?array $sourceTarget): bool
-    {
-        $sequence = self::unsigned($event->sequence ?? null);
-        $meter = self::unsigned($event->meter_wh ?? null);
-        $sessionId = self::unsigned($link->charging_session_id ?? null);
-        $observed = self::instant($event->occurred_at ?? null);
-        $fingerprint = $event->fingerprint ?? null;
-        if ($sequence === null || $meter === null || $sessionId === null || $observed === null
-            || ! is_string($fingerprint) || ! preg_match('/\A[a-f0-9]{64}\z/', $fingerprint)
-            || ! is_string($link->identifier ?? null) || ! is_string($link->protocol ?? null)
-            || ! is_string($link->transaction_id ?? null) || ! is_string($event->type ?? null)) {
-            return false;
-        }
-        $identity = [$sessionId, $link->identifier, $link->protocol, $link->transaction_id,
-            $event->type, $sequence, $meter, $observed->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z')];
-        if ($sourceTarget !== null) {
-            if (count($sourceTarget) !== 2 || ! array_is_list($sourceTarget)
-                || self::unsigned($sourceTarget[0]) === null || self::unsigned($sourceTarget[1]) === null) {
-                return false;
-            }
-            $identity[] = (int) $sourceTarget[0];
-            $identity[] = (int) $sourceTarget[1];
-        }
-
-        return hash_equals($fingerprint, hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR)));
-    }
-
     public static function matches(object $event, object $link, object $session, bool $end): bool
     {
         $sequence = self::unsigned($event->sequence ?? null);
@@ -77,7 +49,12 @@ final class AppliedCommandReceipt
         $lastMeter = self::unsigned($link->last_meter_wh ?? null);
         $observed = self::instant($event->occurred_at ?? null);
         $started = self::instant($link->started_at ?? null);
-        if (($event->outcome ?? null) !== 'applied' || ($event->type ?? null) !== ($end ? 'ended' : 'started')
+        // Historical database timestamp precision may differ from the signed
+        // input, so do not reconstruct a hash from lossy retained timestamps.
+        // At minimum, a missing or malformed canonical digest is not evidence.
+        $fingerprint = $event->fingerprint ?? null;
+        if (! is_string($fingerprint) || ! preg_match('/\A[a-f0-9]{64}\z/', $fingerprint)
+            || ($event->outcome ?? null) !== 'applied' || ($event->type ?? null) !== ($end ? 'ended' : 'started')
             || $sequence === null || $meter === null || $last === null || $startMeter === null
             || $lastMeter === null || $lastMeter < $startMeter || $observed === null || $started === null) {
             return false;
