@@ -247,6 +247,7 @@ class CredentialExchange
 
             return $this->operation($old);
         }
+        $reviewAuthority = ContractAuthorizationGate::credentialAuthority($p, $v['action']);
         [$c] = $this->configuration($p);
         $configuration = $this->configurationHash($p);
         $client = app(PartnerClient::class);
@@ -268,10 +269,11 @@ class CredentialExchange
         }
         // Read-only discovery also transmits a credential. Do not issue a
         // second request after a changed approval, peer or source generation.
-        $guard = function () use ($p, $approval, $configuration, $link, $v) {
+        $guard = function () use ($p, $approval, $configuration, $link, $v, $reviewAuthority) {
             app(AdminCredentialApproval::class)->current($approval);
             $current = OcpiProvider::findOrFail($p->id);
             $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+            ContractAuthorizationGate::assertCredentialAuthority($current, $v['action'], $reviewAuthority);
             $latest = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
             abort_unless($this->sameLink($link, $latest), 409, 'Credential state changed during discovery.');
         };
@@ -295,10 +297,11 @@ class CredentialExchange
             'local_token_ciphertext' => Crypt::encryptString($localToken),
             'remote_token_ciphertext' => $link->remote_token_ciphertext ?? null,
         ];
-        $opId = DB::transaction(function () use ($p, $v, $configuration, $link, $expectedOperation, $expectedLink, $approval) {
+        $opId = DB::transaction(function () use ($p, $v, $configuration, $link, $expectedOperation, $expectedLink, $approval, $reviewAuthority) {
             app(AdminCredentialApproval::class)->current($approval, true);
             $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
             $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+            ContractAuthorizationGate::assertCredentialAuthority($current, $v['action'], $reviewAuthority);
             $existing = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->first();
             abort_unless($this->sameLink($link, $existing), 409, 'Credential state changed before dispatch.');
             abort_if(DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->exists(), 409);
@@ -312,10 +315,11 @@ class CredentialExchange
             return $id;
         }, 3);
         try {
-            DB::transaction(function () use ($p, $configuration, $opId, $token, $endpoint, $payload, $v, $localToken, $approval, $expectedOperation, $expectedLink) {
+            DB::transaction(function () use ($p, $configuration, $opId, $token, $endpoint, $payload, $v, $localToken, $approval, $expectedOperation, $expectedLink, $reviewAuthority) {
                 app(AdminCredentialApproval::class)->current($approval, true);
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+                ContractAuthorizationGate::assertCredentialAuthority($current, $v['action'], $reviewAuthority);
                 $op = DB::table('ocpi_credential_operations')->where('id', $opId)->lockForUpdate()->firstOrFail();
                 $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->firstOrFail();
                 $this->assertClaim($op, $expectedOperation, true);
@@ -333,6 +337,7 @@ class CredentialExchange
                 app(AdminCredentialApproval::class)->current($approval, true);
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
+                ContractAuthorizationGate::assertCredentialAuthority($current, $v['action'], $reviewAuthority);
                 $op = DB::table('ocpi_credential_operations')->where('id', $opId)->lockForUpdate()->firstOrFail();
                 $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->firstOrFail();
                 $this->assertClaim($op, $expectedOperation, true);
