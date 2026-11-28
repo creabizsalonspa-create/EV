@@ -9,7 +9,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         currentKind = "accounts",
         currentPage = 1;
     container.dataset.vendorPayouts = "true";
-    const alive = () => container.isConnected && actor()?.id === identity;
+    const alive = () => container.isConnected && actor()?.id === identity && actor()?.role === role;
     const observer = new MutationObserver(() => {
         if (!alive()) {
             generation++;
@@ -79,7 +79,10 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
     function button(parent, en, ar, action) {
         const b = t("button", en, ar);
         b.type = "button";
-        b.onclick = () => perform(action);
+        b.onclick = () => {
+            if (!b.isConnected || !container.contains(b) || b.disabled) return;
+            return perform(action);
+        };
         parent.append(b);
         return b;
     }
@@ -115,7 +118,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         f.addEventListener("change", () => (key = crypto.randomUUID()));
         f.onsubmit = (event) => {
             event.preventDefault();
-            if (!f.reportValidity()) return;
+            if (!alive() || busy || !f.isConnected || !container.contains(f) || b.disabled || !f.reportValidity()) return;
             // Capture values before the busy fence disables form controls.
             const values = Object.fromEntries(new FormData(f));
             perform(() => submit(values, key));
@@ -195,6 +198,14 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
             return new Date(NaN);
         const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(raw);
         return new Date(sql ? raw.replace(" ", "T") + "Z" : raw);
+    }
+    function replayEligible(payout, attempt, now = Date.now()) {
+        if (!payout || !attempt || !["uncertain", "executing"].includes(payout.status) ||
+            !Number.isFinite(now) || !(parseDate(attempt.retry_until).getTime() > now)) return false;
+        // An explicit null lease denotes an unleased attempt. Missing,
+        // empty or malformed lease evidence is not permission to replay.
+        return attempt.lease_until === null ||
+            parseDate(attempt.lease_until).getTime() <= now;
     }
     function clock(raw) {
         const d = parseDate(raw);
@@ -535,7 +546,13 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
     }
     async function details(card, row) {
         const r = await request("commercial/payouts/" + row.id);
-        if (!alive() || !card.isConnected) return;
+        if (!alive() || !card.isConnected || !container.contains(card)) return;
+        if (r?.payout?.id !== row.id || r.real_money_moved !== false ||
+            !Array.isArray(r.attempts) || !Array.isArray(r.events) ||
+            r.attempts.some((attempt,index) => !Number.isSafeInteger(attempt?.number) ||
+                attempt.number < 1 || attempt.payout_id !== row.id ||
+                (index > 0 && attempt.number <= r.attempts[index-1].number)))
+            throw Error("Payout history unavailable. Refresh records.");
         card.querySelector("[data-payout-history]")?.remove();
         const history = document.createElement("div");
         history.dataset.payoutHistory = "true";
@@ -589,12 +606,7 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
         }
         const latest = r.attempts[r.attempts.length - 1];
         if (
-            role === "admin" &&
-            ["uncertain", "executing"].includes(r.payout.status) &&
-            latest &&
-            parseDate(latest.retry_until).getTime() > Date.now() &&
-            (!latest.lease_until ||
-                parseDate(latest.lease_until).getTime() <= Date.now())
+            role === "admin" && replayEligible(r.payout, latest)
         ) {
             history.append(
                 t(
@@ -620,6 +632,12 @@ window.mountVendorPayouts = ({ container, api, ui, actor }) => {
                 "Replay same provider attempt",
                 "إعادة إرسال محاولة المزود نفسها",
                 async () => {
+                    if (!alive() || !card.contains(history) || !container.contains(history) ||
+                        !replayEligible(r.payout, latest)) {
+                        message("Replay window unavailable. Inspect payout history again.",
+                            "مهلة الإعادة غير متاحة. افحص سجل التحويل مجدداً.");
+                        return;
+                    }
                     if (!confirm.checked) {
                         message(
                             "Explicit confirmation is required",

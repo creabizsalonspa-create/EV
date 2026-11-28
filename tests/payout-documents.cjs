@@ -4,7 +4,29 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes, createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+function verifyReplayClockBoundary() {
+  const source=fs.readFileSync("services/business-api/public/vendor-payouts.js","utf8");
+  const window={};
+  new Function("window",fs.readFileSync("services/business-api/public/station-time.js","utf8"))(window);
+  const start=source.indexOf("    function parseDate("),end=source.indexOf("    function clock(",start);
+  assert(start>=0&&end>start);
+  const eligible=new Function("window",source.slice(start,end)+"\nreturn replayEligible;")(window);
+  const now=Date.parse("2026-11-28T09:00:00Z");
+  const payout={status:"uncertain"},attempt={retry_until:"2026-11-28T09:01:00Z",lease_until:null};
+  assert.equal(eligible(payout,attempt,now),true);
+  assert.equal(eligible(payout,attempt,now+60000),false);
+  assert.equal(eligible(payout,{...attempt,lease_until:"2026-11-28 09:00:00"},now),true);
+  for(const lease of [undefined,"","2026-02-30T09:00:00Z","2026-11-28T09:00:00","2026-11-28T09:00:01Z"])
+    assert.equal(eligible(payout,{...attempt,lease_until:lease},now),false);
+  for(const deadline of [null,"","2026-02-30T09:01:00Z","2026-11-28T09:01:00","2026-11-28T09:00:00Z"])
+    assert.equal(eligible(payout,{...attempt,retry_until:deadline},now),false);
+  assert.equal(eligible({status:"paid"},attempt,now),false);
+  assert.equal(eligible({status:"executing"},attempt,now),true);
+  assert.equal(eligible(payout,attempt,NaN),false);
+  assert.equal(eligible(payout,null,now),false);
+}
 (async () => {
+  verifyReplayClockBoundary();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
