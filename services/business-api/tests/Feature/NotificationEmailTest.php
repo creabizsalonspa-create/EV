@@ -7,6 +7,7 @@ use App\Models\InboxNotification;
 use App\Models\User;
 use App\Services\Notifications\EmailNotices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -32,6 +33,65 @@ class NotificationEmailTest extends TestCase
     private function enable(User $user): void
     {
         $this->actingAs($user)->putJson('/api/notifications/email', ['enabled' => true, 'confirmed' => true, 'expected_revision' => '0'])->assertOk()->assertJsonPath('consent_current', true);
+    }
+
+    public function test_interrupted_claim_recovery_is_bounded_terminal_and_never_sends(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-28T06:00:00Z'));
+        $service = app(EmailNotices::class);
+        $receipts = [];
+        foreach (['oldest', 'boundary', 'missing_claim_clock', 'fresh', 'queued', 'terminal'] as $kind) {
+            $user = $this->fixture();
+            $this->enable($user);
+            $notice = $this->notice($user);
+            $this->assertSame(1, $service->prepare());
+            $row = DB::table('notification_email_outbox')->where('user_id', $user->id)->first();
+            $receipts[$kind] = $row->id;
+            if ($kind === 'queued') {
+                continue;
+            }
+            $at = match ($kind) {
+                'oldest' => now()->subMinutes(20),
+                'boundary', 'terminal' => now()->subMinutes(15),
+                'missing_claim_clock' => null,
+                default => now()->subMinutes(14),
+            };
+            DB::table('notification_email_outbox')->where('id', $row->id)->update([
+                'state' => $kind === 'terminal' ? 'handed_off' : 'claimed',
+                'claimed_at' => $at,
+                'created_at' => now()->subMinutes($kind === 'missing_claim_clock' ? 16 : 21),
+                'completed_at' => $kind === 'terminal' ? now()->subMinutes(14) : null,
+            ]);
+            DB::table('notification_email_preferences')->where('user_id', $user->id)->update([
+                'after_notification_id' => $notice->id, 'last_attempted_at' => $at,
+            ]);
+        }
+        $before = DB::table('notification_email_preferences')->orderBy('user_id')->get()->toJson();
+        $terminal = DB::table('notification_email_outbox')->where('id', $receipts['terminal'])->first();
+        config(['notification_email.enabled' => false]);
+        $this->assertSame(1, $service->run(1)['recovered_unknown']);
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipts['oldest'], 'state' => 'outcome_unknown']);
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipts['boundary'], 'state' => 'claimed']);
+        $this->assertSame(2, $service->run()['recovered_unknown']);
+        $this->assertSame(0, $service->run()['recovered_unknown']);
+        foreach (['oldest', 'boundary', 'missing_claim_clock'] as $kind) {
+            $this->assertDatabaseHas('notification_email_outbox', [
+                'id' => $receipts[$kind], 'state' => 'outcome_unknown',
+                'failure_code' => 'interrupted_handoff_unknown',
+            ]);
+            $this->assertNotNull(DB::table('notification_email_outbox')->where('id', $receipts[$kind])->value('completed_at'));
+        }
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipts['fresh'], 'state' => 'claimed']);
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipts['queued'], 'state' => 'queued']);
+        $this->assertEquals($terminal, DB::table('notification_email_outbox')->where('id', $receipts['terminal'])->first());
+        $this->assertSame($before, DB::table('notification_email_preferences')->orderBy('user_id')->get()->toJson());
+        config(['notification_email.enabled' => true]);
+        foreach (['oldest', 'boundary', 'missing_claim_clock'] as $kind) {
+            $this->assertSame('not_attempted', $service->deliver($receipts[$kind]));
+        }
+        Mail::assertNothingSent();
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
     }
 
     public function test_explicit_verified_opt_in_sends_one_generic_digest_for_new_unread_activity_and_never_marks_delivery_confirmed(): void

@@ -153,6 +153,7 @@ class ArchiveTests(unittest.TestCase):
                 original.replace('"regular_files": 1', '"regular_files": 1.0'),
                 original.replace('"regular_files": 1', '"regular_files": 1e0'),
                 original.replace('"regular_files": 1', '"regular_files": 1e999'),
+                '{"extra":' + '[' * 32 + '0' + ']' * 32 + '}',
                 '{"extra":' + '[' * 2000 + '0' + ']' * 2000 + '}',
             ]
             for hostile in mutations:
@@ -163,6 +164,54 @@ class ArchiveTests(unittest.TestCase):
             # Whitespace and object ordering are immaterial, types are not.
             manifest.write_text(json.dumps(json.loads(original), indent=None))
             self.assertEqual(guard.main(['check'] + args), 0)
+
+    def test_explicit_manifest_depth_ignores_escaped_strings(self):
+        import json
+        tricky = {'x': 'escaped \" ' + '[' * 60 + '}' * 60 + '\\'}
+        self.assertEqual(guard.read_strict_json(json.dumps(tricky).encode()), tricky)
+        with self.assertRaisesRegex(guard.ArchiveError, 'nesting exceeds limit'):
+            guard.read_strict_json(b'{"x":'+b'['*32+b'0'+b']'*32+b'}')
+
+    def test_fingerprint_rejects_concurrent_growth_truncation_and_same_size_rewrite(self):
+        import os
+        from contextlib import contextmanager
+        original = guard.open_regular_archive
+        for mutation in ('grow', 'shrink', 'rewrite'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as d:
+                dump = Path(d) / 'db.dump'
+                dump.write_bytes(b'PGDMP' + b'a' * 2_000_000)
+
+                @contextmanager
+                def wrapped(path):
+                    with original(path) as raw:
+                        class MutatingReader:
+                            def fileno(self):
+                                return raw.fileno()
+
+                            def read(self, n):
+                                return raw.read(n)
+
+                            def seek(self, offset):
+                                result = raw.seek(offset)
+                                if mutation == 'grow':
+                                    with dump.open('ab') as target:
+                                        target.write(b'growth')
+                                elif mutation == 'shrink':
+                                    with dump.open('r+b') as target:
+                                        target.truncate(10)
+                                else:
+                                    prior = dump.stat()
+                                    with dump.open('r+b') as target:
+                                        target.seek(10000)
+                                        target.write(b'changed')
+                                    os.utime(dump, ns=(prior.st_atime_ns, prior.st_mtime_ns + 2_000_000_000))
+                                return result
+
+                        yield MutatingReader()
+
+                with patch.object(guard, 'open_regular_archive', side_effect=wrapped):
+                    with self.assertRaisesRegex(guard.ArchiveError, 'Archive (grew|shrank|changed)'):
+                        guard.fingerprint(dump, b'PGDMP')
 
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
