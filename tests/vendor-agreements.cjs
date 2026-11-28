@@ -6,10 +6,13 @@ const assert = require('node:assert/strict');
         for (const ar of [false, true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.evaluate(() => window.EV_MESSAGES = {});
+            await page.addScriptTag({path:'services/business-api/public/locale.js'});
+            await page.evaluate(lang => window.EvLocale.set(lang), ar ? 'ar' : 'en');
             await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/vendor-agreements.js'});
             await page.evaluate(async () => {
-                window.posts = []; window.accepted = false; window.authorized = true;
+                window.posts = []; window.reads = 0; window.accepted = false; window.authorized = true;
                 const version = {id:'v1', country:'AE', revision:1, sha256:'reviewed-sha', title_en:'Reviewed agreement', title_ar:'الاتفاقية المراجعة', body_en:'<img src=x onerror="window.injected=true">', body_ar:'<img src=x onerror="window.injected=true">'};
                 window.agreementApi = async (path, method='GET', body) => {
                     if (method === 'POST') {
@@ -17,6 +20,7 @@ const assert = require('node:assert/strict');
                         // A committed write whose response is lost must be recovered by a read.
                         throw Object.assign(new Error('PRIVATE LOST RESPONSE'), {status:503});
                     }
+                    window.reads++;
                     const acceptance = {id:'receipt-1', created_at:'2026-11-14T08:00:00+04:00', version_sha256:'reviewed-sha'};
                     if (path.endsWith('/receipts/receipt-1')) return {receipt:acceptance, version};
                     const records = window.accepted
@@ -44,11 +48,20 @@ const assert = require('node:assert/strict');
             const receipt = page.locator('p').filter({hasText:'receipt-1'});
             assert.match(await receipt.innerText(), expectedClock);
             assert.match(await receipt.innerText(), /reviewed-sha/);
+            const initialLanguageHeading = ar ? 'إيصال الاتفاقية' : 'Agreement receipt';
+            assert.equal(await page.evaluate(() => document.activeElement.textContent), initialLanguageHeading);
+            const reads = await page.evaluate(() => window.reads);
+            await page.evaluate(lang => window.EvLocale.set(lang), ar ? 'en' : 'ar');
+            await page.getByRole('heading', {name:ar?'Agreement receipt':'إيصال الاتفاقية',exact:true}).waitFor();
+            await page.getByRole('heading', {name:ar?'Reviewed agreement':'الاتفاقية المراجعة',exact:true}).waitFor();
+            assert.equal(await page.evaluate(() => window.reads), reads);
             assert.equal(await page.evaluate(()=>window.posts.length),1);
             await page.close();
         }
         const admin = await browser.newPage();
         await admin.setContent('<html lang="en"><body><main id="host"></main></body></html>');
+        await admin.evaluate(() => window.EV_MESSAGES = {});
+        await admin.addScriptTag({path:'services/business-api/public/locale.js'});
         await admin.addScriptTag({path:'services/business-api/public/vendor-agreements.js'});
         await admin.evaluate(async () => {
             window.decisions = []; window.revision = 1;
@@ -65,6 +78,11 @@ const assert = require('node:assert/strict');
         for (const [name,value] of Object.entries({title_en:'New reviewed terms',title_ar:'شروط جديدة',body_en:'Synthetic reviewed agreement text for UI test only.',body_ar:'شروط تجريبية تمت مراجعتها لاختبار الواجهة فقط.',publication_reference:'SYNTHETIC-APPROVAL',password:'synthetic-password'})) await admin.locator(`[name="${name}"]`).fill(value);
         await admin.getByRole('button',{name:'Publish new version',exact:true}).click();
         assert.equal(await admin.evaluate(()=>window.decisions.length),0);
+        await admin.evaluate(() => window.EvLocale.set('ar'));
+        assert.equal(await admin.getByLabel('العنوان الإنجليزي',{exact:true}).inputValue(),'New reviewed terms');
+        assert.equal(await admin.locator('[name=password]').inputValue(),'synthetic-password');
+        assert.equal(await admin.evaluate(()=>window.decisions.length),0);
+        await admin.evaluate(() => window.EvLocale.set('en'));
         await admin.locator('form input[type=checkbox]').check();
         await admin.getByRole('button',{name:'Publish new version',exact:true}).click();
         assert.equal(await admin.evaluate(()=>window.decisions[0].body.expected_revision),1);
