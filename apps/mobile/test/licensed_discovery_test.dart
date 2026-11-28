@@ -73,6 +73,39 @@ Map<String, dynamic> sample() => {
     'live_status_verified': false,
   },
 };
+Map<String, dynamic> federatedSample({bool unavailable = false}) => {
+  'evidence': 'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',
+  'distance_basis': 'great_circle',
+  'complete_geographic_coverage': false,
+  'live_status_verified': false,
+  'combined_total': null,
+  'published': {
+    'data': [
+      {
+        'kind': 'catalog',
+        'key': 'catalog:1',
+        'station': {'id': 1, 'name': 'Platform fixture'},
+      },
+      {
+        'kind': 'partner',
+        'key': 'partner:8',
+        'record_id': 8,
+        'evidence': 'PARTNER_REPORTED_UNVERIFIED',
+        'availability': 'unknown',
+        'reservable': false,
+        'remote_control': false,
+        'location': {'name': 'Partner fixture'},
+      },
+    ],
+    'total': 26,
+    'per_page': 25,
+    'current_page': 1,
+    'last_page': 2,
+  },
+  'licensed': unavailable
+      ? {'state': 'unavailable', 'reason': 'not_configured', 'sample': null}
+      : {'state': 'observed', 'sample': sample()},
+};
 Map<String, dynamic> capabilities({bool enabled = true}) => {
   'provider': 'open_charge_map',
   'enabled': enabled,
@@ -88,6 +121,7 @@ Map<String, dynamic> capabilities({bool enabled = true}) => {
 
 class LicensedApi extends FixtureApi {
   bool enabled = true;
+  bool federatedUnavailable = false;
   int epoch = 0;
   Object? problem;
   Completer<dynamic>? pending;
@@ -110,7 +144,9 @@ class LicensedApi extends FixtureApi {
     submitted = body;
     if (pending != null) return pending!.future;
     if (problem != null) throw problem!;
-    return sample();
+    return path == 'discovery/federated-nearby'
+        ? federatedSample(unavailable: federatedUnavailable)
+        : sample();
   }
 }
 
@@ -223,6 +259,77 @@ Future<void> search(WidgetTester tester) async {
 }
 
 void main() {
+  test('validates federated source boundaries and leaves totals separate', () {
+    final observed = FederatedNearbyResult.fromJson(federatedSample());
+    expect(observed.publishedTotal, 26);
+    expect(observed.published.map((row) => row.partner), [false, true]);
+    expect(observed.licensed?.reports.single.id, 'ocm:123');
+    final unavailable = FederatedNearbyResult.fromJson(
+      federatedSample(unavailable: true),
+    );
+    expect(unavailable.published.length, 2);
+    expect(unavailable.licensed, isNull);
+    final bad = federatedSample();
+    (bad['published']['data'] as List).last['remote_control'] = true;
+    expect(() => FederatedNearbyResult.fromJson(bad), throwsFormatException);
+    expect(
+      () => FederatedNearbyResult.fromJson({
+        ...federatedSample(),
+        'combined_total': 27,
+      }),
+      throwsFormatException,
+    );
+  });
+
+  testWidgets('federated search keeps published results when source fails', (
+    tester,
+  ) async {
+    final api = SessionEventLicensedApi()..federatedUnavailable = true;
+    addTearDown(api.close);
+    await prepare(tester, api);
+    final button = find.byKey(const Key('federated-nearby-search'));
+    await tester.ensureVisible(button);
+    expect(api.submitted, isNull);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.calls.last, 'POST discovery/federated-nearby');
+    expect(api.submitted, {
+      'consent': true,
+      'latitude': 25.2,
+      'longitude': 55.3,
+      'radius_km': 25.0,
+    });
+    expect(find.text('Platform catalog · Platform fixture'), findsOneWidget);
+    expect(find.text('Partner report · Partner fixture'), findsOneWidget);
+    expect(find.text('Licensed crowd reports are unavailable.'), findsOneWidget);
+    api.rotate();
+    await tester.pumpAndSettle();
+    expect(find.text('Platform catalog · Platform fixture'), findsNothing);
+    expect(find.text('Partner report · Partner fixture'), findsNothing);
+  });
+
+  testWidgets('federated search does not discard source-only filters', (
+    tester,
+  ) async {
+    final api = LicensedApi();
+    addTearDown(api.close);
+    await prepare(tester, api);
+    final filter = find.byKey(const Key('licensed-operator_contains'));
+    await tester.ensureVisible(filter);
+    await tester.enterText(filter, 'Provider');
+    final button = find.byKey(const Key('federated-nearby-search'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(api.submitted, isNull);
+    expect(
+      find.text(
+        'Clear crowd-report filters and use AE, US or CA (or leave country blank).',
+      ),
+      findsOneWidget,
+    );
+  });
+
   test('consumes exact native Laravel license/provenance/quality contract', () {
     final fixture = jsonDecode(
       File(
