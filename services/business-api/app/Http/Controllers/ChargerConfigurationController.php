@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -17,8 +18,11 @@ class ChargerConfigurationController extends Controller
 {
     private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
+        // Preserve the captured login and bearer across source I/O.
         $actor = User::findOrFail($r->user()->id);
-        $r->setUserResolver(fn () => $actor);
+        abort_unless($actor->role === $r->user()->role, 404);
+        app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
 
         return app(ChargerResetController::class)->scope($r, $company->fresh(), $charger->fresh(), $write);
     }
@@ -74,15 +78,27 @@ class ChargerConfigurationController extends Controller
             $sent = false;
             $status = 'not_dispatched';
             try {
-                $source->station($b);
+                $sourceUrl = config('csms.graphql_url');
+                $sourceKey = (string) config('csms.graphql_secret');
+                $stationId = $source->station($b);
                 $operationsBase = rtrim((string) config('csms.operations_base_url'), '/');
-                $token = $source->serviceToken($operationsBase);
+                $credential = $source->dispatchCredential($operationsBase);
                 $current = $this->scope($r, $company, $charger, true);
                 app(VendorAccess::class)->operational($company->fresh());
                 abort_unless($current->id === $b->id && $current->identifier === $b->identifier && $current->protocol === $b->protocol, 409);
                 $source->requireOperationsBase($operationsBase);
-                $sent = true;
-                $status = $source->submit($b, $token, json_decode($row->request_payload, true, flags: JSON_THROW_ON_ERROR), $operationsBase) ? 'transport_submitted' : 'outcome_unknown';
+                abort_unless(config('csms.graphql_url') === $sourceUrl && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 503);
+                abort_unless($source->station($b) === $stationId, 409, 'Source station identity changed before configuration read.');
+                abort_unless(config('csms.graphql_url') === $sourceUrl && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 503);
+                $current = $this->scope($r, $company, $charger, true);
+                app(VendorAccess::class)->operational($company->fresh());
+                abort_unless($current->id === $b->id && $current->identifier === $b->identifier && $current->protocol === $b->protocol && $current->station_id === $b->station_id, 409);
+                $status = $source->submit($b, function () use ($credential, &$sent): string {
+                    $token = $credential();
+                    $sent = true;
+
+                    return $token;
+                }, json_decode($row->request_payload, true, flags: JSON_THROW_ON_ERROR), $operationsBase) ? 'transport_submitted' : 'outcome_unknown';
             } catch (Throwable) {
                 $status = $sent ? 'outcome_unknown' : 'not_dispatched';
             }
