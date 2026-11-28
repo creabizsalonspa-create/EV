@@ -15,7 +15,7 @@ $record = OcpiRecord::create(['ocpi_provider_id' => $provider->id, 'module' => '
 $charger->update(['ocpp_protocol' => '2.0.1']);
 $bindingId = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'vendor_charger_id' => $charger->id, 'identifier' => 'ev-test-unified-'.$run, 'protocol' => '2.0.1', 'created_at' => now(), 'updated_at' => now()]);
 $evse = Evse::create(['charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms', 'binding_id' => $bindingId, 'source_evse_number' => 1]);
-ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connectors[0], 'source_connector_number' => 1]);
+ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connectors[0], 'source_connector_number' => 1, 'source_target_key' => hash('sha256', $bindingId.':1:1')]);
 $binding = DB::table('csms_bindings')->find($bindingId);
 DB::table('charging_status_observations')->insert(['binding_id' => $bindingId, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => hash('sha256', 'unified-report-'.$run), 'evse_number' => 1, 'connector_number' => 1, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()]);
 echo json_encode([...$f, 'record_id' => $record->id, 'fixture_only' => true], JSON_THROW_ON_ERROR);
