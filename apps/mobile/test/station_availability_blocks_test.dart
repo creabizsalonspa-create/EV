@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -28,7 +30,13 @@ class BlockApi extends EvApi {
 }
 class CancellationApi extends EvApi {
   CancellationApi():super(Uri.parse('https://example.invalid'));
-  int reads=0, writes=0;
+  int reads=0, writes=0, epoch=0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  @override
+  bool Function() sessionFence() { final captured=epoch; return ()=>captured==epoch; }
+  void revoke() { epoch++; changes.add(epoch); }
   final block=<String,dynamic>{
     'station_id':7,'id':'11111111-1111-4111-8111-111111111111',
     'starts_at':'2026-11-17T09:00:00Z','ends_at':'2026-11-17T10:00:00Z',
@@ -45,6 +53,25 @@ class CancellationApi extends EvApi {
   }
 }
 void main(){
+ testWidgets('invalid source interval retires old cancellation grant', (tester) async {
+  tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
+  addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  final api=CancellationApi();addTearDown(api.close);
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(api:api,stationId:7)));
+  await tester.pumpAndSettle();
+  final old=tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Cancel this block')).onPressed!;
+  expect(find.textContaining('2026-11-17T09:00:00Z'),findsNothing);
+  api.block['starts_at']='2026-02-30T09:00:00Z';
+  await tester.tap(find.text('Refresh station blocks'));await tester.pumpAndSettle();
+  expect(find.text('Cancel this block'),findsNothing);
+  api.block['starts_at']='2026-11-17T09:00:00Z';
+  await tester.tap(find.text('Refresh station blocks'));await tester.pumpAndSettle();
+  expect(find.text('Cancel this block'),findsOneWidget);
+  old();await tester.pumpAndSettle();expect(api.writes,0);
+  final fresh=tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton,'Cancel this block')).onPressed!;
+  api.revoke();await tester.pumpAndSettle();fresh();await tester.pumpAndSettle();
+  expect(find.text('Maintenance'),findsNothing);expect(api.writes,0);
+ });
  testWidgets('mismatched cancellation receipt clears native cancel grant', (tester) async {
   tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
   addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
