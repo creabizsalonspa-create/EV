@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -55,22 +56,9 @@ final class OcpiContractReviewController extends Controller
             ->orderByDesc('revision')->first();
     }
 
-    private static function validUntil(mixed $value, CarbonImmutable $checkedAt): bool
-    {
-        return is_string($value)
-            && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $value, $parts) === 1
-            && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])
-            && $value >= $checkedAt->toDateString()
-            && $value <= $checkedAt->addYears(3)->toDateString();
-    }
-
     private static function effective(?object $review, User $owner, OcpiProvider $provider): bool
     {
-        return $review && (int) $review->owner_id === (int) $owner->id
-            && $review->connection_key === $provider->connection_key
-            && $review->decision === 'review'
-            && $owner->role === 'vendor' && $owner->account_status === 'active'
-            && self::validUntil($review->valid_until, CarbonImmutable::now('UTC'));
+        return ContractAuthorizationGate::validReview($review, $provider, $owner, CarbonImmutable::now('UTC'));
     }
 
     private static function status(?object $review, User $owner, OcpiProvider $provider): array
@@ -85,6 +73,7 @@ final class OcpiContractReviewController extends Controller
             'valid_until' => $currentOwner && $review->decision === 'review' ? $review->valid_until : null,
             'source' => 'INTERNAL_MANUAL_DOCUMENT_DIGEST_ONLY',
             'operational_enforcement_available' => false,
+            'administrative_authorization_review_required' => ContractAuthorizationGate::required(),
             'external_partner_acceptance_verified' => false,
             'contract_legally_executed_verified' => false,
             'live_roaming_enabled' => false,
@@ -141,6 +130,7 @@ final class OcpiContractReviewController extends Controller
             return [
                 'scope' => 'private_ocpi_contract_review_history',
                 'operational_enforcement_available' => false,
+            'administrative_authorization_review_required' => ContractAuthorizationGate::required(),
                 'current_revision' => (int) (self::last($current)->revision ?? 0),
                 'history' => $rows,
                 'external_partner_acceptance_verified' => false,
@@ -206,8 +196,8 @@ final class OcpiContractReviewController extends Controller
                     && $last->connection_key === $current->connection_key
                     && $last->decision === 'review', 409,
                     'Only a current internal review can be revoked.');
-                // This candidate records evidence only. Operational authority is
-                // unchanged until a separately accepted enforcement integration.
+                abort_if($current->authorized && ContractAuthorizationGate::required(), 409,
+                    'Revoke provider authorization before withdrawing enforced internal review evidence.');
             }
 
             $revision = (int) ($last->revision ?? 0) + 1;
