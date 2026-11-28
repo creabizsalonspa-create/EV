@@ -86,6 +86,11 @@ class PartnerClient
         if ($current->version !== $provider->version || $current->endpoints !== $provider->endpoints) {
             throw new OcpiException('Operator connection authority changed; refresh the negotiated endpoints.');
         }
+        // An expired or transferred internal review cannot authorize any
+        // subsequent partner read, negotiation, command, or catalog push.
+        if (! app(ContractReviewGate::class)->current($current)) {
+            throw new OcpiException('Current partner owner requires a fresh internal contract review.');
+        }
     }
 
     /** Reject contradictory peer tracing without breaking previously approved headerless sandbox fixtures. */
@@ -342,6 +347,9 @@ REGEX;
                 throw new OcpiException('Operator authorization or owner activity changed; stale negotiation was discarded.');
             }
             $this->assertReadAuthority($locked, $authority);
+            if (! app(ContractReviewGate::class)->current($locked, $owner)) {
+                throw new OcpiException('Current partner owner contract review expired before negotiation was accepted.');
+            }
             if ($locked->authorization_revision >= PHP_INT_MAX) {
                 throw new OcpiException('Operator authorization revision is exhausted.');
             }

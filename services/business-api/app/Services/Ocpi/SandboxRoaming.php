@@ -40,6 +40,7 @@ class SandboxRoaming
     {
         $policy = $this->policy($provider);
         $this->assertNewWorkReadScope($policy[0]);
+        $this->assertNewWorkContract($provider);
 
         return $policy;
     }
@@ -48,6 +49,13 @@ class SandboxRoaming
     {
         abort_unless(PartnerReadProfile::modules($connection) === PartnerReadProfile::MODULES, 409,
             'Approved source read scope is incomplete for new sandbox roaming.');
+    }
+
+    /** Internal review permits new work only; it is not a signed agreement. */
+    public function assertNewWorkContract(OcpiProvider $provider): void
+    {
+        abort_unless(app(ContractReviewGate::class)->current($provider), 409,
+            'Current internal partner contract review is required.');
     }
 
     public function offer(OcpiRecord $location, string $evseUid, string $connectorId, string $tariffId): array
@@ -205,6 +213,7 @@ class SandboxRoaming
         abort_unless($p->owner_id === $order->provider_owner_id && hash_equals($order->counterparty_hash, $link->configuration_hash) && $c['test_command_contract'] === $order->contract_reference && User::whereKey($order->user_id)->exists(), 409, 'Original roaming counterparty authority changed; source review is required.');
         if ($start) {
             $this->assertNewWorkReadScope($c);
+            $this->assertNewWorkContract($p);
             $driver = User::whereKey($order->user_id)->first();
             abort_unless($driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch), 409, 'Charging consent was revoked or the customer account is unavailable.');
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');

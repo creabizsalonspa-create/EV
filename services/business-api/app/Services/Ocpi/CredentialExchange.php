@@ -247,6 +247,12 @@ class CredentialExchange
 
             return $this->operation($old);
         }
+        // Never perform even a preflight partner discovery GET for a newly
+        // registering or rotating peer with expired contract-review evidence.
+        // Explicit unregister remains available to decommission credentials.
+        abort_unless($v['action'] === 'unregister'
+            || app(ContractReviewGate::class)->current($p), 409,
+            'Partner contract evidence requires renewed internal review.');
         [$c] = $this->configuration($p);
         $configuration = $this->configurationHash($p);
         $client = app(PartnerClient::class);
@@ -355,6 +361,8 @@ class CredentialExchange
 
     private function unchanged(OcpiProvider $original, OcpiProvider $current, string $configuration, bool $unregister = false): void
     {
+        abort_unless($unregister || app(ContractReviewGate::class)->current($current), 409,
+            'Partner contract evidence changed before managed credential exchange.');
         abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && ($unregister || $current->authorization_revision < PHP_INT_MAX) && User::whereKey($current->owner_id)->where('role', 'vendor')->when(! $unregister, fn ($q) => $q->where('account_status', 'active'))->exists() && hash_equals($configuration, $this->configurationHash($current)), 409, 'Partner authority changed; exchange was fenced.');
     }
 

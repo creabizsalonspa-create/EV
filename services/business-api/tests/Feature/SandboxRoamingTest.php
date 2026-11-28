@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Models\User;
 use App\Services\Ocpi\RecordNormalizer;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
@@ -22,6 +23,38 @@ class SandboxRoamingTest extends TestCase
 {
     use CreatesSandboxRoaming;
     use RefreshDatabase;
+
+    public function test_enforced_contract_review_blocks_new_roaming_before_order_or_transport(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id;
+        $offer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1',
+            'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        config(['ocpi.contract_review_required' => true]);
+        $this->getJson($url.'/sandbox-offers')->assertConflict()->assertJsonMissingPath('offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+        $this->assertCount(0, $this->writes);
+
+        $admin = User::factory()->create(['role' => 'admin', 'account_status' => 'active']);
+        $this->actingAs($admin)->postJson('/api/ocpi/providers/'.$provider->id.'/contract-review', [
+            'decision' => 'review', 'reference_id' => 'SYNTHETIC-ROAMING-001',
+            'evidence_sha256' => str_repeat('a', 64), 'valid_until' => now('UTC')->addYear()->toDateString(),
+            'expected_revision' => 0, 'idempotency_key' => 'synthetic-roaming-review-001',
+            'reason' => 'Internal synthetic document digest review for the approved provider.',
+        ])->assertCreated()->assertJsonPath('external_partner_acceptance_verified', false);
+        $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(1, 'offers');
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->getJson($url.'/sandbox-offers')->assertConflict()->assertJsonMissingPath('offers');
+        $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertCount(0, $this->writes);
+    }
 
     #[TestWith([false])]
     #[TestWith([true])]

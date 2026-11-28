@@ -9,6 +9,7 @@ use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PartnerCatalogText;
 use App\Services\Discovery\PartnerCatalogTime;
 use App\Services\Discovery\PublicPartnerLocation;
+use App\Services\Ocpi\ContractReviewGate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -34,7 +35,9 @@ final class PartnerLocationDiscoveryController extends Controller
         $checkedAt = now('UTC');
         $text = trim($filters['q'] ?? '');
         $providerText = trim($filters['provider'] ?? '');
-        $authorizedProviders = OcpiProvider::publiclyDiscoverable();
+        $authorizedProviders = app(ContractReviewGate::class)->eligiblePublic(
+            OcpiProvider::query()->where('authorized', true)
+        );
         if ($providerText !== '') {
             $driver = DB::connection()->getDriverName();
             if (in_array($driver, ['sqlite', 'pgsql'], true) === false) {
@@ -90,7 +93,9 @@ final class PartnerLocationDiscoveryController extends Controller
         // Name is provider-configured and not proof of a legal network operator.
         // The same authorization gate prevents exposing a revoked provider label.
         $query->addSelect([
-            'provider_label' => OcpiProvider::publiclyDiscoverable()->select('name')
+            'provider_label' => app(ContractReviewGate::class)->eligiblePublic(
+                OcpiProvider::query()->where('authorized', true)
+            )->select('name')
                 ->whereColumn('ocpi_providers.id', 'ocpi_records.ocpi_provider_id')
                 ->limit(1),
         ]);

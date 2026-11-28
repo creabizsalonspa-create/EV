@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
+use App\Services\Ocpi\ContractReviewGate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -16,8 +17,10 @@ class PartnerLocationFavoriteController extends CustomerFavoritesController
     {
         $user = $this->customer($r);
         $page = OcpiRecord::join('partner_location_favorites as f', 'f.record_id', '=', 'ocpi_records.id')->where('f.user_id', $user)->where('module', 'locations')->select(['ocpi_records.*', 'f.created_at as favorite_since'])->orderByDesc('f.created_at')->orderByDesc('ocpi_records.id')->paginate(25);
-        $authorized = OcpiProvider::publiclyDiscoverable()->whereIn('id', $page->getCollection()->pluck('ocpi_provider_id'))
-            ->pluck('name', 'id')->all();
+        $authorized = app(ContractReviewGate::class)->eligiblePublic(
+            OcpiProvider::whereIn('id', $page->getCollection()->pluck('ocpi_provider_id'))
+                ->where('authorized', true)
+        )->pluck('name', 'id')->all();
         $checkedAt = now();
 
         $page->through(function ($record) use ($authorized, $checkedAt) {
@@ -64,7 +67,10 @@ class PartnerLocationFavoriteController extends CustomerFavoritesController
             $record = OcpiRecord::whereKey($id)->where('module', 'locations')->firstOrFail();
             $provider = OcpiProvider::whereKey($record->ocpi_provider_id)->lockForUpdate()->firstOrFail();
             $record = $record->fresh();
-            abort_unless($record && $provider->authorized && User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
+            abort_unless($record && $provider->authorized
+                && User::whereKey($provider->owner_id)->where('role', 'vendor')
+                    ->where('account_status', 'active')->exists()
+                && app(ContractReviewGate::class)->current($provider)
                 && ($record->normalized['publish'] ?? false) === true, 404);
             DB::table('partner_location_favorites')->insertOrIgnore(['user_id' => $user, 'record_id' => $record->id, 'created_at' => now()]);
 

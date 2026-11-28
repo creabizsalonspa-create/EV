@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Partner contract review": {en: "Partner contract review", ar: "مراجعة عقد الشريك"},
     "Read recorded charging sessions": {en: "Read recorded charging sessions", ar: "قراءة جلسات الشحن المسجلة"},
     "Recorded charging sessions": {en: "Recorded charging sessions", ar: "جلسات الشحن المسجلة"},
     "Sandbox reservation": {"en": "Sandbox reservation", "ar": "حجز تجريبي"},

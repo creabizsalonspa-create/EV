@@ -26,9 +26,27 @@ final class CpoCatalogPublisher
 
     private function admin(User $actor): void
     {
+        abort_unless($actor->role === 'admin', 403);
         $current = User::whereKey($actor->id)->lockForUpdate()->first();
-        abort_unless($current && $current->role === 'admin' && $current->account_status === 'active' && $current->auth_epoch === $actor->auth_epoch
-            && hash_equals((string) $current->password, (string) $actor->password), 403);
+        abort_unless($current && $current->role === 'admin'
+            && $current->account_status === 'active'
+            && (int) $current->auth_epoch === (int) $actor->auth_epoch
+            && hash_equals((string) $current->password, (string) $actor->password),
+            403, 'Admin authorization changed. Sign in again.');
+    }
+
+    private function currentProvider(OcpiProvider $snapshot, ?User $actor = null): OcpiProvider
+    {
+        if ($actor !== null) {
+            $this->admin($actor);
+        }
+        $owner = User::whereKey($snapshot->owner_id)->lockForUpdate()->first();
+        abort_unless($owner, 409, 'Partner owner no longer exists.');
+        $current = OcpiProvider::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless((int) $current->owner_id === (int) $owner->id,
+            409, 'Partner ownership changed. Reload the current provider before publication.');
+
+        return $current;
     }
 
     private function authority(OcpiProvider $provider): array
@@ -37,6 +55,7 @@ final class CpoCatalogPublisher
         $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->lockForUpdate()->first();
         $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
         abort_unless($contract && $provider->authorized && $provider->version === '2.2.1' && $owner?->role === 'vendor' && $owner->account_status === 'active'
+            && app(ContractReviewGate::class)->current($provider, $owner)
             && $link?->state === 'active' && $link->owner_id === $provider->owner_id && hash_equals($link->configuration_hash, $this->credentials->configurationHash($provider)), 403);
 
         return [$contract, $link];
@@ -54,8 +73,7 @@ final class CpoCatalogPublisher
     public function show(User $actor, OcpiProvider $provider): array
     {
         return DB::transaction(function () use ($actor, $provider) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($provider, $actor);
             if (! $this->contracts->approved($provider)) {
                 return ['configured' => false];
             }
@@ -195,8 +213,7 @@ final class CpoCatalogPublisher
     public function change(User $actor, OcpiProvider $provider, string $module, int $source, string $operation, ?string $expected): array
     {
         return DB::transaction(function () use ($actor, $provider, $module, $source, $operation, $expected) {
-            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($provider, $actor);
             [$contract, $link] = $this->authority($provider);
             $key = ['provider_id' => $provider->id, 'module' => $module, 'source_id' => $source];
             $previous = DB::table(self::TABLE)->where($key)->first();
@@ -276,7 +293,7 @@ final class CpoCatalogPublisher
     public function read(OcpiProvider $provider, object $authenticatedLink, string $module, array $window, ?int $source): array
     {
         return DB::transaction(function () use ($provider, $authenticatedLink, $module, $window, $source) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $current = $this->currentProvider($provider);
             [, $link] = $this->authority($current);
             abort_unless(in_array($module, $this->contracts->modules($current), true), 404);
             abort_unless($current->authorization_revision === $provider->authorization_revision
@@ -326,8 +343,7 @@ final class CpoCatalogPublisher
     public function push(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, string $key): array
     {
         [$provider, $row, $payload, $existing] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt, $key) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $current = $this->currentProvider($provider, $actor);
             [$contract, $link] = $this->authority($current);
             abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null), 409, 'Approved sandbox receiver is unavailable.');
             $row = $this->bound($current, $link)->where(['module' => $module, 'source_id' => $source, 'published_at' => $publishedAt])->first();
@@ -433,8 +449,7 @@ final class CpoCatalogPublisher
     public function reconcile(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, ?string $cdrReceipt = null): array
     {
         [$current, $row, $operation] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt) {
-            $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $current = $this->currentProvider($provider, $actor);
             [, $link] = $this->authority($current);
             abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null), 409);
             $row = $this->bound($current, $link)->where(['module' => $module, 'source_id' => $source, 'published_at' => $publishedAt])->first();
@@ -463,8 +478,7 @@ final class CpoCatalogPublisher
         }
 
         return DB::transaction(function () use ($actor, $current, $row, $operation, $verified, $publishedAt) {
-            $provider = OcpiProvider::whereKey($current->id)->lockForUpdate()->firstOrFail();
-            $this->admin($actor);
+            $provider = $this->currentProvider($current, $actor);
             [, $link] = $this->authority($provider);
             abort_unless($this->samePublication($provider, $link, $row), 409);
             $currentOperation = DB::table(self::OPERATIONS)->where('id', $operation->id)->lockForUpdate()->first();

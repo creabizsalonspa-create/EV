@@ -60,6 +60,9 @@ class RecordSynchronizer
                     }
                 }
             }
+            if (! app(ContractReviewGate::class)->current($locked)) {
+                throw new OcpiException('Current partner owner contract review expired before source ingestion.');
+            }
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];
             foreach ($validated as [$raw,$n,$hash]) {
                 $identity = ['ocpi_provider_id' => $locked->id, 'module' => $module, 'country_code' => $n['country_code'], 'party_id' => $n['party_id'], 'external_id' => $n['id']];

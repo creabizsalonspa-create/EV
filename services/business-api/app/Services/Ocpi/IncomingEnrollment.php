@@ -55,6 +55,9 @@ class IncomingEnrollment
     public function accept(OcpiProvider $p, object $link, array $body): array
     {
         $exchange = app(CredentialExchange::class);
+        // Review can naturally expire during an earlier invitation window.
+        // Never discover the peer with the proposed token after expiry.
+        abort_unless(app(ContractReviewGate::class)->current($p), 401);
         $peer = $exchange->validatePeer($p, $body);
         abort_unless($link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture(), 401);
         // Read-only discovery with the peer's newly offered token B. It cannot
@@ -88,6 +91,8 @@ class IncomingEnrollment
 
     private function current(OcpiProvider $original, OcpiProvider $current, string $configuration): void
     {
+        abort_unless(app(ContractReviewGate::class)->current($current), 409,
+            'Partner enrollment requires a current internal contract review.');
         abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && $current->authorization_revision < PHP_INT_MAX && User::whereKey($current->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists() && hash_equals($configuration, app(CredentialExchange::class)->configurationHash($current)), 409, 'Partner enrollment authority changed.');
     }
 }
