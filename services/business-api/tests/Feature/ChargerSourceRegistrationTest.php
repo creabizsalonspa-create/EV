@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Station;
 use App\Models\User;
@@ -13,10 +15,14 @@ use App\Services\Charging\ChargerSourceRegistration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request as ServerRequest;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -117,6 +123,105 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->assertDatabaseHas('stations', ['id' => $f['station']->id, 'source' => 'direct_unverified']);
     }
 
+    #[DataProvider('protocols')]
+    public function test_registered_direct_inventory_gates_production_tls_credential_and_ingress_lifecycle(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $source = 'https://registration.example.test/v1/graphql';
+        $key = 'synthetic-registration-ingress-contract-key';
+        config([
+            'csms.graphql_url' => $source,
+            'csms.ingress_enabled' => true,
+            'csms.ingress_allow_local_http' => false,
+            'csms.ingress_secret' => $key,
+            'cache.default' => 'database',
+        ]);
+        Cache::purge('database');
+        $this->source();
+        $id = $this->prepare($f);
+        $controller = app(ChargerAdmissionController::class);
+        $credential = function (int $version) use ($controller, $f) {
+            $request = ServerRequest::create('https://localhost/credential', 'POST', ['expected_version' => $version, 'days' => 1]);
+            $request->setUserResolver(fn () => $f['owner']);
+
+            return $controller->credential($request, $f['company'], $f['charger']);
+        };
+        $authenticate = function (string $secret, ?string $nonce = null, ?string $reportedProtocol = null) use ($protocol, $key) {
+            $body = json_encode(['identity' => 'CB-OWNED-001', 'protocol' => $reportedProtocol ?? $protocol, 'tls' => true, 'certificate_sha256' => null], JSON_THROW_ON_ERROR);
+            $auth = 'Basic '.base64_encode('CB-OWNED-001:'.$secret);
+            $timestamp = (string) time();
+            $nonce ??= (string) Str::uuid();
+            $headers = [
+                'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => 'on',
+                'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $timestamp,
+                'HTTP_X_EV_INGRESS_NONCE' => $nonce,
+                'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $timestamp."\n".$nonce."\n".$auth."\n".$body, $key),
+            ];
+
+            return $this->call('POST', 'https://localhost/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
+        };
+        try {
+            // Exercise production policy locally with fake upstream HTTPS and a durable nonce store.
+            $this->app->instance('env', 'production');
+            try {
+                $credential(0);
+                $this->fail('Prepared source metadata must not enable direct production admission.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            $this->assertSame(0, AdmissionProfile::firstOrFail()->credential_version);
+            Http::assertNothingSent();
+
+            $this->app->instance('env', 'testing');
+            $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered')
+                ->assertJsonPath('charging_capability_granted', false)->assertJsonPath('charger_hardware_verified', false);
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            // Charger ingress is an independent signed machine request, not the
+            // Administrator's registration session. Keep production MFA active.
+            Auth::forgetGuards();
+            $this->assertTrue(Auth::guard('web')->guest());
+            $this->app->instance('env', 'production');
+            $reply = $credential(0);
+            $this->assertSame(201, $reply->getStatusCode());
+            $secret = $reply->getData(true)['secret'];
+            $nonce = (string) Str::uuid();
+            $authenticate($secret, $nonce)->assertNoContent();
+            $authenticate($secret, $nonce)->assertUnauthorized();
+            $authenticate($secret, reportedProtocol: $protocol === '1.6' ? '2.0.1' : '1.6')->assertUnauthorized();
+
+            config(['csms.graphql_url' => 'https://different.example.test/v1/graphql']);
+            $authenticate($secret)->assertUnauthorized();
+            try {
+                $credential(1);
+                $this->fail('A changed source generation must not mint another credential.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            $this->assertSame(1, AdmissionProfile::firstOrFail()->credential_version);
+            config(['csms.graphql_url' => $source]);
+            $new = $credential(1)->getData(true)['secret'];
+            $authenticate($secret)->assertUnauthorized();
+            $authenticate($new)->assertNoContent();
+            $revoke = ServerRequest::create('https://localhost/credential', 'DELETE');
+            $revoke->setUserResolver(fn () => $f['owner']);
+            $this->assertSame(200, $controller->revoke($revoke, $f['company'], $f['charger'])->getStatusCode());
+            $authenticate($new)->assertUnauthorized();
+            $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+            $this->assertNull(AdmissionProfile::firstOrFail()->credential_digest);
+            $this->assertSame(3, AdmissionProfile::firstOrFail()->credential_version);
+            Http::assertSentCount(3);
+            $this->assertSame(1, $this->writes);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('charging_sessions', 0);
+            $this->assertDatabaseCount('finance_journals', 0);
+            $this->assertDatabaseHas('stations', ['id' => $f['station']->id, 'source' => 'direct_unverified']);
+        } finally {
+            $this->app->instance('env', 'testing');
+            config(['cache.default' => 'array', 'csms.graphql_url' => $source]);
+        }
+    }
+
     public static function failures(): array
     {
         $out = [];
@@ -191,7 +296,7 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->source();
         $id = $this->prepare($f);
         DB::table('users')->where('id', $f['admin']->id)->update(['auth_epoch' => 2]);
-        $request = \Illuminate\Http\Request::create('/registration', 'POST');
+        $request = ServerRequest::create('/registration', 'POST');
         $request->setUserResolver(fn () => $f['admin']);
         try {
             app(ChargerSourceRegistration::class)->register($request, $f['company'], $f['charger'], $id);
@@ -201,6 +306,55 @@ class ChargerSourceRegistrationTest extends TestCase
         }
         $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'prepared']);
         Http::assertNothingSent();
+    }
+
+    public static function staleVendorBearerCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['revoked', 'individual_expiry', 'global_expiry'] as $reason) {
+                $cases[] = [$protocol, $reason];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('staleVendorBearerCases')]
+    public function test_captured_vendor_bearer_cannot_read_private_registration_after_revocation_or_expiry(string $protocol, string $reason): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source();
+        $id = $this->prepare($f);
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered');
+        config(['sanctum.expiration' => 60]);
+        $this->freezeTime();
+        $token = $f['owner']->createToken('source-registration-read', ['*'], now()->addHours(2))->accessToken;
+        $snapshot = $f['owner']->fresh()->withAccessToken($token);
+        $request = ServerRequest::create($f['path'], 'GET');
+        $request->setUserResolver(fn () => $snapshot);
+        $controller = app(ChargerSourceRegistrationController::class);
+        $registration = app(ChargerSourceRegistration::class);
+        $response = $controller->show($request, $f['company'], $f['charger'], $registration);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->getData(true)['current_inventory_matches_registration']);
+        $this->assertFalse($response->getData(true)['can_register']);
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        try {
+            $controller->show($request, $f['company'], $f['charger'], $registration);
+            $this->fail('A stale vendor bearer received private registration evidence.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertSentCount(3);
+        $this->assertSame(1, $this->writes);
+        $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'registered']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 
     public function test_inventory_or_source_generation_change_fences_retained_registration(): void
@@ -221,7 +375,7 @@ class ChargerSourceRegistrationTest extends TestCase
     {
         $cases = [];
         foreach (['1.6', '2.0.1'] as $protocol) {
-            foreach (['lookup_url', 'mutation_url', 'lookup_disabled', 'readback_disabled'] as $drift) {
+            foreach (['lookup_url', 'mutation_url', 'lookup_disabled', 'readback_disabled', 'lookup_secret', 'mutation_secret', 'readback_secret'] as $drift) {
                 $cases[] = [$protocol, $drift];
             }
         }
@@ -240,11 +394,14 @@ class ChargerSourceRegistrationTest extends TestCase
         Http::fake(function (Request $request) use ($drift, $original, $alternate, &$calls) {
             $calls++;
             $this->assertSame($original, $request->url());
+            $this->assertTrue($request->hasHeader('x-hasura-admin-secret', str_repeat('s', 64)));
             if (str_contains($request['query'], 'insert_ChargingStations_one')) {
                 $this->writes++;
                 $this->remote = $request['variables']['object'] + ['id' => 401];
                 if ($drift === 'mutation_url') {
                     config(['csms.graphql_url' => $alternate]);
+                } elseif ($drift === 'mutation_secret') {
+                    config(['csms.graphql_secret' => str_repeat('r', 64)]);
                 }
 
                 return Http::response(['data' => ['insert_ChargingStations_one' => $this->remote]]);
@@ -252,11 +409,15 @@ class ChargerSourceRegistrationTest extends TestCase
             if ($calls === 1) {
                 if ($drift === 'lookup_url') {
                     config(['csms.graphql_url' => $alternate]);
+                } elseif ($drift === 'lookup_secret') {
+                    config(['csms.graphql_secret' => str_repeat('r', 64)]);
                 } elseif ($drift === 'lookup_disabled') {
                     config(['csms.upstream_registration_enabled' => false]);
                 }
             } elseif ($drift === 'readback_disabled') {
                 config(['csms.upstream_registration_enabled' => false]);
+            } elseif ($drift === 'readback_secret') {
+                config(['csms.graphql_secret' => str_repeat('r', 64)]);
             }
 
             return Http::response(['data' => ['ChargingStations' => $this->remote ? [$this->remote] : []]]);
@@ -264,16 +425,16 @@ class ChargerSourceRegistrationTest extends TestCase
         $response = $this->postJson($f['path'].'/'.$id.'/register');
         $this->assertContains($response->status(), [409, 503]);
         $expectedCalls = match ($drift) {
-            'lookup_url', 'lookup_disabled' => 1,
-            'mutation_url' => 2,
-            'readback_disabled' => 3,
+            'lookup_url', 'lookup_disabled', 'lookup_secret' => 1,
+            'mutation_url', 'mutation_secret' => 2,
+            'readback_disabled', 'readback_secret' => 3,
         };
         $this->assertSame($expectedCalls, $calls);
         $this->assertSame($expectedCalls > 1 ? 1 : 0, $this->writes);
         $this->assertDatabaseHas('charger_source_registrations', [
             'id' => $id, 'state' => 'requires_inspection', 'source_station_id' => null, 'verified_at' => null,
         ]);
-        config(['csms.graphql_url' => $original, 'csms.upstream_registration_enabled' => true]);
+        config(['csms.graphql_url' => $original, 'csms.upstream_registration_enabled' => true, 'csms.graphql_secret' => str_repeat('s', 64)]);
         $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'requires_inspection');
         $this->assertSame($expectedCalls, $calls);
         Http::assertNotSent(fn (Request $request) => $request->url() === $alternate);
@@ -323,7 +484,7 @@ class ChargerSourceRegistrationTest extends TestCase
         try {
             $migration->down();
             $this->fail('Populated source registration provenance dropped.');
-        } catch (\RuntimeException $error) {
+        } catch (RuntimeException $error) {
             $this->assertStringContainsString('Retain upstream registration provenance', $error->getMessage());
         }
         $this->assertDatabaseHas('charger_source_registrations', ['id' => $id, 'state' => 'prepared']);
