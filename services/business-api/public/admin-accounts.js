@@ -52,7 +52,7 @@ window.EvAdminAccounts = (() => {
     }
 
     async function load(page = 1) {
-        if (!request) return;
+        if (!request || !Number.isSafeInteger(page) || page < 1 || page > 100000) return;
         currentRequest?.abort();
         const controller = new AbortController();
         currentRequest = controller;
@@ -102,12 +102,15 @@ window.EvAdminAccounts = (() => {
                 tr.append(businesses);
 
                 const actionCell = element("td");
+                const current = () => active(expected, controller.signal) && currentRequest === controller;
+                let actionRevision = 0;
                 if (account.role === "admin") {
                     actionCell.textContent = "Protected Admin account";
                 } else {
                     const nextStatus = currentStatus === "active" ? "suspended" : "active";
                     const action = button(nextStatus === "suspended" ? "Suspend / إيقاف" : "Restore / استعادة", () => {
-                        if (revision !== expected) return;
+                        if (!current()) return;
+                        const own = ++actionRevision;
                         const form = element("form");
                         const reason = element("textarea");
                         reason.minLength = 10;
@@ -116,29 +119,37 @@ window.EvAdminAccounts = (() => {
                         reason.setAttribute("aria-label", "Moderation reason");
                         const submit = button("Confirm decision / تأكيد", () => {});
                         submit.type = "submit";
-                        const cancel = button("Cancel / إلغاء", () => actionCell.replaceChildren(action, history));
+                        const cancel = button("Cancel / إلغاء", () => {
+                            if (!current() || own !== actionRevision || submit.disabled) return;
+                            actionRevision++;
+                            actionCell.replaceChildren(action, history);
+                        });
                         form.append(field("Private reason (10-2000 characters)", reason), submit, cancel);
                         form.onsubmit = async (event) => {
                             event.preventDefault();
-                            if (revision !== expected || !request) return;
+                            if (!current() || own !== actionRevision || submit.disabled) return;
                             if (reason.value.trim().length < 10) {
                                 state.textContent = "Enter a review reason of at least 10 characters.";
                                 return;
                             }
                             submit.disabled = true;
                             try {
-                                await request("admin/accounts/" + account.id + "/moderate", "PATCH", {
+                                const receipt = await request("admin/accounts/" + account.id + "/moderate", "PATCH", {
                                     expected_status: currentStatus,
                                     account_status: nextStatus,
                                     reason: reason.value.trim()
-                                });
-                                if (revision === expected) {
+                                }, controller.signal);
+                                if (current() && own === actionRevision) {
+                                    if (receipt?.id !== account.id || receipt.account_status !== nextStatus)
+                                        throw Error("Unexpected moderation receipt");
                                     state.textContent = "Moderation saved. Existing sessions were revoked.";
                                     await load(currentPage);
                                 }
                             } catch {
-                                if (revision === expected) {
-                                    state.textContent = "Moderation was not saved. Refresh and try again.";
+                                if (current() && own === actionRevision) {
+                                    actionRevision++;
+                                    actionCell.replaceChildren(history);
+                                    state.textContent = "Moderation outcome unconfirmed. Refresh before another decision.";
                                 }
                             } finally {
                                 submit.disabled = false;
@@ -146,22 +157,46 @@ window.EvAdminAccounts = (() => {
                         };
                         actionCell.replaceChildren(form);
                     });
-                    const history = button("Review history / سجل المراجعة", async () => {
-                        if (revision !== expected || !request) return;
+                    async function loadHistory(historyPage = 1) {
+                        if (!current() || !Number.isSafeInteger(historyPage) || historyPage < 1 || historyPage > 100000) return;
+                        const own = ++actionRevision;
+                        actionCell.replaceChildren(element("p", "Loading private review history… / جارٍ تحميل سجل المراجعة…"));
                         try {
-                            const response = await request("admin/accounts/" + account.id + "/moderations");
-                            if (revision !== expected) return;
+                            const response = await request("admin/accounts/" + account.id + "/moderations" +
+                                (historyPage === 1 ? "" : "?page=" + historyPage), "GET", undefined, controller.signal);
+                            if (!current() || own !== actionRevision) return;
+                            if (!Array.isArray(response?.data) || response.data.length > 25 ||
+                                !Number.isSafeInteger(response.current_page) || response.current_page !== historyPage ||
+                                !Number.isSafeInteger(response.last_page) || response.last_page < historyPage || response.last_page > 100000 ||
+                                !response.data.every(event => event && ["active","suspended"].includes(event.from_status) &&
+                                    ["active","suspended"].includes(event.to_status) && event.from_status !== event.to_status &&
+                                    typeof event.created_at === "string" && typeof event.reason === "string" && event.reason.length <= 2000))
+                                throw Error("Unexpected private history");
                             const list = element("ul");
                             for (const event of response.data) {
                                 list.append(element("li", event.from_status + " → " + event.to_status
                                     + " · " + event.created_at + " · " + event.reason));
                             }
                             if (!response.data.length) list.append(element("li", "No moderation history"));
-                            actionCell.replaceChildren(action, history, list);
+                            const nav = element("div");
+                            const previous = button("Previous history / السجل السابق", () => {
+                                if (own === actionRevision && historyPage > 1) loadHistory(historyPage - 1);
+                            });
+                            const next = button("Next history / السجل التالي", () => {
+                                if (own === actionRevision && historyPage < response.last_page) loadHistory(historyPage + 1);
+                            });
+                            previous.disabled = historyPage <= 1;
+                            next.disabled = historyPage >= response.last_page;
+                            nav.append(previous, element("span", "Page " + historyPage + " / " + response.last_page), next);
+                            actionCell.replaceChildren(action, history, list, nav);
                         } catch {
-                            if (revision === expected) state.textContent = "Private moderation history unavailable.";
+                            if (current() && own === actionRevision) {
+                                actionCell.replaceChildren(action, history);
+                                state.textContent = "Private moderation history unavailable.";
+                            }
                         }
-                    });
+                    }
+                    const history = button("Review history / سجل المراجعة", () => loadHistory());
                     actionCell.append(action, history);
                 }
                 tr.append(actionCell);
