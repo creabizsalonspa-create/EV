@@ -123,11 +123,21 @@ void main() {
       'provider_label_evidence': 'PROVIDER_CONFIGURED_UNVERIFIED',
       'reported_source_age_minutes': 1550,
       'source_clock_evidence': 'PARTNER_REPORTED_TIME',
+      'source_timestamp_evidence': 'PARTNER_REPORTED_ONLY',
+      'source_updated_at': '2026-11-25T10:10:00Z',
+      'catalog_checked_at': '2026-11-26T12:00:00Z',
       'distance_basis': 'great_circle',
       'distance_km': 25.123,
     });
     expect(report.providerLabel, 'Unverified Network');
     expect(report.reportedSourceAgeMinutes, 1550);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'reported_source_age_minutes': 1550,
+      'source_clock_evidence': 'PARTNER_REPORTED_TIME',
+      'source_timestamp_evidence': 'PARTNER_REPORTED_ONLY',
+      'source_updated_at': '2026-11-25T10:10:00Z',
+      'catalog_checked_at': '2026-11-26T11:59:59Z',
+    }).reportedSourceAgeMinutes, isNull);
     expect(report.distanceKm, 25.123);
     expect(RoamingLocation.fromJson({
       ...record(), 'distance_basis': 'great_circle',

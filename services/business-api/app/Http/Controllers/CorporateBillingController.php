@@ -36,6 +36,16 @@ class CorporateBillingController extends Controller
         }
         $data = (array) $row;
         unset($data['request_key'], $data['fingerprint']);
+        // Historic statements retain the complete immutable agreement row
+        // as a JSON string, including its original internal replay identity.
+        // Sanitize the returned copy, not the stored financial evidence.
+        if (array_key_exists('agreement_snapshot', $data)) {
+            abort_unless(is_string($data['agreement_snapshot']), 409, 'Invalid corporate agreement snapshot.');
+            $snapshot = json_decode($data['agreement_snapshot'], true);
+            abort_unless(is_array($snapshot) && ! array_is_list($snapshot), 409, 'Invalid corporate agreement snapshot.');
+            unset($snapshot['request_key'], $snapshot['fingerprint']);
+            $data['agreement_snapshot'] = json_encode($snapshot, JSON_THROW_ON_ERROR);
+        }
 
         return $data;
     }
@@ -75,7 +85,8 @@ class CorporateBillingController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             abort_unless($actor->role === 'admin', 403);
 
-            return response()->json(['agreement' => $this->safe($s->publish($fleet, $actor->id, $v))], 201);
+            return response()->json(['agreement' => $this->safe($s->publish($fleet, $actor->id, $v))], 201)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -86,7 +97,8 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['agreement' => $this->safe($s->accept($agreement, $actor->id))]);
+            return response()->json(['agreement' => $this->safe($s->accept($agreement, $actor->id))])
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -97,7 +109,8 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['claim' => $this->safe($s->claim($agreement, $actor->id, $v))], 201);
+            return response()->json(['claim' => $this->safe($s->claim($agreement, $actor->id, $v))], 201)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -108,11 +121,12 @@ class CorporateBillingController extends Controller
             $a = $s->agreement($agreement);
             $f = $s->fleet((int) $a->fleet_id, $actor->id);
             $manager = $actor->role === 'admin' || (int) $f->owner_id === $actor->id;
+            $page = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
             return response()->json(DB::table('corporate_claims')
                 ->where('agreement_id', $agreement)
                 ->when(! $manager, fn ($q) => $q->where('driver_id', $actor->id))
-                ->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row) + [
+                ->orderByDesc('id')->paginate(25, ['*'], 'page', (int) ($page['page'] ?? 1))->through(fn ($row) => $this->safe($row) + [
                     'decision' => DB::table('corporate_claim_decisions')
                         ->where('claim_id', $row->id)->first(),
                     'statement_id' => DB::table('corporate_statement_lines')
@@ -130,7 +144,7 @@ class CorporateBillingController extends Controller
 
             return response()->json(['decision' => $s->decide(
                 $claim, $actor->id, $v['decision'], $v['reason']
-            )]);
+            )])->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -141,7 +155,8 @@ class CorporateBillingController extends Controller
         return DB::transaction(function () use ($r, $agreement, $s, $v) {
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
 
-            return response()->json(['statement' => $this->safe($s->issue($agreement, $actor->id, $v))], 201);
+            return response()->json(['statement' => $this->safe($s->issue($agreement, $actor->id, $v))], 201)
+                ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -151,9 +166,10 @@ class CorporateBillingController extends Controller
             $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
             $a = $s->agreement($agreement);
             $s->fleet((int) $a->fleet_id, $actor->id, true);
+            $page = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
 
             return response()->json(DB::table('corporate_statements')
-                ->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25)
+                ->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25, ['*'], 'page', (int) ($page['page'] ?? 1))
                 ->through(fn ($row) => $this->safe($row) + [
                     'receipt' => $this->safe(DB::table('corporate_receipts')
                         ->where('statement_id', $row->id)->first()),

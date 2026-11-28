@@ -172,6 +172,31 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
+    public function test_cohort_rejects_unbalanced_postings_with_otherwise_valid_receipts(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $invoice = $this->invoice(100, 'unbalanced', true);
+        $journal = DB::table('finance_journals')->where('invoice_id', $invoice->id)
+            ->where('kind', 'payment')->value('id');
+        $base = '/revenue-test/commercial/vendors/'.$this->vendor->id.'/revenue-cohorts';
+        $scope = '?currency=AED&from=2026-11-10&to=2026-11-10';
+
+        $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
+            ->assertJsonPath('totals.paid_minor', 100);
+
+        // Simulate an appended legacy entry without disabling immutable storage.
+        DB::table('finance_entries')->insert([
+            'journal_id' => $journal, 'account' => 'cash:simulator',
+            'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now(),
+        ]);
+        $count = DB::table('finance_entries')->count();
+        $this->getJson($base.$scope)->assertConflict();
+        $this->get($base.'/export'.$scope)->assertConflict();
+        $this->getJson($base.'?currency=AED&from=2026-11-09&to=2026-11-09')
+            ->assertOk()->assertJsonPath('totals.invoice_count', 0);
+        $this->assertSame($count, DB::table('finance_entries')->count());
+    }
+
     public function test_owner_only_scope_validation_and_no_financial_writes(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));

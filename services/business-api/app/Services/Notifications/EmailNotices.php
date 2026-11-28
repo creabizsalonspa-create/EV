@@ -272,8 +272,14 @@ final class EmailNotices
                 $user = User::whereKey($row->user_id)->lockForUpdate()->firstOrFail();
                 $preference = DB::table('notification_email_preferences')->where('user_id', $row->user_id)->lockForUpdate()->first();
                 $current = DB::table('notification_email_outbox')->where('id', $row->id)->lockForUpdate()->firstOrFail();
+                // An interrupted claim may have been finalized by the
+                // recovery worker before this handoff transaction started.
+                // Never overwrite a terminal receipt or send it again.
+                if ($current->state !== 'claimed') {
+                    return 'not_attempted';
+                }
                 $configuration = $this->configuration();
-                if ($current->state !== 'claimed' || ! $this->eligible($user, $preference, $configuration)
+                if (! $this->eligible($user, $preference, $configuration)
                     || ! EmailNoticeReceipt::matches($current, $preference, hash('sha256', $user->email), $configuration['hash'], true)
                     || ! $this->visibleUnread($user, $current)) {
                     DB::table('notification_email_outbox')->where('id', $row->id)->update(['state' => 'cancelled', 'failure_code' => 'consent_or_visibility_changed', 'completed_at' => now(), 'updated_at' => now()]);
@@ -294,14 +300,46 @@ final class EmailNotices
         }
     }
 
+    /**
+     * Finalize interrupted one-shot claims without contacting the transport.
+     * A claim may already have reached SMTP; neither failure nor delivery can
+     * be proved. Match the same age boundary used by EmailHandoffHealth.
+     */
+    public function recoverInterruptedClaims(int $maximum = 100): int
+    {
+        if (! in_array(DB::getDriverName(), ['sqlite', 'pgsql'], true)) {
+            return 0;
+        }
+        $maximum = min(100, max(1, $maximum));
+        $observedAt = now('UTC');
+        $cutoff = $observedAt->copy()->subMinutes(15);
+        $stale = fn () => DB::table('notification_email_outbox')->where('state', 'claimed')
+            ->where(fn ($query) => $query->where('claimed_at', '<=', $cutoff)
+                ->orWhere(fn ($missing) => $missing->whereNull('claimed_at')->where('created_at', '<=', $cutoff)));
+        $ids = $stale()->orderByRaw('COALESCE(claimed_at, created_at)')->orderBy('id')->limit($maximum)->pluck('id');
+        $recovered = 0;
+        foreach ($ids as $id) {
+            // The same receipt row is locked by the handoff transaction.
+            // Recheck state and age atomically after any competing send commits.
+            $recovered += $stale()->where('id', $id)->update([
+                'state' => 'outcome_unknown', 'failure_code' => 'interrupted_handoff_unknown',
+                'completed_at' => $observedAt, 'updated_at' => $observedAt,
+            ]);
+        }
+
+        return $recovered;
+    }
+
     public function run(int $maximum = 100): array
     {
         $maximum = min(100, max(1, $maximum));
+        // Recovery is a metadata-only operation, even if sending is disabled.
+        $recovered = $this->recoverInterruptedClaims($maximum);
         if (! $this->configuration()) {
-            return ['prepared' => 0, 'handed_off' => 0, 'cancelled' => 0, 'outcome_unknown' => 0, 'not_attempted' => 0, 'delivery_confirmed' => false];
+            return ['prepared' => 0, 'handed_off' => 0, 'cancelled' => 0, 'outcome_unknown' => 0, 'not_attempted' => 0, 'recovered_unknown' => $recovered, 'delivery_confirmed' => false];
         }
         $prepared = $this->prepare($maximum);
-        $states = ['prepared' => $prepared, 'handed_off' => 0, 'cancelled' => 0, 'outcome_unknown' => 0, 'not_attempted' => 0];
+        $states = ['prepared' => $prepared, 'handed_off' => 0, 'cancelled' => 0, 'outcome_unknown' => 0, 'not_attempted' => 0, 'recovered_unknown' => $recovered];
         $ids = DB::table('notification_email_outbox')->where('state', 'queued')->orderBy('created_at')->orderBy('id')->limit($maximum)->pluck('id');
         foreach ($ids as $id) {
             $states[$this->deliver($id)]++;

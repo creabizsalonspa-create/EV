@@ -27,6 +27,7 @@ foreach ($metadata as $key => $connection) {
     }
     $connections[$key] = [
         'registration_direction' => $direction,
+        'read_modules' => array_key_exists('read_modules', $connection) ? $connection['read_modules'] : ['locations', 'tariffs', 'sessions', 'cdrs'],
         'inbound_authorization_token' => $inboundVariable === null ? null : env($inboundVariable),
         'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
         'local_credential_profile' => $connection['local_credential_profile'] ?? null,

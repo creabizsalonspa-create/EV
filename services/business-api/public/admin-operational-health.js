@@ -30,6 +30,22 @@ window.EvAdminOperationalHealth = (() => {
             if(!i.open.every(v=>v.transition_revision===undefined ? v.acknowledged_at===undefined :
                 Number.isInteger(v.transition_revision)&&v.transition_revision>0&&v.transition_revision<=2147483647&&
                 (v.acknowledged_at===null||typeof v.acknowledged_at==='string')))return false;
+            const policy=i.review_policy;
+            if(policy!==undefined){
+                if(!policy||policy.scope!=='local_operator_review_only'||policy.external_actions!==false||
+                    (policy.target_minutes!==null&&(!Number.isInteger(policy.target_minutes)||policy.target_minutes<5||policy.target_minutes>120))||
+                    (policy.observed_at!==null&&typeof policy.observed_at!=='string')||
+                    (i.store_readable&&policy.observed_at===null))return false;
+                if(!i.open.every(v=>{
+                    const e=v.review_escalation;
+                    if(!e||!['unknown','pending','overdue','acknowledged'].includes(e.state))return false;
+                    if(e.state==='unknown')return e.age_seconds===null;
+                    if(!i.monitoring_enabled||policy.target_minutes===null||!exact(e.age_seconds)||v.transition_revision===undefined)return false;
+                    if(e.state==='acknowledged')return typeof v.acknowledged_at==='string';
+                    return v.acknowledged_at===null&&
+                        (e.state==='overdue')===(e.age_seconds>=policy.target_minutes*60);
+                }))return false;
+            } else if(i.open.some(v=>v.review_escalation!==undefined))return false;
             const resolved = i.resolved === undefined ? [] : i.resolved;
             if (!Array.isArray(resolved) || i.open.length + resolved.length > 6 ||
                 !resolved.every(v => v && Object.hasOwn(incidentNames, v.condition_key) && v.state === 'resolved' && typeof v.opened_at === 'string' && typeof v.resolved_at === 'string') ||
@@ -106,8 +122,8 @@ window.EvAdminOperationalHealth = (() => {
             if(d.alert_preferences){
                 const pref=d.alert_preferences;
                 output.append(n('h4','My incident inbox alerts','تنبيهات الحوادث في صندوق الوارد الخاص بي'),
-                    n('p','Opt in to local notices for currently open, unreviewed incidents. Separately consented generic email notices may also apply; external delivery is not confirmed.',
-                        'اشترك في التنبيهات المحلية للحوادث المفتوحة التي لم تُراجع. قد تنطبق أيضاً تنبيهات البريد العامة بموافقة منفصلة؛ لم يتأكد التسليم الخارجي.'));
+                    n('p','Opt in to local notices for currently open, unreviewed incidents. These incident notices stay in the local inbox; no email, SMS or push delivery is attempted.',
+                        'اشترك في التنبيهات المحلية للحوادث المفتوحة التي لم تُراجع. تبقى تنبيهات الحوادث في صندوق الوارد المحلي؛ لا تتم محاولة إرسالها بالبريد أو الرسائل النصية أو الإشعارات الفورية.'));
                 output.append(pref.consent_current?n('p','Incident alerts enabled for this account','تنبيهات الحوادث مفعلة لهذا الحساب'):
                     n('p','Incident alerts not enabled for current account authority','تنبيهات الحوادث غير مفعلة لصلاحية الحساب الحالية'));
                 const button=pref.consent_current?n('button','Disable incident alerts','إيقاف تنبيهات الحوادث'):
@@ -123,10 +139,24 @@ window.EvAdminOperationalHealth = (() => {
                 }
                 if(!i.store_readable)output.append(n('p','Incident history unavailable; do not assume there are no incidents.','سجل الحوادث غير متاح؛ لا تفترض عدم وجود حوادث.'));
                 else {
+                    if(i.review_policy){
+                        const target=i.review_policy.target_minutes;
+                        if(target===null)output.append(n('p','Local review target unavailable. Escalation status is unknown.','مهلة المراجعة المحلية غير متاحة. حالة التصعيد غير معروفة.'));
+                        else {
+                            const line=document.createElement('p');
+                            line.append(n('span','Local review target (minutes): ','مهلة المراجعة المحلية (دقائق): '),plain('span',target));
+                            output.append(line);
+                        }
+                        output.append(n('p','Escalation is a local review priority, not external alert delivery.','التصعيد أولوية مراجعة محلية وليس تسليماً لتنبيه خارجي.'));
+                    }
                     if(!i.open.length)output.append(n('p','No currently recorded open incidents. Unknown monitoring is not proof of health.','لا توجد حوادث مفتوحة مسجلة حالياً. عدم معرفة حالة المراقبة ليس دليلاً على السلامة.'));
                     for(const item of i.open){
                         const a=document.createElement('article');
                         a.append(n('h5',...incidentNames[item.condition_key]),n('p','Open / مفتوح','مفتوح / Open'),plain('p',item.opened_at));
+                        if(item.review_escalation){
+                            const escalationLabels={unknown:['Review urgency unknown','أولوية المراجعة غير معروفة'],pending:['Review due within target','المراجعة ضمن المهلة'],overdue:['Escalate: operator review overdue','تصعيد: مراجعة المشغل متأخرة'],acknowledged:['Review recorded; not resolved','تم تسجيل المراجعة؛ لم يتم الحل']};
+                            a.append(n('p',...escalationLabels[item.review_escalation.state]));
+                        }
                         if(item.transition_revision!==undefined){
                             if(item.acknowledged_at!==null)a.append(n('p','Operator review acknowledged; incident remains open.','تم تأكيد مراجعة المشغل؛ الحادث ما زال مفتوحاً.'),plain('time',item.acknowledged_at));
                             else {
