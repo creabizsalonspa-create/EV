@@ -1,12 +1,21 @@
 "use strict";
 window.EvStationBlocks = (() => {
     const text = (tag, en, ar) => { const node = document.createElement(tag); node.dataset.en = en; node.dataset.ar = ar; node.textContent = document.documentElement.lang === 'ar' ? ar : en; return node; };
+    // Blocks are policy intervals with explicit offsets, not physical telemetry.
+    const instant = raw => typeof raw === 'string' &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(raw) &&
+        raw === raw.trim() && window.EvStationTime?.displayStationTime(raw, 'UTC', 'en')
+        ? Date.parse(raw) : NaN;
+    const interval = row => Number.isFinite(instant(row.starts_at)) &&
+        Number.isFinite(instant(row.ends_at)) && instant(row.starts_at) < instant(row.ends_at);
+    const sameInstant = (a,b) => Number.isFinite(instant(a)) && instant(a) === instant(b);
+    const display = (raw,language) => window.EvStationTime.serverEventTime(raw,language);
     function show(root, rows) {
         for (const row of Array.isArray(rows) ? rows : []) {
             if (row?.scope !== 'STATION_WIDE_OPERATOR_POLICY' || row.physical_availability_verified !== false
-                || ![row.starts_at, row.ends_at, row.reason_en, row.reason_ar].every(value => typeof value === 'string')) continue;
-            root.append(text('p', 'Operator block (live charger status unknown, UTC): ' + row.starts_at + ' → ' + row.ends_at + ' — ' + row.reason_en,
-                'حجب من المشغل (حالة الشاحن المباشرة غير معروفة، UTC): ' + row.starts_at + ' ← ' + row.ends_at + ' — ' + row.reason_ar));
+                || ![row.reason_en, row.reason_ar].every(value => typeof value === 'string') || !interval(row)) continue;
+            root.append(text('p', 'Operator block (live charger status unknown, UTC): ' + display(row.starts_at,'en') + ' → ' + display(row.ends_at,'en') + ' — ' + row.reason_en,
+                'حجب من المشغل (حالة الشاحن المباشرة غير معروفة، UTC): ' + display(row.starts_at,'ar') + ' ← ' + display(row.ends_at,'ar') + ' — ' + row.reason_ar));
         }
     }
     function mount(root, {api, stationId, current, initialRows = null}) {
@@ -16,8 +25,7 @@ window.EvStationBlocks = (() => {
             row.station_id === stationId &&
             typeof row.id === 'string' &&
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) &&
-            typeof row.starts_at === 'string' &&
-            typeof row.ends_at === 'string' &&
+            interval(row) &&
             typeof row.reason_en === 'string' &&
             typeof row.reason_ar === 'string' &&
             Number.isSafeInteger(row.revision) && row.revision > 0 &&
@@ -67,7 +75,7 @@ window.EvStationBlocks = (() => {
                     const result = await api(path + '/' + encodeURIComponent(row.id) + '/cancel', 'POST', {revision:row.revision});
                     if (!current()) return;
                     if (!validReceipt(result, true) || result.id !== row.id || result.revision !== row.revision + 1 ||
-                        result.starts_at !== row.starts_at || result.ends_at !== row.ends_at ||
+                        !sameInstant(result.starts_at,row.starts_at) || !sameInstant(result.ends_at,row.ends_at) ||
                         result.reason_en !== row.reason_en || result.reason_ar !== row.reason_ar) throw Error('Invalid cancellation receipt');
                     await read();
                 });
@@ -75,18 +83,31 @@ window.EvStationBlocks = (() => {
             }
             const form = document.createElement('form'), fields = {};
             for (const [key,en,ar] of [['starts_at','Start (UTC, YYYY-MM-DDTHH:mm:ssZ)','البداية (UTC، YYYY-MM-DDTHH:mm:ssZ)'],['ends_at','End (UTC, YYYY-MM-DDTHH:mm:ssZ)','النهاية (UTC، YYYY-MM-DDTHH:mm:ssZ)'],['reason_en','Public reason (English)','السبب المنشور (بالإنجليزية)'],['reason_ar','Public reason (Arabic)','السبب المنشور (بالعربية)']]) {
-                const label = text('label', en, ar), input = document.createElement('input'); input.name = key; input.required = true; input.maxLength = key.startsWith('reason') ? 300 : 20;
-                input.value = pending?.[key] || ''; input.disabled = pending !== null; label.append(input); form.append(label); fields[key] = input;
+                const label = document.createElement('label'), input = document.createElement('input'); input.name = key; input.required = true; input.maxLength = key.startsWith('reason') ? 300 : 20;
+                input.value = pending?.[key] || ''; input.disabled = pending !== null;
+                // Locale engine replaces translated leaf text, never the input.
+                label.append(text('span',en,ar),input); form.append(label); fields[key] = input;
             }
             const submit = text('button', pending ? 'Retry same block request' : 'Publish station block', pending ? 'إعادة محاولة طلب الحجب نفسه' : 'نشر حجب المحطة'); submit.type = 'submit'; form.append(submit);
             form.onsubmit = event => { event.preventDefault(); if (busy || !current() || view !== renderVersion) return;
-                pending ??= {idempotency_key:crypto.randomUUID(), ...Object.fromEntries(Object.entries(fields).map(([key,input]) => [key,input.value.trim()]))};
+                if (!pending) {
+                    const draft = Object.fromEntries(Object.entries(fields).map(([key,input]) => [key,input.value.trim()]));
+                    const utcInput = value => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value);
+                    if (!utcInput(draft.starts_at) || !utcInput(draft.ends_at) || !interval(draft) ||
+                        !draft.reason_en || !draft.reason_ar) {
+                        notice.dataset.en = 'Choose a valid increasing UTC interval and both public reasons.';
+                        notice.dataset.ar = 'اختر فترة UTC صحيحة ومتزايدة والسببين المنشورين.';
+                        notice.textContent = document.documentElement.lang === 'ar' ? notice.dataset.ar : notice.dataset.en;
+                        return;
+                    }
+                    pending = {idempotency_key:crypto.randomUUID(), ...draft};
+                }
                 Object.values(fields).forEach(input => input.disabled = true);
                 act(async () => { const result = await api(path, 'POST', pending); if (!current()) return;
                     if (!validReceipt(result, result?.cancelled === true) ||
                         result.revision !== (result.cancelled ? 2 : 1) ||
-                        Date.parse(result.starts_at) !== Date.parse(pending.starts_at) ||
-                        Date.parse(result.ends_at) !== Date.parse(pending.ends_at) ||
+                        !sameInstant(result.starts_at,pending.starts_at) ||
+                        !sameInstant(result.ends_at,pending.ends_at) ||
                         result.reason_en !== pending.reason_en || result.reason_ar !== pending.reason_ar) throw Error('Invalid block receipt');
                     pending = null; await read(); });
             };

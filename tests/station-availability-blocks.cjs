@@ -10,6 +10,7 @@ class Element {
 }
 function find(root,match){return [...(match(root)?[root]:[]),...root.children.flatMap(n=>find(n,match))];}
 function fixture(ar=false){const root=new Element('section'),window={},document={visibilityState:'visible',addEventListener:(name,fn)=>{window[name]=fn},documentElement:{lang:ar?'ar':'en'},getElementById:()=>root,createElement:tag=>new Element(tag)};
+ vm.runInNewContext(fs.readFileSync('services/business-api/public/station-time.js','utf8'),{window,document});
  vm.runInNewContext(fs.readFileSync('services/business-api/public/station-availability-blocks.js','utf8'),{window,document,crypto:{randomUUID:()=> 'unique-request-identity'}});
  return {root,document,window,...window.EvStationBlocks};}
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -120,4 +121,44 @@ test('mismatched cancellation receipt clears stale cancel grant without acceptin
  assert.equal(writes,1);assert.equal(reads,1);
  assert.equal(button(ui,'Cancel this block'),undefined);
  assert.match(ui.root.textContent,/Action not confirmed/);
+});
+
+test('policy clocks normalize offsets and reject impossible, timezone-less or reversed intervals', () => {
+ const row={scope:'STATION_WIDE_OPERATOR_POLICY',physical_availability_verified:false,
+ starts_at:'2026-11-17T13:00:00+04:00',ends_at:'2026-11-17T14:00:00+04:00',
+ reason_en:'Scheduled',reason_ar:'مجدولة'};
+ for(const ar of [false,true]){
+  const ui=fixture(ar);
+  ui.show(ui.root,[row,{...row,starts_at:'2026-02-30T09:00:00Z'},
+    {...row,starts_at:'2026-11-17T09:00:00'},
+    {...row,starts_at:row.ends_at,ends_at:row.starts_at}]);
+  assert.equal(ui.root.children.length,1);
+  const expected=new Intl.DateTimeFormat(ar?'ar':'en-GB',{timeZone:'UTC',dateStyle:'medium',timeStyle:'short',hourCycle:'h23'})
+    .format(new Date('2026-11-17T09:00:00Z'))+' (UTC)';
+  assert.ok(ui.root.textContent.includes(expected));
+  assert.doesNotMatch(ui.root.textContent,/2026-11-17T13:00:00/);
+ }
+});
+test('invalid draft cannot dispatch; locale binding belongs to label leaf, not form field',async()=>{
+ const ui=fixture();let writes=0;
+ ui.mount(ui.root,{stationId:7,current:()=>true,api:async(path,method)=>{
+  if(method)writes++;return {station_id:7,data:[]};
+ }});await tick();
+ const form=find(ui.root,n=>n.tag==='form')[0];
+ for(const name of ['starts_at','ends_at','reason_en','reason_ar'])input(form,name).value=({starts_at:'2026-02-30T09:00:00Z',ends_at:'2026-11-24T10:00:00Z'})[name]||name;
+ submit(form);await tick();
+ assert.equal(writes,0);assert.match(ui.root.textContent,/Choose a valid increasing UTC interval/);
+ for(const label of find(form,n=>n.tag==='label')){
+  assert.equal(label.dataset.en,undefined);
+  assert.ok(label.children.some(n=>n.tag==='span'&&n.dataset.en&&n.dataset.ar));
+  assert.ok(label.children.some(n=>n.tag==='input'));
+ }
+});
+test('impossible receipt interval cannot expose cancellation',async()=>{
+ const ui=fixture();
+ const row={station_id:7,id:'11111111-1111-4111-8111-111111111111',scope:'STATION_WIDE_OPERATOR_POLICY',physical_availability_verified:false,
+ cancelled:false,revision:1,starts_at:'2026-02-30T09:00:00Z',ends_at:'2026-11-24T10:00:00Z',reason_en:'Invalid',reason_ar:'غير صالح'};
+ ui.mount(ui.root,{stationId:7,current:()=>true,api:async()=>({station_id:7,data:[row]})});await tick();
+ assert.equal(button(ui,'Cancel this block'),undefined);
+ assert.match(ui.root.textContent,/Station blocks are unavailable/);
 });
