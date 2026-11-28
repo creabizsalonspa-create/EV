@@ -21,6 +21,7 @@ use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
+use App\Http\Controllers\FederatedNearbyDiscoveryController;
 use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\LoyaltyController;
 use App\Http\Controllers\NotificationCenterController;
@@ -66,6 +67,7 @@ Route::middleware('throttle:authentication')->group(function () {
 });
 Route::get('/api/stations', [P::class, 'stations'])->middleware('throttle:catalog');
 Route::get('/api/discovery/search', [UnifiedDiscoveryController::class, 'index'])->middleware(['auth', 'throttle:catalog']);
+Route::post('/api/discovery/federated-nearby', [FederatedNearbyDiscoveryController::class, 'search'])->middleware(['auth', 'throttle:catalog', 'throttle:discovery-lookups']);
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::get('/api/me', fn (Request $r) => response()->json($r->user()));
     Route::post('/api/logout', [P::class, 'logout']);

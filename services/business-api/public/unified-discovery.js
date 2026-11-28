@@ -27,6 +27,22 @@
    const field=text('label',en,ar),control=document.createElement('input');control.name=key;control.maxLength=limit;field.append(control);advancedInputs[key]=control;advanced.append(field);
   }
   advanced.append(text('p','Operator and address match published labels. Access, power and price filters exclude partner reports. Published station kW is a catalog rating, not measured live power. Price matches current simulated energy rates only, excluding tax; it is not a total-cost quote. Enter both rate and currency.','يطابق المشغل والعنوان الأوصاف المنشورة. تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية فقط دون الضريبة؛ وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.'));form.append(advanced);
+  const radiusKeys=['latitude','longitude','radius_km'];
+  const radiusLimits=[[-90,90],[-180,180],[1,200]];
+  for(const [key,en,ar] of [['latitude','Latitude (optional)','خط العرض (اختياري)'],['longitude','Longitude (optional)','خط الطول (اختياري)'],['radius_km','Radius in km (1–200)','نطاق البحث بالكيلومتر (1–200)']]){
+   const field=text('label',en,ar),control=document.createElement('input');
+   control.name=key;control.maxLength=24;control.inputMode='decimal';
+   field.append(control);advancedInputs[key]=control;advanced.append(field);
+  }
+  advanced.append(text('p','Enter all three proximity fields or leave all blank. Straight-line distance applies to published records only; coordinates are not saved in recent filters.','أدخل حقول القرب الثلاثة أو اتركها فارغة. المسافة بخط مستقيم للسجلات المنشورة فقط؛ لا تحفظ الإحداثيات في المرشحات الحديثة.'));
+  function validRadius(values){
+   const present=radiusKeys.filter(key=>Object.hasOwn(values,key));
+   if(present.length===0)return true;
+   return present.length===3&&radiusKeys.every((key,i)=>{
+    const value=values[key],n=Number(value),[lo,hi]=radiusLimits[i];
+    return /^[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$/.test(value)&&Number.isFinite(n)&&n>=lo&&n<=hi;
+   });
+  }
   const normalizeRate=value=>value.replace(/[٠-٩۰-۹]/g,c=>String(c.charCodeAt(0)-(c>='۰'?0x6f0:0x660))).replace(/٫/g,'.');
   const submit=text('button','Search all sources','البحث في كل المصادر');submit.type='submit';form.append(submit);state.setAttribute('role','status');
   // Deliberately private to this UI instance: never localStorage, cookies,
@@ -90,6 +106,91 @@
    window.dispatchEvent(published);
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
+  // All source entry points belong to discovery, but a licensed provider
+  // is a separate consented lookup, not part of the published SQL page.
+  const licensedEntry=document.createElement('div');
+  let licensedEntryEpoch=0;
+  function renderLicensedEntry(){
+   const entryEpoch=++licensedEntryEpoch;
+   licensedEntry.replaceChildren();
+   if(owner===null)return;
+   const epoch=generation,who=owner;
+   const sourceStatus=document.createElement('p');sourceStatus.setAttribute('role','status');
+   const open=button('Open Charge Map — separate licensed search','خريطة الشحن المفتوحة — بحث مرخص منفصل',()=>{
+    if(entryEpoch!==licensedEntryEpoch||epoch!==generation||who!==owner||writing||submit.disabled||document.visibilityState==='hidden')return;
+    const panel=document.getElementById('open-charge-map-discovery');
+    if(!panel||panel.hidden){
+     sourceStatus.replaceChildren(text('span','Licensed source is not available. Published search remains available.','المصدر المرخص غير متاح. يبقى البحث في السجلات المنشورة متاحاً.'));
+     return;
+    }
+    // Do not transfer the query, coordinates, filters, consent or identity.
+    // The existing provider form owns its independent consent and limits.
+    panel.tabIndex=-1;
+    panel.focus?.({preventScroll:true});
+    panel.scrollIntoView?.({block:'start'});
+   });
+   open.dataset.discoverySource='open_charge_map';
+   licensedEntry.append(text('p','Published results and licensed reports are separate. Opening the licensed source does not submit a search or share your current filters.','النتائج المنشورة والتقارير المرخصة منفصلة. فتح المصدر المرخص لا يرسل بحثاً أو يشارك مرشحاتك الحالية.'),open,sourceStatus);
+  }
+  root.append(licensedEntry);
+  // A federated request is a one-shot explicit consent, not a preference.
+  // Normal paging, map searches and favorite refreshes never replay it.
+  const federatedPanel=document.createElement('section');
+  const federatedConsent=document.createElement('input');federatedConsent.type='checkbox';
+  federatedConsent.name='federated_consent';
+  const consentLabel=text('label','Allow Open Charge Map to receive the entered coordinates, radius and optional country for this search.','اسمح لخريطة الشحن المفتوحة بتلقي الإحداثيات والنطاق والدولة الاختيارية لهذا البحث.');
+  consentLabel.append(federatedConsent);
+  const licensedResults=document.createElement('div');
+  licensedResults.setAttribute('aria-live','polite');
+  const federatedButton=button('Search published and licensed nearby locations','البحث في المواقع المنشورة والمرخصة القريبة',()=>{
+   if(owner===null||writing||submit.disabled||document.visibilityState==='hidden')return;
+   const geo={};for(const key of radiusKeys){const value=normalizeRate(advancedInputs[key].value.trim());if(value)geo[key]=value;}
+   const incompatible=input.value.trim()||source.value!=='all'||plug.value||report.value||ageFilter.value||
+       savedInput.checked||Object.entries(advancedInputs).some(([key,control])=>!radiusKeys.includes(key)&&control.value.trim());
+   if(!federatedConsent.checked||!validRadius(geo)||Object.keys(geo).length!==3||incompatible){
+    licensedResults.replaceChildren(text('p','Enter all three proximity fields, clear other filters except country, and confirm source consent.','أدخل حقول القرب الثلاثة وامسح المرشحات الأخرى باستثناء الدولة وأكد موافقة المصدر.'));
+    return;
+   }
+   federatedConsent.checked=false;
+   advancedQuery=geo;viewportQuery={};query='';scope='all';country=market.value;connector='';recentStatus='';maxSourceAge='';savedOnly=false;
+   load(1,false,{...geo,...(country?{country}:{}),consent:true});
+  });
+  federatedPanel.append(text('h4','Consented nearby search across sources','بحث قريب عبر المصادر بموافقة'),text('p','One explicit geographic search. Published inventory and up to 25 licensed reports remain separate; no combined total or verified live availability. Other filters require a separate published search.','بحث جغرافي صريح واحد. تبقى السجلات المنشورة وحتى ٢٥ تقريراً مرخصاً منفصلة؛ لا إجمالي موحد ولا توفر مباشر مؤكد. تتطلب المرشحات الأخرى بحثاً منشوراً منفصلاً.'),consentLabel,federatedButton,licensedResults);
+  federatedPanel.hidden=true;root.append(federatedPanel);
+  function showLicensed(source){
+   if(!source||!['observed','unavailable'].includes(source.state))throw Error('Invalid licensed state');
+   if(source.state==='unavailable'){
+    if(source.sample!==null)throw Error('Unexpected licensed sample');
+    licensedResults.append(text('p','Licensed source unavailable; published results remain available. This is not zero coverage.','المصدر المرخص غير متاح؛ تبقى النتائج المنشورة متاحة. لا يعني ذلك انعدام التغطية.'));
+    return;
+   }
+   const data=source.sample;
+   if(!data||data.provider!=='open_charge_map'||data.evidence!=='OPEN_LICENSED_DISCOVERY_ONLY'||
+      data.distance_basis!=='great_circle'||data.availability!=='unknown'||data.remote_control!==false||
+      data.reservable!==false||data.billing_eligible!==false||data.license_policy!=='PER_RECORD_ATTRIBUTION_REQUIRED'||
+      !Array.isArray(data.results)||data.results.length>25||data.count!==data.results.length)throw Error('Invalid licensed sample');
+   const ids=new Set(),cards=[];
+   const label=(value,max,required=false)=>typeof value==='string'&&Array.from(value).length<=max&&
+     !/[\x00-\x1f\x7f]/.test(value)&&(!required||value.trim()!=='');
+   for(const r of data.results){
+    if(!r||r.provider!=='open_charge_map'||r.source_status_evidence!=='OPEN_CHARGE_MAP_DISCOVERY_ONLY'||
+       r.distance_basis!=='great_circle'||r.availability!=='unknown'||r.remote_control!==false||
+       r.reservable!==false||r.billing_eligible!==false||typeof r.id!=='string'||
+       !/^ocm:[1-9][0-9]{0,9}$/.test(r.id)||Number(r.id.slice(4))>2147483647||ids.has(r.id)||
+       r.source_url!=='https://openchargemap.org/site/poi/details/'+r.id.slice(4)||
+       !label(r.name,160,true)||!label(r.data_provider,120,true)||!label(r.data_license,240,true)||
+       r.attribution!=='Open Charge Map / '+r.data_provider||
+       !Number.isFinite(r.distance_km)||r.distance_km<0||r.distance_km>200)throw Error('Invalid licensed record');
+    ids.add(r.id);
+    const card=document.createElement('article');card.dataset.ocmLocationId=r.id;
+    const link=text('a','View source and license','عرض المصدر والترخيص');link.href=r.source_url;link.target='_blank';link.rel='noopener noreferrer';
+    card.append(text('h4',r.name,r.name),text('p',r.attribution+' · '+r.data_license,r.attribution+' · '+r.data_license),
+      text('p','Straight-line distance: '+r.distance_km.toFixed(2)+' km','المسافة المباشرة: '+r.distance_km.toFixed(2)+' كم'),
+      text('p','Licensed report · availability unknown · no booking, charging or payment authority.','تقرير مرخص · التوفر غير معروف · لا صلاحية للحجز أو الشحن أو الدفع.'),link);
+    cards.push(card);
+   }
+   licensedResults.append(text('h4',data.count+' licensed reports (bounded sample)',data.count+' تقريراً مرخصاً (عينة محدودة)'),...cards);
+  }
   // Missing source metadata must never become a bookable catalog action.
   // Location identity remains visible as read-only evidence.
   const catalogMetadataComplete=row=>row&&row.station&&
@@ -106,12 +207,14 @@
       (typeof row.station.timezone==='string'&&row.station.timezone.trim()!==''))&&
     (row.station.reservation_policy===null||row.station.reservation_policy===undefined||
       typeof row.station.reservation_policy==='string');
-  async function load(target,remember=false){
+  async function load(target,remember=false,federated=null){
    if(writing)return;
-   const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
-   uncertain=false;const turn=++generation;revokePublishedMap();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
+   const historySnapshot=remember&&!radiusKeys.some(key=>Object.hasOwn(advancedQuery,key))?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
+   uncertain=false;const turn=++generation;licensedResults.replaceChildren();federatedConsent.checked=false;revokePublishedMap();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
-    const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
+    const result=federated?await api('federated-nearby','POST',federated):await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
+    if(federated&&(!result||result.evidence!=='FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY'||result.distance_basis!=='great_circle'||result.complete_geographic_coverage!==false||result.live_status_verified!==false||result.combined_total!==null))throw Error('Invalid federated envelope');
+    const data=federated?result.published:result;
     if(!data||!Array.isArray(data.data)||data.data.length>25||
        !Number.isSafeInteger(data.current_page)||data.current_page!==target||
        !Number.isSafeInteger(data.last_page)||data.last_page<1||data.last_page>1000000||
@@ -198,14 +301,15 @@
     if(page>1)nav.append(button('Previous','السابق',()=>load(page-1)));
     nav.append(text('span',`Page ${page} / ${data.last_page}`,`الصفحة ${page} / ${data.last_page}`));
     if(page<data.last_page)nav.append(button('Next','التالي',()=>load(page+1)));
+    if(federated)showLicensed(result.licensed);
     rememberSuccessfulSearch(historySnapshot);
    }catch{if(turn===generation){
-     mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();
+     licensedResults.replaceChildren();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();
      state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));
     }}
-   finally{if(turn===generation)submit.disabled=false;}
+   finally{if(turn===generation){submit.disabled=false;renderLicensedEntry();}}
   }
-  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
+  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(['max_rate_per_kwh','min_power_kw','max_power_kw',...radiusKeys].includes(key))value=normalizeRate(value);if(value)advancedQuery[key]=value;}if(!validRadius(advancedQuery)){generation++;licensedResults.replaceChildren();federatedConsent.checked=false;revokePublishedMap();mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();submit.disabled=false;advancedQuery={};state.replaceChildren(text('span','Enter valid latitude, longitude and a radius of 1–200 km, or leave all three blank.','أدخل خط العرض والطول ونطاقاً صالحاً من 1 إلى 200 كم أو اترك الحقول الثلاثة فارغة.'));return;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1,true);};
   // Map movement does not make a request. Only the user's explicit map-view
   // search event supplies transient bounds to this existing authenticated API.
   window.addEventListener('unified-viewport-search',event=>{
@@ -227,19 +331,19 @@
   const controller={
    setContext(context){
     if(owner!==context.owner||customer!==(context.customer===true))this.clear();
-    owner=context.owner;customer=context.customer===true;
-    favoriteWriter=context.favorite;savedField.hidden=!customer;
+    owner=context.owner;customer=context.customer===true;federatedPanel.hidden=owner===null;
+    favoriteWriter=context.favorite;savedField.hidden=!customer;renderLicensedEntry();
    },
    clear(){
     revokePublishedMap();
-    recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};
+    recentPresets=[];renderRecentPresets();licensedResults.replaceChildren();federatedConsent.checked=false;advancedQuery={};viewportQuery={};
     for(const control of Object.values(advancedInputs))control.value='';
     generation++;writing=false;uncertain=false;scope='all';source.value='all';
     connector='';plug.value='';recentStatus='';report.value='';maxSourceAge='';
     ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];
     mapButton.disabled=true;query='';input.value='';country='';market.value='';
     list.replaceChildren();nav.replaceChildren();state.replaceChildren();
-    submit.disabled=false;
+    submit.disabled=false;renderLicensedEntry();
    }
   };
   // BFCache navigation and hidden tabs cannot retain a previous customer's

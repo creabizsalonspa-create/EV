@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/unified_discovery.dart';
+import 'package:creabiz_ev/licensed_discovery.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/partner_report_map.dart';
 import 'test_support.dart';
@@ -25,6 +26,7 @@ class UnifiedApi extends FixtureApi {
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
     calls.add('$method $path');queries.add(query);
+    if(path=='discovery/open-charge-map/capabilities')return {'provider':'open_charge_map','enabled':true,'evidence':'DISCOVERY_ONLY','requires_explicit_consent':true,'max_radius_km':200,'max_results':25,'attribution_required_per_record':true,'availability':'unknown','remote_control':false,'reservable':false};
     if(pending!=null)return pending!.future;
     return {'data':int.parse(query['page']!)==1?[
       if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3,if(forgedMapAuthority)'evidence':'LIVE_VERIFIED'}}
@@ -34,6 +36,30 @@ class UnifiedApi extends FixtureApi {
       if(duplicateIdentity) catalogRow(),
     ]:[partnerRow()],'current_page':int.parse(query['page']!),'last_page':2,'total':3};
   }
+}
+class FederatedFixtureApi extends UnifiedApi {
+  final bodies=<Map<String,dynamic>>[];
+  bool unavailable=false, forged=false;
+  Completer<dynamic>? held;
+  @override
+  Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
+    if(path!='discovery/federated-nearby')return super.request(path,method:method,body:body,query:query);
+    calls.add('$method $path');bodies.add(Map<String,dynamic>.from(body!));
+    if(held!=null)return held!.future;
+    return envelope();
+  }
+  Map<String,dynamic> envelope()=>{'evidence':'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY','distance_basis':'great_circle',
+    'complete_geographic_coverage':false,'live_status_verified':forged,'combined_total':null,
+    'published':{'data':[catalogRow(),partnerRow()],'current_page':1,'last_page':2,'total':3},
+    'licensed':unavailable?{'state':'unavailable','sample':null}:{
+      'state':'observed','sample':{'provider':'open_charge_map','evidence':'OPEN_LICENSED_DISCOVERY_ONLY',
+        'availability':'unknown','distance_basis':'great_circle','license_policy':'PER_RECORD_ATTRIBUTION_REQUIRED',
+        'remote_control':false,'reservable':false,'billing_eligible':false,'count':0,'results':[],
+        'quality_sample':{'evidence':'FILTERED_LICENSED_CROWD_SAMPLE_ONLY','max_source_sample':25,
+          'complete_geographic_coverage':false,'live_status_verified':false,'returned_count':0,
+          'source_time_unknown_or_future_count':0,'source_older_than_24h_count':0,'operational_report_unknown_count':0}
+      }}
+  };
 }
 class UnifiedFixtureTiles extends TileProvider {
   int requests=0;
@@ -137,6 +163,131 @@ class ForgedPublishedApi extends UnifiedApi {
 
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+  for(final ar in [false,true])testWidgets('federated nearby uses one explicit consent and never replays it ($ar)',(tester)async{
+    roomy(tester);
+    final api=FederatedFixtureApi();addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('Unexpected action'),ar:ar));
+    final advanced=find.text(ar?'مرشحات متقدمة':'Advanced filters');
+    await tester.ensureVisible(advanced);await tester.tap(advanced);await tester.pumpAndSettle();
+    for(final entry in {'latitude':'25.2','longitude':'55.3','radius_km':'10'}.entries){
+      final field=find.byKey(Key('unified-${entry.key}'));
+      await tester.ensureVisible(field);await tester.enterText(field,entry.value);
+    }
+    final consent=find.byKey(const Key('unified-federated-consent'));
+    final submit=find.byKey(const Key('unified-federated-submit'));
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.calls,isEmpty);
+    await tester.ensureVisible(consent);await tester.tap(consent);await tester.pumpAndSettle();
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.calls,['POST discovery/federated-nearby']);
+    expect(api.bodies.single,{'latitude':'25.2','longitude':'55.3','radius_km':'10','consent':true});
+    expect(tester.widget<CheckboxListTile>(consent).value,false);
+    final count=find.text(ar?'0 تقريراً مرخصاً (عينة محدودة)':'0 licensed reports (bounded sample)');
+    await tester.scrollUntilVisible(count,200,scrollable:find.byType(Scrollable).first);
+    expect(count,findsOneWidget);
+    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+    final next=find.text(ar?'التالي':'Next');
+    await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
+    expect(api.calls,['POST discovery/federated-nearby','GET discovery/search']);
+    expect(api.queries.single['radius_km'],'10');
+    expect(find.text(ar?'0 تقريراً مرخصاً (عينة محدودة)':'0 licensed reports (bounded sample)'),findsNothing);
+    api.rotate();await tester.pumpAndSettle();
+    expect(consent,findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+  for(final mode in ['unavailable','forged','revoked'])testWidgets('federated result boundary $mode',(tester)async{
+    roomy(tester);
+    // This verifies the response/authority boundary, not scrolling. Keep
+    // the whole expanded form and both result cards mounted at once.
+    tester.view.physicalSize=const Size(1100,3600);
+    final api=FederatedFixtureApi();addTearDown(api.close);
+    api.unavailable=mode=='unavailable';api.forged=mode=='forged';
+    if(mode=='revoked')api.held=Completer<dynamic>();
+    await tester.pumpWidget(app(api,(_)=>fail('Unexpected action')));
+    final advanced=find.text('Advanced filters');
+    await tester.ensureVisible(advanced);await tester.tap(advanced);await tester.pumpAndSettle();
+    for(final entry in {'latitude':'25.2','longitude':'55.3','radius_km':'10'}.entries){
+      final field=find.byKey(Key('unified-${entry.key}'));
+      await tester.ensureVisible(field);await tester.enterText(field,entry.value);
+    }
+    final consent=find.byKey(const Key('unified-federated-consent')),submit=find.byKey(const Key('unified-federated-submit'));
+    await tester.ensureVisible(consent);await tester.tap(consent);await tester.pumpAndSettle();
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pump();
+    if(mode=='revoked'){api.rotate();api.held!.complete(api.envelope());}
+    await tester.pumpAndSettle();
+    expect(api.calls,['POST discovery/federated-nearby']);
+    final catalog=find.byKey(const ValueKey('catalog:7'));
+    final unavailable=find.text('Licensed source unavailable; published results remain available. This is not zero coverage.');
+    final partner=find.byKey(const ValueKey('partner:7'));
+    final rejected=find.text('Search failed. Retry explicitly.');
+    if(mode=='unavailable'){
+      expect(rejected,findsNothing);
+      expect(find.text('3 published results'),findsOneWidget);
+      expect(catalog,findsOneWidget);
+      expect(partner,findsOneWidget);
+    }else{
+      expect(catalog,findsNothing);
+      expect(partner,findsNothing);
+      if(mode=='forged')expect(rejected,findsOneWidget);
+    }
+    expect(unavailable,mode=='unavailable'?findsOneWidget:findsNothing);
+    expect(find.text('0 licensed reports (bounded sample)'),findsNothing);
+    expect(tester.takeException(),isNull);
+  });
+
+  for(final ar in [false,true])testWidgets('manual published radius never enters recent filters ($ar)',(tester)async{
+    roomy(tester);
+    final api=UnifiedApi();addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('Unexpected catalog action'),ar:ar,customer:true));
+    final advanced=find.text(ar?'مرشحات متقدمة':'Advanced filters');
+    await tester.ensureVisible(advanced);await tester.tap(advanced);await tester.pumpAndSettle();
+    final values=ar?['٢٥٫٢','٥٥٫٣','١٠']:['25.2','55.3','10'];
+    for(final entry in ['latitude','longitude','radius_km'].asMap().entries){
+      final field=find.byKey(Key('unified-${entry.value}'));
+      await tester.ensureVisible(field);await tester.enterText(field,values[entry.key]);
+    }
+    expect(api.calls,isEmpty);
+    final submit=find.widgetWithText(FilledButton,ar?'البحث في كل المصادر':'Search all sources');
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.queries.single['latitude'],'25.2');
+    expect(api.queries.single['longitude'],'55.3');
+    expect(api.queries.single['radius_km'],'10');
+    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+    final radius=find.byKey(const Key('unified-radius_km'));
+    await tester.ensureVisible(radius);await tester.enterText(radius,'201');
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.calls.length,1);
+    expect(find.byKey(const ValueKey('catalog:7')),findsNothing);
+    api.rotate();await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unified-radius_km')),findsNothing);
+    expect(api.calls.length,1);
+    expect(tester.takeException(),isNull);
+  });
+  for(final ar in [false,true])testWidgets('unified licensed source opens existing consent workflow without forwarding drafts ($ar)',(tester)async{
+    roomy(tester);
+    final api=UnifiedApi();addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('Unexpected catalog action'),ar:ar,customer:true));
+    await tester.enterText(find.byKey(const Key('unified-query')),'private query');
+    expect(api.calls,isEmpty);
+    final open=find.byKey(const Key('unified-licensed-source'));
+    await tester.tap(open);await tester.pumpAndSettle();
+    expect(find.byType(LicensedDiscoveryScreen),findsOneWidget);
+    expect(api.calls,['GET discovery/open-charge-map/capabilities']);
+    expect(find.text('private query'),findsNothing);
+    expect(api.queries.single,isEmpty);
+    final back=find.descendant(of:find.byType(LicensedDiscoveryScreen),matching:find.byType(BackButton));
+    expect(back,findsOneWidget);
+    await tester.tap(back);await tester.pumpAndSettle();
+    expect(find.text('private query'),findsOneWidget);
+    expect(api.calls,['GET discovery/open-charge-map/capabilities']);
+    final stale=tester.widget<IconButton>(open).onPressed!;
+    api.rotate();await tester.pumpAndSettle();
+    stale();await tester.pumpAndSettle();
+    expect(find.byType(LicensedDiscoveryScreen),findsNothing);
+    expect(api.calls.length,1);
+    expect(tester.takeException(),isNull);
+  });
+
 
   for (final ar in [false, true]) {
     testWidgets('unverified union source cannot grant a map pin or saved-place action ($ar)', (tester) async {
@@ -240,7 +391,7 @@ void main(){
    // collapse the panel, then finish scrolling before pagination.
    await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
    final next=find.text(ar?'التالي':'Next');
-   await tester.ensureVisible(next);await tester.pumpAndSettle();
+   await tester.scrollUntilVisible(next,200,scrollable:find.byType(Scrollable).first);await tester.pumpAndSettle();
    await tester.tap(next);await tester.pumpAndSettle();
    expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
@@ -270,7 +421,7 @@ void main(){
   final api=SavedUnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},customer:true));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes,['PUT favorites/7']);
   await tester.tap(find.byKey(const ValueKey('unified-favorite-partner:7')));await tester.pumpAndSettle();expect(api.writes.last,'PUT roaming/favorites/7');expect(api.saved.length,2);
-  await tester.tap(find.byType(CheckboxListTile));await tester.pump();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.last['saved_only'],'1');
+  await tester.tap(find.byKey(const Key('unified-saved-only')));await tester.pump();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.last['saved_only'],'1');
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes.last,'DELETE favorites/7');expect(api.saved,{'partner:7'});
  });
  testWidgets('unknown saved outcomes block replay until explicit refresh',(tester)async{
@@ -555,8 +706,8 @@ void main(){
    await tester.pumpWidget(app(api,(_){},customer:true));
    final input=find.byKey(const Key('unified-query'));
    await tester.enterText(input,'Private customer place');
-   await tester.ensureVisible(find.byType(CheckboxListTile));
-   await tester.tap(find.byType(CheckboxListTile));await tester.pump();
+   await tester.ensureVisible(find.byKey(const Key('unified-saved-only')));
+   await tester.tap(find.byKey(const Key('unified-saved-only')));await tester.pump();
    await tester.ensureVisible(find.byType(FilledButton));
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'1');
@@ -564,7 +715,7 @@ void main(){
    await tester.pumpWidget(app(api,(_){},customer:false));await tester.pumpAndSettle();
    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
    expect(tester.widget<TextField>(input).controller!.text,isEmpty);
-   expect(find.byType(CheckboxListTile),findsNothing);
+   expect(find.byKey(const Key('unified-saved-only')),findsNothing);
    await tester.ensureVisible(find.byType(FilledButton));
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'0');

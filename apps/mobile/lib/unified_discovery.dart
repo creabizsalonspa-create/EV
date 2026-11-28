@@ -6,6 +6,7 @@ import 'partner_report_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' show TileProvider;
 import 'api.dart';
+import 'licensed_discovery.dart';
 
 /// Published local records only. This view never grants remote charging rights.
 String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
@@ -47,13 +48,28 @@ class UnifiedDiscoveryView extends StatefulWidget {
   final ValueChanged<Station> onCatalog;
   final bool customer;
   final TileProvider? mapTileProvider;
-  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false, this.mapTileProvider});
+  final VoidCallback? onExpired;
+  const UnifiedDiscoveryView({super.key, required this.api, required this.onCatalog, this.customer=false, this.mapTileProvider, this.onExpired});
   @override
   State<UnifiedDiscoveryView> createState() => _UnifiedDiscoveryViewState();
 }
 class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with WidgetsBindingObserver {
   final query=TextEditingController();
-  final advanced={for(final key in ['operator','address','access','min_power_kw','max_power_kw','max_rate_per_kwh','price_currency'])key:TextEditingController()};
+  static const radiusKeys=['latitude','longitude','radius_km'];
+  final advanced={for(final key in ['operator','address','access','min_power_kw','max_power_kw','max_rate_per_kwh','price_currency',...radiusKeys])key:TextEditingController()};
+  bool validRadius(Map<String,String> values){
+    final present=radiusKeys.where(values.containsKey).length;
+    if(present==0)return true;
+    if(present!=3)return false;
+    final bounds=[(-90.0,90.0),(-180.0,180.0),(1.0,200.0)];
+    for(var i=0;i<radiusKeys.length;i++){
+      final value=values[radiusKeys[i]]!;
+      if(!RegExp(r'^[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$').hasMatch(value))return false;
+      final n=double.tryParse(value);
+      if(n==null||!n.isFinite||n<bounds[i].$1||n>bounds[i].$2)return false;
+    }
+    return true;
+  }
   Map<String,String> submittedAdvanced={}, submittedViewport={};
   late bool Function() ownSession;
   String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
@@ -63,6 +79,8 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   final List<Map<String,String>> recentPresets=[];
   bool busy=false,foreground=true,savedOnly=false,submittedSaved=false,writing=false,uncertain=false;
   String? error;
+  bool federatedConsent=false, licensedUnavailable=false;
+  LicensedSample? licensedSample;
   List<Map<String,dynamic>> rows=[];
   String tr(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   StreamSubscription<int>? sessionSubscription;
@@ -74,7 +92,9 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     // the privacy repaint to the detached Navigator route after that frame.
     scheduleMicrotask((){if(!mapEvents.isClosed)mapEvents.add(epoch);});
   }
+  void clearLicensed(){federatedConsent=false;licensedUnavailable=false;licensedSample=null;}
   void redact(){
+    clearLicensed();
     generation++;formEpoch++;
     query.clear();
     for(final control in advanced.values)control.clear();
@@ -132,12 +152,35 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     final epoch=generation,api=widget.api,fence=ownSession;
     return (){if(current(epoch,api,fence)&&!busy&&!writing)action();};
   }
-  Future<void> load(int target)async{
+  Future<void> federatedNearby()async{
+    if(!mounted||!foreground||busy||writing||!ownSession())return;
+    final geo=<String,String>{};
+    for(final key in radiusKeys){
+      final value=vendorDigits(advanced[key]!.text.trim());
+      if(value.isNotEmpty)geo[key]=value;
+    }
+    final incompatible=query.text.trim().isNotEmpty||scope!='all'||connector.isNotEmpty||
+        sourceStatus.isNotEmpty||sourceAge.isNotEmpty||savedOnly||
+        advanced.entries.any((entry)=>!radiusKeys.contains(entry.key)&&entry.value.text.trim().isNotEmpty);
+    if(!federatedConsent||geo.length!=3||!validRadius(geo)||incompatible){
+      setState(()=>error=tr('Enter all three proximity fields, clear other filters except country, and confirm source consent.','أدخل حقول القرب الثلاثة وامسح المرشحات الأخرى باستثناء الدولة وأكد موافقة المصدر.'));
+      return;
+    }
+    final body=<String,dynamic>{...geo,if(country.isNotEmpty)'country':country,'consent':true};
+    setState((){
+      clearLicensed();submittedAdvanced=geo;submittedViewport={};
+      submitted='';submittedScope='all';submittedCountry=country;
+      submittedConnector='';submittedSourceStatus='';submittedSourceAge='';
+      submittedSaved=false;rememberNextSearch=false;
+    });
+    await load(1,federated:body);
+  }
+  Future<void> load(int target,{Map<String,dynamic>? federated})async{
     if(!mounted||!foreground||writing||busy)return;
     if(!ownSession()){setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
     // Only an explicitly submitted search is eligible for history.
     // Pagination, map selections and favorite refresh never record history.
-    final remember=target==1 && rememberNextSearch && submittedViewport.isEmpty;
+    final remember=target==1 && rememberNextSearch && submittedViewport.isEmpty && !radiusKeys.any(submittedAdvanced.containsKey);
     final snapshot=remember?<String,String>{
       'q':submitted,'scope':submittedScope,'country':submittedCountry,
       'connector':submittedConnector,'source_status':submittedSourceStatus,
@@ -147,10 +190,27 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     rememberNextSearch=false;
     final turn=++generation;final api=widget.api;final fence=ownSession;
     bool active()=>current(turn,api,fence);
-    setState((){busy=true;uncertain=false;error=null;rows=[];});
+    setState((){clearLicensed();busy=true;uncertain=false;error=null;rows=[];});
     try{
-      final data=await api.request('discovery/search',query:{...submittedAdvanced,...submittedViewport,'q':submitted,'scope':submittedScope,if(submittedCountry.isNotEmpty)'country':submittedCountry,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
+      final result=federated!=null?await api.request('discovery/federated-nearby',method:'POST',body:federated):await api.request('discovery/search',query:{...submittedAdvanced,...submittedViewport,'q':submitted,'scope':submittedScope,if(submittedCountry.isNotEmpty)'country':submittedCountry,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
       if(!active())return;
+      LicensedSample? sample;
+      var unavailable=false;
+      if(federated!=null){
+        if(result is! Map||result['evidence']!='FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY'||
+            result['distance_basis']!='great_circle'||result['complete_geographic_coverage']!=false||
+            result['live_status_verified']!=false||!result.containsKey('combined_total')||result['combined_total']!=null||
+            result['licensed'] is! Map)throw const FormatException('Unverified federated envelope');
+        final source=result['licensed'] as Map;
+        if(source['state']=='observed'){
+          sample=LicensedSample.fromJson(source['sample']);
+        }else if(source['state']=='unavailable'&&source.containsKey('sample')&&source['sample']==null){
+          unavailable=true;
+        }else{
+          throw const FormatException('Unverified licensed state');
+        }
+      }
+      final data=federated==null?result:(result as Map)['published'];
       if(data is! Map||data['data'] is! List||
           (data['data'] as List).length>25||
           data['current_page'] is! int||data['current_page']!=target||
@@ -177,6 +237,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       }
       setState((){
         rows=parsed;page=data['current_page'];last=data['last_page'];total=data['total'];
+        licensedSample=sample;licensedUnavailable=unavailable;
         if(snapshot!=null){
           bool same(Map<String,String> p)=>p.length==snapshot.length &&
             p.entries.every((entry)=>snapshot[entry.key]==entry.value);
@@ -185,7 +246,10 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           if(recentPresets.length>5)recentPresets.removeLast();
         }
       });
-    }catch(_){if(active())setState(()=>error=tr('Search failed. Retry explicitly.','تعذر البحث. أعد المحاولة صراحةً.'));}
+    }catch(e){
+      if(mounted&&foreground&&identical(api,widget.api)&&e is ApiException&&e.endsCurrentSession){widget.onExpired?.call();}
+      else if(active())setState(()=>error=tr('Search failed. Retry explicitly.','تعذر البحث. أعد المحاولة صراحةً.'));
+    }
     finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];recentPresets.clear();error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
   /// Only an explicit map action can submit this transient rectangle.
@@ -256,9 +320,17 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         body:Center(child:Text(!ownSession()?tr('Account changed. Reopen search.', 'تغير الحساب. أعد فتح البحث.'):tr('Private discovery paused.','البحث الخاص متوقف مؤقتاً.'))),
       )
     : Scaffold(
-    appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
+    appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر')),actions:[
+      IconButton(key:const Key('unified-licensed-source'),
+        tooltip:tr('Open Charge Map — separate licensed search','خريطة الشحن المفتوحة — بحث مرخص منفصل'),
+        onPressed:busy||writing?null:guard((){
+          // No query, coordinates, consent or published record is handed off.
+          // The licensed screen checks capability and requests its own consent.
+          Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>LicensedDiscoveryScreen(api:widget.api,onExpired:widget.onExpired,mapTileProvider:widget.mapTileProvider)));
+        }),icon:const Icon(Icons.travel_explore)),
+    ]),
     body:ListView(key:ValueKey('unified-form-$formEpoch'),padding:const EdgeInsets.all(16),children:[
-      Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
+      Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. Use the source action to open licensed discovery with separate consent; published results are not combined with licensed reports.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. استخدم زر المصدر لفتح الاكتشاف المرخص بموافقة منفصلة؛ لا تدمج النتائج المنشورة مع التقارير المرخصة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
       DropdownButtonFormField<String>(key:const Key('unified-scope'),initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
       InputDecorator(
@@ -285,13 +357,23 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       DropdownButtonFormField<String>(key:const Key('unified-source-status'),initialValue:sourceStatus,decoration:InputDecoration(labelText:tr('Simulated source state at search','حالة مصدر المحاكاة عند البحث')),items:[DropdownMenuItem(value:'',child:Text(tr('All states','كل الحالات'))),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,Localizations.localeOf(context).languageCode=='ar')))],onChanged:busy||writing?null:(value)=>setState(()=>sourceStatus=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-age'),initialValue:sourceAge,decoration:InputDecoration(labelText:tr('Partner source updates within (platform results unchanged)','تحديثات مصدر الشريك خلال (نتائج المنصة دون تغيير)')),items:[for(final choice in [('','All report ages','كل أعمار التقارير'),('1','Last hour','آخر ساعة'),('24','Last 24 hours','آخر 24 ساعة'),('168','Last 7 days','آخر 7 أيام')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy||writing?null:(value)=>setState(()=>sourceAge=value!)),
       Text(tr('This filter matches canonical connector reports within five minutes at search. Partner reports cannot satisfy it. Physical availability is unverified; search again to recheck.','يطابق هذا المرشح تقارير موصلات المنصة خلال خمس دقائق عند البحث. لا تنطبق تقارير الشركاء عليه. التوفر الفعلي غير مؤكد؛ أعد البحث للتحقق.')),
-      if(widget.customer)CheckboxListTile(value:savedOnly,onChanged:busy||writing?null:(value)=>setState(()=>savedOnly=value==true),title:Text(tr('Saved places only','الأماكن المحفوظة فقط'))),
+      if(widget.customer)CheckboxListTile(key:const Key('unified-saved-only'),value:savedOnly,onChanged:busy||writing?null:(value)=>setState(()=>savedOnly=value==true),title:Text(tr('Saved places only','الأماكن المحفوظة فقط'))),
       ExpansionTile(title:Text(tr('Advanced filters','مرشحات متقدمة')),children:[
         for(final field in [('operator','Operator label','اسم المشغل',100),('address','Address or city','العنوان أو المدينة',150),('access','Platform access description','وصف الوصول في المنصة',150),('min_power_kw','Minimum published station rating (kW)','أقل قدرة منشورة للمحطة (كيلوواط)',4),('max_power_kw','Maximum published station rating (kW)','أعلى قدرة منشورة للمحطة (كيلوواط)',4),('max_rate_per_kwh','Maximum simulated energy rate per kWh','أقصى سعر طاقة محاكاة لكل كيلوواط ساعة',10),('price_currency','Rate currency (for example AED)','عملة السعر (مثلاً AED)',3)])
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
+        for(final field in [('latitude','Latitude (optional)','خط العرض (اختياري)'),('longitude','Longitude (optional)','خط الطول (اختياري)'),('radius_km','Radius in km (1–200)','نطاق البحث بالكيلومتر (1–200)')])
+          TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:24,keyboardType:const TextInputType.numberWithOptions(decimal:true,signed:true),decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
+        Text(tr('Enter all three proximity fields or leave all blank. Straight-line distance applies to published records only; coordinates are not saved in recent filters.','أدخل حقول القرب الثلاثة أو اتركها فارغة. المسافة بخط مستقيم للسجلات المنشورة فقط؛ لا تحفظ الإحداثيات في المرشحات الحديثة.')),
         Text(tr('Access, power and price filters exclude partner reports. Published station kW is catalog rated power, not measured live power. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:guard((){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);}),child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:guard((){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw',...radiusKeys].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}if(!validRadius(submittedAdvanced)){retireMap();setState((){clearLicensed();generation++;rows=[];total=0;page=last=1;submittedAdvanced={};submittedViewport={};rememberNextSearch=false;error=tr('Enter valid latitude, longitude and a radius of 1–200 km, or leave all three blank.','أدخل خط العرض والطول ونطاقاً صالحاً من 1 إلى 200 كم أو اترك الحقول الثلاثة فارغة.');});return;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);}),child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      Text(tr('Consented nearby search across sources','بحث قريب عبر المصادر بموافقة')),
+      Text(tr('Published inventory and up to 25 licensed reports remain separate. No combined total or verified live availability. Other filters require a separate published search.','تبقى السجلات المنشورة وحتى ٢٥ تقريراً مرخصاً منفصلة. لا إجمالي موحد ولا توفر مباشر مؤكد. تتطلب المرشحات الأخرى بحثاً منشوراً منفصلاً.')),
+      CheckboxListTile(key:const Key('unified-federated-consent'),value:federatedConsent,
+        onChanged:busy||writing?null:(value)=>setState(()=>federatedConsent=value==true),
+        title:Text(tr('Allow Open Charge Map to receive the entered coordinates, radius and optional country for this search.','اسمح لخريطة الشحن المفتوحة بتلقي الإحداثيات والنطاق والدولة الاختيارية لهذا البحث.'))),
+      OutlinedButton(key:const Key('unified-federated-submit'),onPressed:busy||writing?null:guard(()=>federatedNearby()),
+        child:Text(tr('Search published and licensed nearby locations','البحث في المواقع المنشورة والمرخصة القريبة'))),
       if(recentPresets.isNotEmpty&&foreground&&ownSession())...[
         Text(tr('Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)')),
         Wrap(spacing:8,children:[
@@ -317,6 +399,16 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           :tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'),
       )),
       for(final row in rows)card(row),
+      if(licensedUnavailable)Text(tr('Licensed source unavailable; published results remain available. This is not zero coverage.','المصدر المرخص غير متاح؛ تبقى النتائج المنشورة متاحة. لا يعني ذلك انعدام التغطية.')),
+      if(licensedSample!=null)...[
+        Text(tr('${licensedSample!.reports.length} licensed reports (bounded sample)','${licensedSample!.reports.length} تقريراً مرخصاً (عينة محدودة)')),
+        for(final report in licensedSample!.reports)Card(key:ValueKey(report.id),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(report.name),Text('${report.attribution} · ${report.license}'),
+          Text(tr('Straight-line distance: ${report.distance.toStringAsFixed(2)} km','المسافة المباشرة: ${report.distance.toStringAsFixed(2)} كم')),
+          Text(tr('Licensed report · availability unknown · no booking, charging or payment authority.','تقرير مرخص · التوفر غير معروف · لا صلاحية للحجز أو الشحن أو الدفع.')),
+          SelectableText(report.source.toString()),
+        ]))),
+      ],
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:guard((){load(page-1);}),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:guard((){load(page+1);}),child:Text(tr('Next','التالي')))]),
     ]),
   );
@@ -359,7 +451,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         final rawName=raw['name'];
         final label=rawName is String&&rawName.trim().isNotEmpty
             ?rawName:tr('Unnamed platform station','محطة منصة بلا اسم');
-        return Card(key:ValueKey(row['key']),child:Padding(
+        return Card(key:ValueKey<String>(row['key'] as String),child:Padding(
           padding:const EdgeInsets.all(12),
           child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text(label),
@@ -369,7 +461,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         ));
       }
       final station=Station.fromJson(raw);
-      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()&&!busy&&!writing?guard((){if(rows.any((v)=>identical(v,row)))openCatalog(station);}):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
+      return Card(key:ValueKey<String>(row['key'] as String),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()&&!busy&&!writing?guard((){if(rows.any((v)=>identical(v,row)))openCatalog(station);}):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
     final nameRaw=location['name'];
@@ -384,7 +476,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     final address=[location['address'],location['city'],location['country']]
       .whereType<String>().where((value)=>value.trim().isNotEmpty).join(' · ');
     final locationCanMap=PartnerMapPoint.fromPublishedLocation(location)!=null;
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
+    return Card(key:ValueKey<String>(row['key'] as String),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),

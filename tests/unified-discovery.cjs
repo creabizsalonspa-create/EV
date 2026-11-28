@@ -10,7 +10,7 @@ class Element{
 }
 const sample={data:[{key:'catalog:7',kind:'catalog',station:{id:7,name:'<b>Catalog</b>',evidence:'SIMULATED',connector_type:'CCS2',power_kw:50}},{key:'partner:7',kind:'partner',record_id:7,provider_label:'Private operator label',location:{name:'<img src=x>',address:'Synthetic',country:'ARE',availability:'unknown',remote_control:false,reservable:false},evidence:'PARTNER_REPORTED_UNVERIFIED',availability:'unknown',remote_control:false,reservable:false}],current_page:1,last_page:2,total:3};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(lang='en',api=async()=>sample){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:()=>null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
+function fixture(lang='en',api=async()=>sample,licensedPanel=null){const events=[],listeners=new Map(),window={addEventListener(type,fn){listeners.set(type,[...(listeners.get(type)||[]),fn]);},dispatchEvent(event){events.push(event);for(const fn of listeners.get(event.type)||[])fn(event);}},document={visibilityState:'visible',addEventListener:(type,fn)=>window.addEventListener('document:'+type,fn),getElementById:id=>id==='open-charge-map-discovery'?licensedPanel:null,documentElement:{lang},createElement:tag=>new Element(tag)};vm.runInNewContext(fs.readFileSync('services/business-api/public/partner-catalog-policy.js','utf8'),{window});vm.runInNewContext(fs.readFileSync('services/business-api/public/unified-discovery.js','utf8'),{window,document,URLSearchParams,CustomEvent:class{constructor(type,data={}){this.type=type;this.detail=data.detail??null;}}});const root=new Element('section'),chosen=[],calls=[];const control=window.EvUnifiedDiscovery.install(root,async(...args)=>{calls.push(args);return api(...args);},id=>chosen.push(id));return{root,document,chosen,calls,control,events,emit:(type,detail)=>window.dispatchEvent({type,detail}),form:root.children[2],list:root.children[4],nav:root.children[5]};}
 for(const lang of ['en','ar'])test('actual unified DOM query, typed identities and safe source text '+lang,async()=>{
  const f=fixture(lang);assert.equal(f.calls.length,0);f.form.children[0].children.find(n=>n.tag==='input').value='100%_hub';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('q'),'100%_hub');assert.equal(f.list.children.length,2);assert.match(f.list.textContent,/<img src=x>/);assert.equal(f.list.children[1].children.some(n=>n.tag==='button'),false);f.list.children[0].children.find(n=>n.tag==='button').onclick();assert.deepEqual(f.chosen,[7]);assert.equal(f.list.children[0].children[0].innerHTML,undefined);assert.match(f.list.textContent,lang==='ar'?/التوفر غير معروف/:/availability unknown/);f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('page'),'2');assert(f.calls.every(args=>args.length===1));
 });
@@ -518,4 +518,74 @@ for(const lang of ['en','ar'])for(const transition of ['account','role','clear']
  assert.equal(input.value,'Current draft','A discarded actor/history callback must not overwrite current form fields');
  assert.equal(f.calls.length,before,'Discarded callbacks must not issue requests');
  assert.equal(panel.hidden,true);
+});
+
+for(const lang of ['en','ar'])test('manual published radius is explicit, bounded and excluded from recent filters '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'radius-account',customer:true});
+ const advanced=f.form.children.find(x=>x.tag==='details');
+ const field=name=>advanced.children.flatMap(x=>x.children).find(x=>x.name===name);
+ const values=lang==='ar'?['٢٥٫٢','٥٥٫٣','١٠']:['25.2','55.3','10'];
+ for(const [i,key] of ['latitude','longitude','radius_km'].entries())field(key).value=values[i];
+ assert.equal(f.calls.length,0);
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const params=new URLSearchParams(f.calls[0][0].split('?')[1]);
+ assert.equal(params.get('latitude'),'25.2');assert.equal(params.get('longitude'),'55.3');assert.equal(params.get('radius_km'),'10');
+ assert.equal(f.root.children[7].hidden,true);
+ f.nav.children.find(x=>x.tag==='button').onclick();await tick();
+ assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('radius_km'),'10');
+ field('radius_km').value='201';f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.calls.length,2);assert.equal(f.list.children.length,0);
+ field('radius_km').value='';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.calls.length,2);
+ f.control.clear();for(const key of ['latitude','longitude','radius_km'])assert.equal(field(key).value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.calls.length,3);
+ assert.equal(new URLSearchParams(f.calls[2][0].split('?')[1]).has('latitude'),false);
+});
+
+for(const lang of ['en','ar'])test('unified licensed source entry is explicit, local and account fenced '+lang,async()=>{
+ let focuses=0,scrolls=0;
+ const provider={hidden:false,focus(){focuses++;},scrollIntoView(){scrolls++;}};
+ const f=fixture(lang,async()=>sample,provider);
+ const entry=f.root.children[8];
+ assert.equal(entry.children.length,0);
+ f.control.setContext({owner:7,customer:true});
+ const stale=entry.children[1].onclick;
+ // The application locale observer replaces textContent on data-en nodes.
+ // Containers must not be tagged as text leaves, or it erases their children.
+ function apply(node,locale){if(node.dataset.en!==undefined){const value=node.dataset[locale]||node.dataset.en;if(node.textContent!==value)node.textContent=value;}for(const child of node.children)apply(child,locale);}
+ apply(f.root,lang==='en'?'ar':'en');assert.equal(entry.children.length,3);
+ f.control.setContext({owner:7,customer:true});stale();assert.equal(focuses,0);
+ const retired=entry.children[1].onclick;
+ f.form.children[0].children.find(n=>n.tag==='input').value='private draft';
+ entry.children[1].onclick();
+ assert.equal(focuses,1);assert.equal(scrolls,1);assert.equal(f.calls.length,0);assert.equal(f.events.length,0);
+ f.control.setContext({owner:8,customer:true});
+ retired();assert.equal(focuses,1);
+ provider.hidden=true;entry.children[1].onclick();
+ apply(f.root,lang);assert.equal(entry.children[2].children.length,1);
+ assert.match(entry.textContent,lang==='ar'?/المصدر المرخص غير متاح/:/Licensed source is not available/);
+ assert.equal(f.calls.length,0);assert.equal(scrolls,1);
+ f.control.setContext({owner:null,customer:false});assert.equal(entry.children.length,0);
+});
+
+for(const lang of ['en','ar'])test('federated nearby uses one explicit POST and never replays consent '+lang,async()=>{
+ const report={provider:'open_charge_map',source_status_evidence:'OPEN_CHARGE_MAP_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,id:'ocm:123',source_url:'https://openchargemap.org/site/poi/details/123',name:'<b>Licensed</b>',data_provider:'Fixture',data_license:'CC BY-SA 4.0',attribution:'Open Charge Map / Fixture',distance_km:1.25};
+ const envelope={evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',complete_geographic_coverage:false,live_status_verified:false,combined_total:null,published:sample,licensed:{state:'observed',sample:{provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',distance_basis:'great_circle',availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,license_policy:'PER_RECORD_ATTRIBUTION_REQUIRED',count:1,results:[report]}}};
+ const f=fixture(lang,async(path)=>path==='federated-nearby'?envelope:{...sample,current_page:2});
+ f.control.setContext({owner:'a',customer:true});
+ const panel=f.root.children[9],consent=panel.children[2].children.find(x=>x.tag==='input'),button=panel.children[3],results=panel.children[4];
+ const advanced=f.form.children.find(x=>x.tag==='details');
+ for(const [i,key] of ['latitude','longitude','radius_km'].entries())advanced.children.flatMap(x=>x.children).find(x=>x.name===key).value=['25.2','55.3','10'][i];
+ f.form.children[1].children.find(x=>x.tag==='select').value='all';
+ button.onclick();await tick();assert.equal(f.calls.length,0);
+ consent.checked=true;button.onclick();await tick();
+ assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'federated-nearby');assert.equal(f.calls[0][1],'POST');
+ assert.deepEqual({...f.calls[0][2]},{latitude:'25.2',longitude:'55.3',radius_km:'10',consent:true});
+ assert.equal(consent.checked,false);assert.equal(f.list.children.length,2);
+ assert.match(results.textContent,/<b>Licensed<\/b>/);assert.match(results.textContent,/CC BY-SA 4.0/);
+ assert.equal(results.children[1].children.some(x=>x.tag==='button'),false);
+ f.nav.children.find(x=>x.tag==='button').onclick();await tick();
+ assert.equal(f.calls.length,2);assert.match(f.calls[1][0],/^search\?/);assert.equal(results.children.length,0);
+ f.control.setContext({owner:'b',customer:true});assert.equal(consent.checked,false);
+ assert.equal(results.children.length,0);assert.equal(f.list.children.length,0);
 });
