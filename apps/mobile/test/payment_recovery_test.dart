@@ -12,6 +12,18 @@ class RecoveryApi extends FixtureApi {
   int posts = 0;
   final pages = <int>[];
   Completer<dynamic>? pending;
+  final epochs = StreamController<int>.broadcast(sync: true);
+  int epoch = 0;
+  @override
+  Stream<int> get sessionEvents => epochs.stream;
+  @override
+  bool Function() sessionFence() {
+    final captured = epoch;
+    return () => captured == epoch;
+  }
+
+  void revoke() => epochs.add(++epoch);
+
   @override
   Future<dynamic> request(
     String path, {
@@ -33,7 +45,11 @@ class RecoveryApi extends FixtureApi {
     return {
       'data': [
         path.endsWith('events')
-            ? {'id': 5, 'status': 'uncertain'}
+            ? {
+                'id': 5,
+                'status': 'uncertain',
+                'created_at': '2026-11-14T08:00:00+04:00',
+              }
             : {
                 'id': 9,
                 'status': 'uncertain',
@@ -43,6 +59,7 @@ class RecoveryApi extends FixtureApi {
                 'amount_minor': 999,
                 'minor_units': invalidPrecision ? 7 : 2,
                 'currency': 'AED',
+                'created_at': '2026-11-14T08:00:00+04:00',
                 'identity': 'private secret diagnostic',
               },
       ],
@@ -279,6 +296,80 @@ void main() {
     expect(find.textContaining(recoveryAr['subscription']!), findsOneWidget);
     expect(t.takeException(), isNull);
   });
+  testWidgets('retained recovery actions and consent expire with the account', (
+    t,
+  ) async {
+    final api = RecoveryApi();
+    addTearDown(api.epochs.close);
+    await t.pumpWidget(app(api));
+    await t.pumpAndSettle();
+    final retainedHistory = t
+        .widget<TextButton>(find.widgetWithText(TextButton, 'Recovery history'))
+        .onPressed!;
+    await t.tap(find.text('Inspect provider status'));
+    await t.pumpAndSettle();
+    api.revoke();
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(FilledButton, 'Inspect provider status'));
+    await t.pumpAndSettle();
+    retainedHistory();
+    await t.pumpAndSettle();
+    expect(find.textContaining('9.99 AED'), findsNothing);
+    expect(
+      find.text('Private payment recovery details were cleared.'),
+      findsOneWidget,
+    );
+    expect(api.pages, [1]);
+    expect(api.posts, 0);
+  });
+
+  testWidgets(
+    'a backgrounded status confirmation cannot act after explicit refresh',
+    (t) async {
+      final api = RecoveryApi();
+      addTearDown(api.epochs.close);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpWidget(app(api, ar: true));
+      await t.pumpAndSettle();
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining('2026-11-14T08:00:00+04:00'), findsNothing);
+      await t.tap(find.text(recoveryAr['inspect']!));
+      await t.pumpAndSettle();
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await t.pumpAndSettle();
+      await t.tap(find.widgetWithText(FilledButton, recoveryAr['inspect']!));
+      await t.pumpAndSettle();
+      expect(api.pages, [1]);
+      expect(api.posts, 0);
+      expect(find.textContaining('UTC'), findsNothing);
+      await t.tap(find.text(recoveryAr['refresh']!));
+      await t.pumpAndSettle();
+      expect(api.pages, [1, 1]);
+      expect(find.textContaining('UTC'), findsOneWidget);
+    },
+  );
+
+  testWidgets('retired recovery status cannot expire the replacement account', (
+    t,
+  ) async {
+    final api = RecoveryApi()..pending = Completer<dynamic>();
+    addTearDown(api.epochs.close);
+    var expired = 0;
+    await t.pumpWidget(app(api, expired: () => expired++));
+    await t.pump();
+    api.revoke();
+    api.pending!.completeError(const ApiException(401, 'private old account'));
+    await t.pumpAndSettle();
+    expect(expired, 0);
+    expect(
+      find.text('Private payment recovery details were cleared.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('private old account'), findsNothing);
+  });
+
   testWidgets('late responses after route disposal are ignored', (t) async {
     final api = RecoveryApi()..pending = Completer();
     await t.pumpWidget(app(api));
