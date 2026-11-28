@@ -67,11 +67,11 @@ const api=async(path,method,body)=>{
       measured_by_vehicle_api:false,charging_capability_verified:false};
   }
   if(path==='vehicles/6/manual-soc/history?page=1')
-    return {data:[],last_page:1,current_page:1};
+    return {data:[],last_page:1,current_page:1,per_page:25,total:0};
   if(path==='vehicles/5/manual-soc/history?page=1')return {
     data:latest===0?[]:[{vehicle_id:5,battery_percent:latest,revision:1,
       reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}],
-    last_page:1,current_page:1,
+    last_page:1,current_page:1,per_page:25,total:latest===0?0:1,
   };
   throw Error('unexpected endpoint '+path);
 };
@@ -120,7 +120,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   const clockView=window.VehicleManualSoc.create({root:clockRoot,actor:()=>clockActor,epoch:()=>1,
     api:async(path,method)=>{
       if(method&&method!=='GET')clockWrites++;
-      return path.includes('/history')?{data:[clockRow()],current_page:1,last_page:1}:clockRow();
+      return path.includes('/history')?{data:[clockRow()],current_page:1,last_page:1,per_page:25,total:1}:clockRow();
     }});
   clockView.setActor(clockActor);
   const vehicle={id:19,name:'Clock fixture'};
@@ -192,7 +192,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     if(path==='vehicles/8/manual-soc/history?page=1')return {
       data:accepted?[{vehicle_id:8,battery_percent:61,revision:1,
         reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
-      current_page:1,last_page:1,
+      current_page:1,last_page:1,per_page:25,total:accepted?1:0,
     };
     throw Error('unexpected uncertain readback endpoint '+path);
   };
@@ -248,7 +248,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
         return {data:accepted&&!missing?[{vehicle_id:9,battery_percent:43,
           revision:1,reported_at:'server timestamp',
           source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
-          current_page:1,last_page:1};
+          current_page:1,last_page:1,per_page:25,total:accepted?1:0};
       }
       throw Error('Unexpected probe endpoint '+path);
     };
@@ -262,24 +262,10 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     find(probeForm,n=>n.name==='battery_percent').value='43';
     await probeForm.onsubmit({preventDefault(){}});
     assert.equal(attempts.length,1);
-    assert.match(visible(probeRoot),/Result uncertain/,
-      defect+' readback must never claim a saved report');
-    const probeRetry=find(probeRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
-    assert.equal(probeRetry.disabled,false);
-    if (defect==='stale-current') {
-      // Reopening a report after ambiguous write should reconcile server
-      // state without submitting a duplicate request.
-      const refresh=find(probeRoot,n=>n.tag==='button'&&
-        visible(n).includes('Refresh source and history'));
-      assert.ok(refresh);
-      await refresh.onclick();
-      assert.equal(attempts.length,1,
-        'Refresh must preserve the original observation, not POST again');
-    } else {
-      await probeRetry.onclick();
-      assert.equal(attempts.length,2);
-      assert.deepEqual(attempts[0],attempts[1],defect+' retry changed operation identity');
-    }
+    assert.match(visible(probeRoot),/History refresh uncertain/);
+    assert.equal(probeRoot.querySelector('[data-manual-soc-panel]'),null);
+    await probe.open({id:9,name:'Confirmation probe'});
+    assert.equal(attempts.length,1,'Coherent refresh confirms the original report without replay');
     assert.match(visible(probeRoot),/Manual report saved/);
     const afterReconcile=find(probeRoot,n=>n.tag==='button'&&
       visible(n).includes('Retry the same report'));
@@ -317,7 +303,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
         {vehicle_id:10,revision:1,battery_percent:54,
          source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'earlier',measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false},
       ]:[],
-      current_page:1,last_page:1,
+      current_page:1,last_page:1,per_page:25,total:acceptedOlder?2:0,
     };
     throw Error('Unexpected advanced readback '+path);
   };
@@ -363,7 +349,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       charging_capability_verified:false,
     };
     if(path==='vehicles/11/manual-soc/history?page=1')return {
-      current_page:1,last_page:1,
+      current_page:1,last_page:1,per_page:25,total:serverCommitted?1:0,
       data:serverCommitted?[{vehicle_id:11,revision:1,battery_percent:64,
         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null,measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false}]:[],
     };
@@ -420,18 +406,18 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   let poisonedCurrent=true,poisonedHistory=false,poisonedProvenance=false,duplicateRevision=false,wrongPage=false;
   const poisonedApi=async(path,method)=>{
     if(path==='vehicles/15/manual-soc')return {
-      vehicle_id:15,revision:1,battery_percent:74,reported_at:'server time',
+      vehicle_id:15,revision:26,battery_percent:74,reported_at:'server time',
       source:'CUSTOMER_MANUAL_SELF_REPORT',
       measured_by_phone:poisonedCurrent,
       measured_by_vehicle_api:false,charging_capability_verified:false,
     };
     if(path.startsWith('vehicles/15/manual-soc/history?page='))return {
-      data: Array.from({length:duplicateRevision?2:1},()=>({
-        vehicle_id:poisonedHistory?999:15,revision:1,battery_percent:74,
+      data: Array.from({length:25},(_,i)=>({
+        vehicle_id:poisonedHistory?999:15,revision:duplicateRevision?26:26-i,battery_percent:74,
         source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,
         measured_by_vehicle_api:poisonedProvenance,charging_capability_verified:false,
       })),
-      current_page:wrongPage?2:1,last_page:2,
+      current_page:wrongPage?2:1,last_page:2,per_page:25,total:26,
     };
     throw Error('Unexpected provenance check API route '+path);
   };
@@ -476,6 +462,23 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.match(visible(poisonedRoot),/Latest self-reported battery: 74%/);
   poisoned.clear();
 
+  // Exercise the actual production history validator at page boundaries.
+  const source=fs.readFileSync(path,'utf8');
+  const validator=new Function(source.slice(source.indexOf('    const sourceQualified='),source.indexOf('    const reportState='))+'\nreturn validHistory;')();
+  const current={vehicle_id:5,revision:26,battery_percent:74};
+  const row=revision=>({...current,revision,source:'CUSTOMER_MANUAL_SELF_REPORT',
+    measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false});
+  const valid={current_page:1,last_page:2,per_page:25,total:26,data:Array.from({length:25},(_,i)=>row(26-i))};
+  assert.equal(validator(valid,5,1,current),true);
+  assert.equal(validator({...valid,current_page:2,data:[row(1)]},5,2,current),true);
+  for(const defect of [
+    {...valid,per_page:26},{...valid,last_page:3},{...valid,total:24},
+    {...valid,data:valid.data.slice(1)},{...valid,data:[row(27),...valid.data.slice(1)]},
+    {...valid,data:[{...row(26),battery_percent:75},...valid.data.slice(1)]},
+    {...valid,data:[row(25),row(26),...valid.data.slice(2)]},
+  ])assert.equal(validator(defect,5,1,current),false);
+  assert.equal(validator({...valid,current_page:3,data:[]},5,3,current),false);
+
   // A reused identity object across a new auth epoch must clear old DOM and
   // pending report forms, even before platform code allocates a new actor.
   view.renderGarage([{id:6,name:'Reused account car'}]);
@@ -507,7 +510,7 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       if(m==='POST'){mutations++;throw Error('PRIVATE_OPERATION_SECRET');}
       reads++;
       if(privateFailure)throw Error('PRIVATE_SOURCE_SECRET');
-      return p.includes('/history')?{current_page:1,last_page:1,data:[]}:
+      return p.includes('/history')?{current_page:1,last_page:1,per_page:25,total:0,data:[]}:
         {vehicle_id:23,revision:0,battery_percent:null,reported_at:null,source:'CUSTOMER_MANUAL_SELF_REPORT',
          measured_by_phone:false,measured_by_vehicle_api:false,charging_capability_verified:false};
     }});

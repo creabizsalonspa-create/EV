@@ -86,12 +86,23 @@
     const validCurrent=(value,vehicleId)=>sourceQualified(value,vehicleId) &&
       revisionValid(value.revision) &&
       (value.revision===0?value.battery_percent===null:percentValid(value.battery_percent));
-    const validHistory=(value,vehicleId,target)=>value &&
-      value.current_page===target && Number.isInteger(value.last_page) &&
-      value.last_page>=target && Array.isArray(value.data) && value.data.length<=25 &&
-      value.data.every(row=>sourceQualified(row,vehicleId) &&
-        revisionValid(row.revision) && row.revision>0 && percentValid(row.battery_percent)) &&
-      new Set(value.data.map(row=>row.revision)).size===value.data.length;
+    const validHistory=(value,vehicleId,target,current)=>{
+      if(!value || !current || !Number.isInteger(target) || target<1 || target>100000 ||
+          value.current_page!==target || value.per_page!==25 ||
+          !Number.isSafeInteger(value.total) || value.total<0 || value.total>2147483647 ||
+          value.last_page!==Math.max(1,Math.ceil(value.total/25)) || target>value.last_page ||
+          !Array.isArray(value.data) ||
+          value.data.length!==Math.min(25,Math.max(0,value.total-(target-1)*25)))return false;
+      let previous=current.revision+1;
+      for(const row of value.data){
+        if(!sourceQualified(row,vehicleId)||!revisionValid(row.revision)||row.revision<1||
+            !percentValid(row.battery_percent)||row.revision>=previous||
+            (row.revision===current.revision&&row.battery_percent!==current.battery_percent))return false;
+        previous=row.revision;
+      }
+      return target!==1 || (current.revision===0 ? value.total===0 :
+          value.data[0]?.revision===current.revision);
+    };
     const reportState=(request,current,history,vehicleId)=>{
       if(!request||!current||!history||
           !Number.isInteger(request.expected_revision))return null;
@@ -154,7 +165,7 @@
       try {
         const result=await api("vehicles/"+chosen.id+"/manual-soc/history?page="+page);
         if(!alive(token))return;
-        if(!validHistory(result,chosen.id,target))
+        if(!validHistory(result,chosen.id,target,latest))
           throw Error("Unexpected manual battery history; refresh before reporting.");
         history=result;
         const recorded=pending?reportState(pending,latest,history,chosen.id):null;
@@ -246,7 +257,7 @@
         item.battery_percent+"٪ · "+reportTime(item.reported_at,"ar")+" · النسخة "+item.revision,"li"));
       panel.append(list);
       if(page>1)panel.append(button("Previous","السابق",()=>{if(editable())return loadHistory(page-1);}));
-      if(page<history.last_page)panel.append(button("Next","التالي",()=>{if(editable())return loadHistory(page+1);}));
+      if(page<history.last_page&&page<100000)panel.append(button("Next","التالي",()=>{if(editable())return loadHistory(page+1);}));
       panel.append(button("Refresh source and history","تحديث المصدر والسجل",
         ()=>{if(editable())return open(chosen);}));
       const close=button("Close","إغلاق",()=>{
