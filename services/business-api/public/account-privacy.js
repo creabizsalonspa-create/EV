@@ -82,7 +82,7 @@ window.EvPrivacyRequests = (() => {
         );
     }
 
-    function setSelfActor(user, api) {
+    function setSelfActor(user, api, onSecurityPrepared) {
         const state = states.mine;
         clear(state);
         if (!user?.id) return;
@@ -378,6 +378,99 @@ window.EvPrivacyRequests = (() => {
                             },
                         );
                         card.append(withdraw);
+                        if (row.kind === "erasure" && ["customer", "vendor"].includes(user.role)) {
+                            const host = el("div");
+                            const open = button("Remove optional phone data / إزالة بيانات الهاتف الاختيارية", () => {
+                                if (!active(state, generation, controller) || open.disabled) return;
+                                open.disabled = true;
+                                const form = el("form");
+                                form.setAttribute("aria-label", "Optional contact minimization");
+                                const password = el("input");
+                                password.type = "password"; password.autocomplete = "current-password"; password.required = true;
+                                const factor = el("input");
+                                factor.autocomplete = "one-time-code"; factor.maxLength = 64;
+                                const consent = el("input"); consent.type = "checkbox"; consent.required = true;
+                                state.secrets.add(password); state.secrets.add(factor);
+                                const submit = button("Confirm optional phone removal / تأكيد إزالة الهاتف الاختياري", () => {});
+                                submit.type = "submit";
+                                form.append(el("p", "Remove the optional phone and cancel its live verification challenges. Historical receipts, private copies, external records and your account are not deleted by this action. / إزالة الهاتف الاختياري وإلغاء تحديات التحقق النشطة؛ لا يحذف هذا الإجراء السجلات التاريخية أو النسخ الخاصة أو السجلات الخارجية أو الحساب."),
+                                    field("Current password / كلمة المرور الحالية", password),
+                                    field("Authenticator or recovery code if enabled / رمز المصادقة أو الاسترداد إن فُعّل", factor),
+                                    field("I agree to remove optional phone data / أوافق على إزالة بيانات الهاتف الاختيارية", consent), submit);
+                                form.onsubmit = async event => {
+                                    event.preventDefault();
+                                    if (!active(state, generation, controller) || submit.disabled || !consent.checked || !password.value) return;
+                                    const body = {confirmation:"remove_optional_phone", password:password.value, second_factor_code:factor.value};
+                                    password.value = ""; factor.value = ""; consent.checked = false;
+                                    submit.disabled = true;
+                                    try {
+                                        const receipt = await state.request("account/privacy-requests/" + row.id + "/minimize-contact", "POST", body, controller.signal);
+                                        if (!active(state, generation, controller)) return;
+                                        const bounded = n => Number.isSafeInteger(n) && n >= 0 && n <= 250;
+                                        if (receipt?.request_id !== row.id || !["pending","reviewing","blocked_external"].includes(receipt.case_status) ||
+                                            receipt.optional_phone_removed !== true || typeof receipt.profile_phone_changed !== "boolean" ||
+                                            !bounded(receipt.live_challenges_cancelled) || !bounded(receipt.challenge_payloads_cleared) ||
+                                            receipt.verification_receipts_retained !== true || receipt.external_deletion_verified !== false ||
+                                            receipt.account_deleted !== false || receipt.automated_erasure_performed !== false ||
+                                            receipt.manual_processing_required !== true) throw Error("Unverified minimization receipt");
+                                        host.replaceChildren(el("p", "Optional phone removal recorded. External deletion is not verified; your erasure request remains under review. / سُجلت إزالة الهاتف الاختياري؛ لم يُتحقق من الحذف الخارجي ولا يزال طلب الحذف قيد المراجعة."));
+                                    } catch {
+                                        if (active(state, generation, controller))
+                                            host.replaceChildren(el("p", "Phone removal unconfirmed. Refresh before another decision. / لم تتأكد إزالة الهاتف؛ حدّث قبل قرار آخر."));
+                                    }
+                                };
+                                host.replaceChildren(form);
+                            });
+                            card.append(open, host);
+                        }
+                        if (row.kind === "erasure" && ["customer", "vendor"].includes(user.role) &&
+                            typeof onSecurityPrepared === "function") {
+                            const host = el("div");
+                            const open = button("Secure account before erasure / تأمين الحساب قبل الحذف", () => {
+                                if (!active(state, generation, controller) || open.disabled) return;
+                                open.disabled = true;
+                                const securityForm = el("form");
+                                securityForm.setAttribute("aria-label", "Optional erasure security preparation");
+                                const password = el("input");
+                                password.type = "password"; password.autocomplete = "current-password"; password.required = true;
+                                const factor = el("input");
+                                factor.autocomplete = "one-time-code"; factor.maxLength = 64;
+                                const consent = el("input"); consent.type = "checkbox"; consent.required = true;
+                                state.secrets.add(password); state.secrets.add(factor);
+                                const submit = button("Confirm security step / تأكيد خطوة الأمان", () => {});
+                                submit.type = "submit";
+                                securityForm.append(el("p", "Optional: discard all your prepared private account copies and end all sessions. Your account and retained source records remain; you must sign in again. / اختياري: إتلاف نسخ حسابك الخاصة وإنهاء جميع الجلسات. يبقى الحساب والسجلات الأصلية؛ يلزم تسجيل الدخول مجدداً."),
+                                    field("Current password / كلمة المرور الحالية", password),
+                                    field("Authenticator or recovery code if enabled / رمز المصادقة أو الاسترداد إن فُعّل", factor),
+                                    field("I agree to discard copies and revoke sessions / أوافق على إتلاف النسخ وإلغاء الجلسات", consent), submit);
+                                securityForm.onsubmit = async event => {
+                                    event.preventDefault();
+                                    if (!active(state, generation, controller) || submit.disabled || !consent.checked || !password.value) return;
+                                    const body = {confirmation:"discard_copies_and_revoke_sessions", password:password.value, second_factor_code:factor.value};
+                                    password.value = ""; factor.value = ""; consent.checked = false;
+                                    submit.disabled = true;
+                                    try {
+                                        // Do not abort a committed security mutation merely because the tab hides.
+                                        const receipt = await state.request("account/privacy-requests/" + row.id + "/secure-account", "POST", body);
+                                        if (state.generation !== generation || !state.request) return;
+                                        if (receipt?.request_id !== row.id || !["pending", "reviewing", "blocked_external"].includes(receipt.case_status) ||
+                                            !Number.isSafeInteger(receipt.derived_copies_discarded) || receipt.derived_copies_discarded < 0 ||
+                                            receipt.derived_copies_discarded > 250 || receipt.sessions_revoked !== true ||
+                                            receipt.sign_in_required !== true || receipt.automated_erasure_performed !== false ||
+                                            receipt.source_records_deleted !== false || receipt.manual_processing_required !== true)
+                                            throw Error("Unverified security receipt");
+                                        clear(state);
+                                        onSecurityPrepared();
+                                    } catch {
+                                        if (active(state, generation, controller)) {
+                                            host.replaceChildren(el("p", "Security step unconfirmed. Sign in again or refresh to check; do not automatically repeat. / لم تتأكد خطوة الأمان؛ سجّل الدخول أو حدّث للتحقق."));
+                                        }
+                                    }
+                                };
+                                host.replaceChildren(securityForm);
+                            });
+                            card.append(open, host);
+                        }
                     }
                     results.append(card);
                 }
