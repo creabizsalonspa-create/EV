@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Operations\IncidentAlertRouting;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use Illuminate\Http\Request;
@@ -36,11 +37,28 @@ final class AdminOperationalHealthController extends Controller
         }, 3);
     }
 
+    public function alertPreference(Request $request, IncidentAlertRouting $routing)
+    {
+        return DB::transaction(function () use ($request, $routing) {
+            $actor = $this->currentAdmin($request);
+            $request->validate([
+                'enabled' => 'required|boolean',
+                'user_id' => 'prohibited',
+                'recipient' => 'prohibited',
+                'email' => 'prohibited',
+            ]);
+
+            return response()->json($routing->setPreference($actor, $request->boolean('enabled')))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
     public function show(Request $request, OperationalHealth $health)
     {
         return DB::transaction(function () use ($request, $health) {
-            $this->currentAdmin($request);
+            $actor = $this->currentAdmin($request);
             $report = $health->report();
+            $report['alert_preferences'] = app(IncidentAlertRouting::class)->preference($actor);
             $report['incidents'] = app(OperationalIncidents::class)->summary();
 
             return response()->json($report)->header('Cache-Control', 'private, no-store');

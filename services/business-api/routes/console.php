@@ -17,6 +17,7 @@ use App\Services\Notifications\EmailNotices;
 use App\Services\Ocpi\CatalogQualityHistory;
 use App\Services\Ocpi\CatalogQualitySampler;
 use App\Services\Ocpi\ScheduledSync;
+use App\Services\Operations\IncidentAlertRouting;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use App\Services\Operations\OperationalWatchdog;
@@ -364,6 +365,19 @@ Artisan::command('operations:scan-incidents', function () {
     }
 })->purpose('Record idempotent read-only operational incident transitions; no retries or external actions');
 Schedule::command('operations:scan-incidents')->everyMinute()->withoutOverlapping();
+
+Artisan::command('operations:route-incident-alerts', function () {
+    try {
+        $this->line(json_encode(app(IncidentAlertRouting::class)->run(), JSON_THROW_ON_ERROR));
+
+        return 0;
+    } catch (Throwable) {
+        $this->error('Local incident alert routing requires operator review.');
+
+        return 1;
+    }
+})->purpose('Route bounded local incident inbox notices to current opted-in Admin accounts');
+Schedule::command('operations:route-incident-alerts')->everyMinute()->withoutOverlapping();
 
 Artisan::command('operations:watchdog-check', function () {
     // Must be launched by a separately supervised host/external monitor.
