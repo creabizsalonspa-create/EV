@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\PaymentMandates;
 use App\Services\Commercial\Payments\StripeSandboxProvider;
 use App\Services\Commercial\SubscriptionCollections;
@@ -16,15 +17,24 @@ class RecurringPaymentController extends Controller
 {
     public function methods(Request $r)
     {
-        $a = DB::table('payment_customer_accounts')->where('user_id', $r->user()->id)->first();
-        $rows = DB::table('payment_mandates')->where('user_id', $r->user()->id)->select(['id', 'brand', 'last_four', 'exp_month', 'exp_year', 'status', 'version', 'detach_status', 'consent_version', 'consented_at', 'consent_expires_at', 'revoked_at'])->orderByDesc('id')->paginate(25)->through(fn ($m) => (array) $m + ['usable' => app(PaymentMandates::class)->usable($m)]);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $a = DB::table('payment_customer_accounts')->where('user_id', $actor->id)->first();
+            $rows = DB::table('payment_mandates')->where('user_id', $actor->id)->select(['id', 'brand', 'last_four', 'exp_month', 'exp_year', 'status', 'version', 'detach_status', 'consent_version', 'consented_at', 'consent_expires_at', 'revoked_at'])->orderByDesc('id')->paginate(25)->through(fn ($m) => (array) $m + ['usable' => app(PaymentMandates::class)->usable($m)]);
 
-        return response()->json(['methods' => $rows, 'default_method_id' => $a?->default_method_id, 'version' => $a?->version ?? 0, 'consent_version' => config('payments.mandate_consent_version'), 'hosted_available' => ! app()->environment('production') && config('payments.provider') === 'stripe_test' && (bool) config('payments.stripe_test_secret') && (bool) config('payments.hosted_return_url'), 'collection_available' => (bool) config('payments.collection_enabled') && ! app()->environment('production') && config('payments.provider') === 'stripe_test', 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false])->header('Cache-Control', 'no-store');
+            return response()->json(['methods' => $rows, 'default_method_id' => $a?->default_method_id, 'version' => $a?->version ?? 0, 'consent_version' => config('payments.mandate_consent_version'), 'hosted_available' => ! app()->environment('production') && config('payments.provider') === 'stripe_test' && (bool) config('payments.stripe_test_secret') && (bool) config('payments.hosted_return_url'), 'collection_available' => (bool) config('payments.collection_enabled') && ! app()->environment('production') && config('payments.provider') === 'stripe_test', 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false])->header('Cache-Control', 'no-store');
+        }, 3);
     }
 
     public function enrollments(Request $r, PaymentMandates $m)
     {
-        return DB::table('payment_enrollments')->where('user_id', $r->user()->id)->orderByDesc('id')->paginate(25)->through(fn ($e) => $m->enrollmentDto($e));
+        return DB::transaction(function () use ($r, $m) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
+            return response()->json(DB::table('payment_enrollments')->where('user_id', $actor->id)->orderByDesc('id')->paginate(25)->through(fn ($e) => $m->enrollmentDto($e)))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function begin(Request $r, PaymentMandates $m)
@@ -41,20 +51,26 @@ class RecurringPaymentController extends Controller
 
     public function defaultMethod(Request $r, int $method, PaymentMandates $m)
     {
-        $m->method($r->user(), $method);
-        $v = $r->validate(['expected_version' => 'required|integer|min:0']);
-        $m->setDefault($r->user(), $method, (int) $v['expected_version']);
+        return DB::transaction(function () use ($r, $method, $m) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $m->method($actor, $method);
+            $v = $r->validate(['expected_version' => 'required|integer|min:0']);
+            $m->setDefault($actor, $method, (int) $v['expected_version']);
 
-        return $this->methods($r);
+            return $this->methods($r);
+        }, 3);
     }
 
     public function revoke(Request $r, int $method, PaymentMandates $m)
     {
-        $m->method($r->user(), $method);
-        $v = $r->validate(['expected_version' => 'required|integer|min:1']);
-        $m->revoke($r->user(), $method, (int) $v['expected_version']);
+        return DB::transaction(function () use ($r, $method, $m) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $m->method($actor, $method);
+            $v = $r->validate(['expected_version' => 'required|integer|min:1']);
+            $m->revoke($actor, $method, (int) $v['expected_version']);
 
-        return $this->methods($r);
+            return $this->methods($r);
+        }, 3);
     }
 
     public function detach(Request $r, int $method, PaymentMandates $m)
@@ -66,20 +82,37 @@ class RecurringPaymentController extends Controller
 
     public function subscriptions(Request $r)
     {
-        return DB::table('commercial_subscriptions as s')->where('s.user_id', $r->user()->id)->orderByDesc('s.id')->paginate(25)->through(function ($s) {
-            $s->collection_policy = DB::table('subscription_collection_policies')->where('subscription_id', $s->id)->first();
-            $s->latest_collection = DB::table('subscription_collections')->where('subscription_id', $s->id)->orderByDesc('id')->first(['id', 'invoice_id', 'checkout_id', 'attempts', 'state', 'failure_code', 'next_attempt_at', 'updated_at']);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-            return $s;
-        });
+            return response()->json(DB::table('commercial_subscriptions as s')->where('s.user_id', $actor->id)->orderByDesc('s.id')->paginate(25)->through(function ($s) {
+                $s->collection_policy = DB::table('subscription_collection_policies')->where('subscription_id', $s->id)->first();
+                if ($s->collection_policy !== null) {
+                    $s->collection_policy->enabled = (bool) $s->collection_policy->enabled;
+                }
+                $s->latest_collection = DB::table('subscription_collections')->where('subscription_id', $s->id)->orderByDesc('id')->first(['id', 'invoice_id', 'checkout_id', 'attempts', 'state', 'failure_code', 'next_attempt_at', 'updated_at']);
+
+                return $s;
+            }))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function policy(Request $r, int $subscription, SubscriptionCollections $c)
     {
-        app(SubscriptionService::class)->access($r->user(), $subscription);
-        $v = $r->validate(['enabled' => 'required|boolean', 'mandate_id' => 'required_if:enabled,true|nullable|integer|min:1', 'consent' => 'required_if:enabled,true|accepted', 'expected_version' => 'required|integer|min:0']);
+        return DB::transaction(function () use ($r, $subscription, $c) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $owned = app(SubscriptionService::class)->access($actor, $subscription, true);
+            abort_unless($owned->user_id === $actor->id, 404);
+            $v = $r->validate(['enabled' => 'required|boolean', 'mandate_id' => 'required_if:enabled,true|nullable|integer|min:1', 'consent' => 'exclude_unless:enabled,true|required|accepted', 'expected_version' => 'required|integer|min:0']);
 
-        return response()->json($c->policy($r->user(), $subscription, $v['enabled'], isset($v['mandate_id']) ? (int) $v['mandate_id'] : null, (int) $v['expected_version']));
+            $policy = $c->policy($actor, $subscription, $v['enabled'], isset($v['mandate_id']) ? (int) $v['mandate_id'] : null, (int) $v['expected_version']);
+            // SQLite hydrates boolean columns as integers; PostgreSQL may
+            // return booleans. Keep the public consent contract identical.
+            $policy->enabled = (bool) $policy->enabled;
+
+            return response()->json($policy)->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function authenticate(Request $r, int $checkout, SubscriptionGateway $g)
@@ -89,7 +122,12 @@ class RecurringPaymentController extends Controller
 
     public function events(Request $r)
     {
-        return DB::table('recurring_payment_events')->where('user_id', $r->user()->id)->select(['id', 'subject', 'kind', 'created_at'])->orderByDesc('id')->paginate(25);
+        return DB::transaction(function () use ($r) {
+            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
+            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
+            return response()->json(DB::table('recurring_payment_events')->where('user_id', $actor->id)->select(['id', 'subject', 'kind', 'created_at'])->orderByDesc('id')->paginate(25))->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 
     public function webhook(Request $r, PaymentMandates $m)
