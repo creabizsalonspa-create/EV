@@ -450,6 +450,33 @@ class CommercialCampaignTest extends TestCase
         $this->postJson('/campaign-test/commercial/campaigns', $second)->assertCreated();
     }
 
+    public function test_package_capacity_tracks_reservations_and_keeps_delivered_units_consumed(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture(['campaign_slots' => 1, 'campaign_units' => 5]);
+        $packages = '/campaign-test/commercial/campaign-packages';
+
+        $this->actingAs($f['vendor'])->getJson($packages)->assertOk()
+            ->assertJsonPath('data.0.campaign_eligible', true)
+            ->assertJsonPath('data.0.capacity', ['remaining_slots' => 1, 'remaining_units' => 5]);
+        $campaign = $this->approved($f);
+        $this->delivery($campaign['id'], 'capacity-delivery')->assertOk();
+        $this->actingAs($f['vendor'])->getJson($packages)->assertOk()
+            ->assertJsonPath('data.0.capacity', ['remaining_slots' => 0, 'remaining_units' => 2]);
+        $this->postJson('/campaign-test/commercial/campaigns/'.$campaign['id'].'/cancel', [
+            'reason' => 'Return unused package units',
+        ])->assertOk();
+        $this->getJson($packages)->assertOk()
+            ->assertJsonPath('data.0.capacity', ['remaining_slots' => 1, 'remaining_units' => 4]);
+
+        $this->actingAs($f['other'])->getJson($packages)->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($f['customer'])->getJson($packages)->assertForbidden();
+        config(['campaigns.enabled' => false]);
+        $this->actingAs($f['vendor'])->getJson($packages)->assertOk()
+            ->assertJsonPath('data.0.campaign_eligible', false)
+            ->assertJsonPath('data.0.capacity', null);
+    }
+
     public function test_signed_delivery_is_required_budget_bounded_and_click_parent_is_verified(): void
     {
         $f = $this->fixture();

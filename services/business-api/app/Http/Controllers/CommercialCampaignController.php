@@ -129,11 +129,11 @@ class CommercialCampaignController extends Controller
             return response()->json($q->orderByDesc('i.id')
                 ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
                 ->through(function ($i) use ($s) {
-                    $eligible = true;
+                    $capacity = null;
                     try {
-                        $s->billing($i->id, $i->user_id);
+                        $capacity = $s->packageCapacity($i->id, $i->user_id);
                     } catch (HttpException $error) {
-                        $eligible = false;
+                        // An unavailable package has no reservable capacity.
                     }
 
                     return [
@@ -141,7 +141,8 @@ class CommercialCampaignController extends Controller
                         'number' => $i->number, 'currency' => $i->currency,
                         'minor_units' => $i->minor_units, 'total_minor' => $i->total_minor,
                         'period_start' => $i->period_start, 'period_end' => $i->period_end,
-                        'campaign_eligible' => $eligible,
+                        'campaign_eligible' => $capacity !== null,
+                        'capacity' => $capacity,
                         'entitlements' => json_decode($i->entitlements, true),
                         'evidence' => DB::table('commercial_subscription_receipts')
                             ->where('invoice_id', $i->id)->value('evidence') ?? 'UNPAID',
