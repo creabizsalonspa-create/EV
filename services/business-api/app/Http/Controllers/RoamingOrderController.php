@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Charging\ChargingActorConsent;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\ReservationRoaming;
 use App\Services\Ocpi\RoamingDispatch;
 use App\Services\Ocpi\RoamingReconciler;
@@ -79,7 +80,8 @@ class RoamingOrderController extends Controller
         $providerAllowsReservation = $reservationService->supported($p);
         $offers = [];
         // Do not traverse or disclose a corrupted, unpublished or foreign projection.
-        $sourceIntact = app(StoredSourceIntegrity::class)->consistent($location)
+        $reviewVisible = ! ContractAuthorizationGate::required() || OcpiProvider::publiclyDiscoverable()->whereKey($p->id)->exists();
+        $sourceIntact = $reviewVisible && app(StoredSourceIntegrity::class)->consistent($location)
             && $location->country_code === $configuration['party_country']
             && $location->party_id === $configuration['party_id']
             && ($location->normalized['publish'] ?? false) === true;
@@ -109,7 +111,7 @@ class RoamingOrderController extends Controller
             }
         }
 
-        return $this->reply(['provider_name' => $p->name, 'location_name' => $locationName, 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => collect($offers)->contains(fn ($offer) => $offer['reservation_supported'] === true), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
+        return $this->reply(['provider_name' => $reviewVisible ? $p->name : '', 'location_name' => $locationName, 'location_record_id' => $location->id, 'offers' => $offers, 'reservation_supported' => collect($offers)->contains(fn ($offer) => $offer['reservation_supported'] === true), 'reservation_terms_version' => ReservationRoaming::TERMS, 'truncated' => $truncated, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'live_commands_enabled' => false, 'billing_eligible' => false, 'local_invoice_created' => false]);
     }
 
     public function index(Request $r, SandboxRoaming $service)
