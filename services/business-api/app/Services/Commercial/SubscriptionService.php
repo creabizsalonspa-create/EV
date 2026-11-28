@@ -64,10 +64,13 @@ class SubscriptionService
         DB::table('commercial_subscription_events')->insert(['subscription_id' => $sub, 'actor_id' => $actor, 'kind' => $kind, 'request_key' => $key, 'fingerprint' => $hash, 'data' => json_encode($data, JSON_THROW_ON_ERROR), 'created_at' => now()]);
     }
 
-    private function availablePlan(int $id, User $user): object
+    private function availablePlan(int $id, User $user, bool $lock = false): object
     {
         $p = $this->plan($id);
-        abort_unless(DB::table('commercial_plan_availability')->where('plan_id', $id)->where('available', true)->exists(), 409, 'Plan is not open for enrollment.');
+        // Writes serialize against administrative availability changes.
+        $availability = DB::table('commercial_plan_availability')->where('plan_id', $id)
+            ->when($lock, fn ($query) => $query->lockForUpdate())->first();
+        abort_unless($availability && (bool) $availability->available, 409, 'Plan is not open for enrollment.');
         abort_unless($p->audience === $user->role && in_array($user->role, ['customer', 'vendor'], true), 409, 'Plan audience does not match this account.');
 
         return $p;
@@ -82,7 +85,7 @@ class SubscriptionService
             if ($old = $this->prior($k, $hash)) {
                 return $this->summary($old->subscription_id);
             }
-            $p = $this->availablePlan($planId, $user);
+            $p = $this->availablePlan($planId, $user, lock: true);
             abort_if(DB::table('commercial_subscriptions')->where('user_id', $user->id)->where('status', '!=', 'cancelled')->exists(), 409, 'An existing subscription must be cancelled before enrolling again.');
             $id = DB::table('commercial_subscriptions')->insertGetId(['user_id' => $user->id, 'plan_id' => $p->id, 'status' => 'pending', 'cycle_number' => 0, 'cancel_at_period_end' => false, 'created_at' => now(), 'updated_at' => now()]);
             $this->invoice($id, $p, CarbonImmutable::now(), 1);
@@ -155,12 +158,12 @@ class SubscriptionService
      * Share paid-cycle, audience and currency policy between preview and write.
      * Neither checking nor quoting may create a financial record.
      */
-    private function eligibleChangePlan(object $subscription, ?int $planId): object
+    private function eligibleChangePlan(object $subscription, ?int $planId, bool $lock = false): object
     {
         abort_unless($subscription->status === 'active' && ! $subscription->cancel_at_period_end &&
             CarbonImmutable::parse($subscription->period_end)->isFuture(), 409, 'Only a current paid subscription can schedule a plan change.');
         abort_unless($planId !== null, 422, 'A target plan is required.');
-        $plan = $this->availablePlan($planId, User::findOrFail($subscription->user_id));
+        $plan = $this->availablePlan($planId, User::findOrFail($subscription->user_id), $lock);
         $current = $this->plan($subscription->plan_id);
         abort_unless($plan->currency === $current->currency &&
             (int) $plan->minor_units === (int) $current->minor_units, 409, 'Currency changes require a new subscription.');
@@ -224,7 +227,7 @@ class SubscriptionService
             }
             abort_if($s->status === 'cancelled', 409, 'Subscription is cancelled.');
             if ($action === 'change_plan') {
-                $p = $this->eligibleChangePlan($s, $planId);
+                $p = $this->eligibleChangePlan($s, $planId, lock: true);
                 $update = ['next_plan_id' => $p->id];
             } elseif ($action === 'cancel_at_period_end') {
                 abort_unless($s->status === 'active', 409, 'No current paid period; cancel immediately instead.');
