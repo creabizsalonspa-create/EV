@@ -115,9 +115,9 @@ final class CpoCatalogPublisher
      * receipt. No token or private endpoint is stored in plaintext. Legacy
      * payload-only digests cannot prove which receiver was actually contacted.
      */
-    private function deliveryAuthorityDigest(object $row, OcpiProvider $provider, object $link): string
+    private function deliveryAuthorityDigest(object $row, OcpiProvider $provider, object $link, ?string $reviewAuthority = null): string
     {
-        return hash('sha256', json_encode([
+        $receiverDigest = hash('sha256', json_encode([
             'cpo-delivery-authority-v2', $this->deliveryDigest($row),
             (string) $provider->id, (string) $provider->owner_id, $provider->connection_key,
             $provider->authorization_revision, $provider->version, $provider->authorized,
@@ -127,12 +127,24 @@ final class CpoCatalogPublisher
             $link->bootstrap_hash, $link->bootstrap_expires_at, $link->local_token_digest,
             $link->local_token_ciphertext, $link->remote_token_ciphertext,
         ], JSON_THROW_ON_ERROR));
+
+        // Null preserves existing v2 receipts and independently authorized
+        // withdrawal operations. A reviewed delivery binds the original
+        // fingerprint without depending on the review still being current.
+        return $reviewAuthority === null ? $receiverDigest : hash('sha256', json_encode([
+            'cpo-delivery-authority-v3', $receiverDigest, $reviewAuthority,
+        ], JSON_THROW_ON_ERROR));
     }
 
     private function deliveryMatches(object $row, object $operation, OcpiProvider $provider, object $link): bool
     {
+        $review = $operation->contract_review_authority;
+        if ($review !== null && (! is_string($review) || ! preg_match('/^[a-f0-9]{64}$/D', $review) || $row->withdrawn)) {
+            return false;
+        }
+
         return $this->payloadIntact($row) && is_string($operation->publication_digest)
-            && hash_equals($operation->publication_digest, $this->deliveryAuthorityDigest($row, $provider, $link));
+            && hash_equals($operation->publication_digest, $this->deliveryAuthorityDigest($row, $provider, $link, $review));
     }
 
     /** Match the exact publication snapshot across a transport boundary. */
@@ -393,7 +405,8 @@ final class CpoCatalogPublisher
             }
             DB::table(self::OPERATIONS)->insert([
                 'publication_id' => $row->id, 'actor_id' => $actor->id, 'operation_key' => $key,
-                'published_at' => $publishedAt, 'publication_digest' => $this->deliveryAuthorityDigest($row, $current, $link), 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
+                'published_at' => $publishedAt, 'publication_digest' => $this->deliveryAuthorityDigest($row, $current, $link, $reviewAuthority),
+                'contract_review_authority' => $reviewAuthority, 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
             ]);
 
             return [$current, $row, $payload, null, $link, $reviewAuthority];
@@ -415,7 +428,8 @@ final class CpoCatalogPublisher
             // Keep a durable claim when its bytes no longer match; deleting
             // the claim would permit a replacement send of altered content.
             $stored = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->first();
-            if (! $stored || ! $this->deliveryMatches($stored, $operation, $provider, $claimedLink)
+            if (! $stored || $operation->contract_review_authority !== $reviewAuthority
+                || ! $this->deliveryMatches($stored, $operation, $provider, $claimedLink)
                 || ! hash_equals($this->deliveryDigest($row), $this->deliveryDigest($stored))) {
                 $claim->update(['state' => 'unknown', 'updated_at' => now()]);
 
@@ -466,6 +480,9 @@ final class CpoCatalogPublisher
                 }
                 abort_unless($this->sameDeliveryAuthority($provider, $claimedLink, $current, $receiptLink, $module)
                     && $this->samePublication($current, $receiptLink, $row)
+                    && $receiptClaim->contract_review_authority === $reviewAuthority
+                    && is_string($receiptClaim->publication_digest)
+                    && hash_equals($operation->publication_digest, $receiptClaim->publication_digest)
                     && $this->deliveryMatches($row, $receiptClaim, $current, $receiptLink), 409);
             } catch (OcpiException|HttpExceptionInterface) {
                 $state = 'unknown';
@@ -522,6 +539,9 @@ final class CpoCatalogPublisher
                 && $currentOperation->operation_key === $operation->operation_key
                 && $currentOperation->actor_id === $operation->actor_id
                 && $currentOperation->published_at === $publishedAt
+                && $currentOperation->contract_review_authority === $operation->contract_review_authority
+                && is_string($currentOperation->publication_digest)
+                && hash_equals($operation->publication_digest, $currentOperation->publication_digest)
                 && $this->deliveryMatches($row, $currentOperation, $provider, $link), 409);
             $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
                 ->update(['state' => $verified ? 'reconciled' : 'unknown', 'updated_at' => now()]);

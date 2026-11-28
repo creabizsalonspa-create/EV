@@ -6,6 +6,7 @@ use App\Models\ChargingSession;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\CpoCatalogPublisher;
 use App\Services\Ocpi\CredentialExchange;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -164,6 +165,8 @@ class OcpiCpoCatalogTest extends TestCase
         Http::assertNothingSent();
         $rows->update(['valid_until' => $review['valid_until']]);
         Http::swap(new Factory);
+        $reviewFingerprint = ContractAuthorizationGate::credentialAuthority($provider->fresh(), 'cpo_publish');
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $reviewFingerprint);
         $received = null;
         Http::fake(function (Request $request) use ($rows, &$received) {
             $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0],
@@ -179,6 +182,17 @@ class OcpiCpoCatalogTest extends TestCase
         $this->postJson($url.'/push', $push)->assertOk()->assertJsonPath('delivery', 'unknown');
         $this->postJson($url.'/push', $push)->assertOk()->assertJsonPath('delivery', 'unknown');
         Http::assertSentCount(1);
+        $receipt = DB::table('ocpi_cpo_publication_operations')->where('operation_key', $push['operation_key']);
+        $original = $receipt->first();
+        $this->assertSame($reviewFingerprint, $original->contract_review_authority);
+        foreach ([null, str_repeat('b', 64), str_repeat('z', 64)] as $altered) {
+            $receipt->update(['contract_review_authority' => $altered]);
+            $this->postJson($url.'/push', $push)->assertConflict();
+            $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+            Http::assertSentCount(1);
+        }
+        $receipt->update(['contract_review_authority' => $reviewFingerprint]);
+        $this->assertSame($original->publication_digest, $receipt->value('publication_digest'));
         // An unresolved delivery is never overwritten by a withdrawal.
         $this->publication($url, 'withdraw', $stamp)->assertConflict();
         $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])
@@ -188,6 +202,9 @@ class OcpiCpoCatalogTest extends TestCase
         $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $withdrawn,
             'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'acknowledged');
         Http::assertSentCount(3);
+        $this->assertDatabaseHas('ocpi_cpo_publication_operations', [
+            'published_at' => $withdrawn, 'contract_review_authority' => null, 'state' => 'acknowledged',
+        ]);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charger_commands', 0);
     }
