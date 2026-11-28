@@ -101,7 +101,7 @@ class RetailPartnerRewardGovernanceTest extends TestCase
 
     public function test_customer_history_and_replay_reject_contradictory_redemption_owner(): void
     {
-        [, $review] = $this->sandboxOffer();
+        [$reviewer, $review] = $this->sandboxOffer();
         $customer = User::factory()->create();
         $other = User::factory()->create();
         $base = '/api/commercial/partner-rewards';
@@ -120,8 +120,16 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         ]);
         $this->actingAs($customer)->getJson("$base/claims")->assertConflict();
         $this->postJson("$base/offers/$review/claim", ['idempotency_key' => $key])->assertConflict();
+        $this->postJson("$base/claim-receipt", ['idempotency_key' => $key])->assertConflict();
         $this->postJson("$base/claim-intents/cancel", ['review_id' => $review, 'idempotency_key' => $key])->assertConflict();
         $this->actingAs($other)->getJson("$base/claims")->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($reviewer);
+        foreach (['fulfill', 'reject'] as $action) {
+            $this->postJson("/api/commercial/loyalty/redemptions/$redemption/$action",
+                ['reason' => 'Contradictory imported claim must remain unchanged'])->assertConflict();
+        }
+        $this->assertDatabaseHas('loyalty_redemptions', ['id' => $redemption, 'status' => 'pending']);
+        $this->assertDatabaseCount('loyalty_redemption_events', 0);
         $this->assertDatabaseCount('partner_reward_claims', 1);
         $this->assertDatabaseCount('loyalty_redemptions', 1);
         $this->assertDatabaseCount('loyalty_ledger', 0);
