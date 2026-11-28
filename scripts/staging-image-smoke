@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Only new, run-owned containers/networks/anonymous volumes are destroyed.
 set -euo pipefail
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 image=${1:?Usage: scripts/staging-image-smoke creabiz-ev-business:tag}
 case "$image" in creabiz-ev-business:*) ;; *) echo 'Use a built Crea-Biz review image.' >&2; exit 2 ;; esac
-review_id="ev-staging-review-${RANDOM}-$$"
+review_id="ev-staging-review-${RANDOM}-$"
 review_directory=$(mktemp -d /tmp/ev-staging-review.XXXXXX)
 network_id= database_id= application_id=
 diagnostics() {
@@ -49,13 +50,19 @@ for attempt in {1..40}; do
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Disposable PostgreSQL17 did not become ready.' >&2; exit 1; }
-application_id=$(docker run -d --name "${review_id}-app" --network "$network_id" --env-file "$review_directory/application.env" --mount type=volume,target=/var/www/html/storage/app/private "$image")
+application_id=$(docker run -d --name "${review_id}-app" --network "$network_id" --env-file "$review_directory/application.env" --publish 127.0.0.1::80 --mount type=volume,target=/var/www/html/storage/app/private "$image")
 ready=false
 for attempt in {1..40}; do
   if docker exec --user www-data "$application_id" php -r 'exit(@file_get_contents("http://127.0.0.1/up") === false ? 1 : 0);' >/dev/null 2>&1; then ready=true; break; fi
   sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Disposable staging application did not become ready.' >&2; exit 1; }
+revision=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$application_id")
+expected_revision=$(git -C "$script_dir/.." rev-parse --verify HEAD^{commit})
+if [[ "$revision" != "$expected_revision" ]]; then
+  echo 'Performance probe requires a staging image built from this source commit.' >&2
+  exit 1
+fi
 docker exec --user www-data "$application_id" php artisan migrate --force --no-interaction
 docker exec -i --user www-data "$application_id" php <<'PHP'
 <?php
@@ -91,5 +98,42 @@ file_put_contents($probe,'synthetic-private-storage',LOCK_EX);
 $valid = file_get_contents($probe) === 'synthetic-private-storage' && (fileperms($probe)&0777) === 0600;
 unlink($probe);
 if (!$valid) { throw new RuntimeException('Private volume read/write permissions differ.'); }
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (!$app->environment('staging') || config('database.default') !== 'pgsql' ||
+    config('database.connections.pgsql.database') !== 'ev_staging_review' ||
+    !preg_match('/^ev-staging-review-[0-9]+-[0-9]+-db$/D', config('database.connections.pgsql.host'))) {
+    throw new RuntimeException('Performance fixture requires the disposable staging database.');
+}
+\Illuminate\Support\Facades\DB::transaction(function () {
+    if (\App\Models\Station::query()->exists() || \App\Models\User::query()->exists()) {
+        throw new RuntimeException('Performance fixture requires an empty database.');
+    }
+    $vendor = \App\Models\User::forceCreate([
+        'name' => 'Synthetic performance vendor',
+        'email' => 'performance@example.invalid',
+        'password' => password_hash(bin2hex(random_bytes(32)), PASSWORD_BCRYPT),
+        'role' => 'vendor',
+    ]);
+    $stations = [];
+    for ($index = 1; $index <= 75; $index++) {
+        $stations[] = [
+            'vendor_id' => $vendor->id, 'name' => 'Synthetic performance station '.$index,
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai',
+            'latitude' => 25, 'longitude' => 55, 'source' => 'simulator',
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ];
+    }
+    \App\Models\Station::query()->insert($stations);
+});
 echo "PASS: actual pinned staging image migrated PostgreSQL17, served catalog/page/licensed map with secure headers/cookies, and wrote private storage as www-data. Synthetic isolated resources only.\n";
 PHP
+
+published_address=$(docker port "$application_id" 80/tcp)
+if [[ ! "$published_address" =~ ^127\.0\.0\.1:([1-9][0-9]{0,4})$ ]]; then
+  echo 'Performance probe requires a single loopback-only port.' >&2
+  exit 1
+fi
+port=${BASH_REMATCH[1]}
+python3 "$script_dir/staging-http-performance.py" "$port" "$revision"
