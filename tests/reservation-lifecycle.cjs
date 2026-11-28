@@ -20,6 +20,10 @@ const assert = require("node:assert/strict");
     ),
   );
   assert.equal(expiry.expired, 1);
+  const arrivedExpiry = JSON.parse(execFileSync("./scripts/php", [
+    "artisan", "reservations:expire-unused", `--reservation=${f.arrived_unused}`,
+  ], {encoding:"utf8"}));
+  assert.equal(arrivedExpiry.expired, 1);
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
@@ -66,10 +70,9 @@ const assert = require("node:assert/strict");
     assert.equal(reply.status(), 201);
     const data = await reply.json();
     assert.equal(data.physical_presence_verified, false);
-    await page
-      .locator("#reservation-list")
-      .getByText(/Self-reported arrival/)
-      .waitFor();
+    await page.locator("#reservation-list").locator("article")
+      .filter({hasText: `#${f.current} ·`})
+      .getByText(/Self-reported arrival/).waitFor();
     assert.equal(
       await page
         .locator("#reservation-list")
@@ -88,11 +91,21 @@ const assert = require("node:assert/strict");
       { exact: true },
     );
     await noArrival.waitFor();
+    const history = page.locator("#reservation-list");
+    const arrived = history.getByText(
+      "Reservation expired unused after a self-reported arrival. The no-show fee is zero.", {exact:true});
+    await arrived.waitFor();
+    assert.equal(await history.getByText(
+      "Reservation expired unused with no recorded arrival report. The no-show fee is zero.", {exact:true}).count(), 0);
     await page.locator("#language").click();
     await page.locator("#reservation-list").getByText(
       "انتهى الحجز دون استخدام ولم يُسجّل وصول ذاتي.",
       { exact: true },
     ).waitFor();
+    await history.getByText(
+      "انتهى الحجز دون استخدام بعد تسجيل وصول ذاتي. رسوم عدم الحضور صفر.", {exact:true}).waitFor();
+    assert.equal(await history.getByText(
+      "انتهى الحجز دون استخدام ولم يُسجّل وصول ذاتي. رسوم عدم الحضور صفر.", {exact:true}).count(), 0);
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth,
