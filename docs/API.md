@@ -466,6 +466,44 @@ Web `/api/ocpi/providers/{provider}/sync-plans` and native `/api/v1/ocpi/provide
 A failed read waits for its next configured interval; the error receipt contains only fixed codes. A claim interrupted for 30 minutes disables that plan and records operator review. Renewing consent starts a new run identity; it never silently resumes an interrupted request. History and outcomes remain partner-reported/unverified and do not establish physical operation or commercial acceptance. Configure and accept actual partner polling separately; local tests fake every partner request.
 
 
+### Charger-specific read-only signed firmware source matrix
+
+Authenticated inventory readers for an owned simulated charger may request
+`GET /api/vendor-ops/companies/{company}/chargers/{charger}/firmware-compatibility`
+with the same session/bearer authentication as other vendor-ops routes. The
+adapter is explicitly **local/testing only** and requires the signed firmware
+and simulator bridge flags. The request never dispatches any OCPP command or
+changes charging, payments, reservations, or the firmware ledger.
+
+The response authenticates the unique typed CitrineOS source station,
+compares its manufacturer/model/negotiated protocol to the current company
+inventory, and requires a strictly parsed absolute source heartbeat within
+five minutes. Any missing/mismatched/stale/relative source identity returns a
+fail-closed error rather than a compatibility recommendation. It reads
+the authenticated source twice, requiring the **same source station ID,
+manufacturer, model, protocol and exact firmware version**, still-online
+status, and a monotonic absolute heartbeat no older than five minutes.
+Current authorization, owner, charger manufacturer/model/site and canonical
+source binding are independently rechecked around and after these reads.
+The returned last heartbeat is from the final verified observation. Both reads must retain the original configured GraphQL endpoint and admin key, with firmware and bridge adapters enabled throughout. Any mid-inspection authority drift fails closed without forwarding credentials to a replacement endpoint. The response rejects catalogs exceeding 100 matching releases rather than silently reporting an incomplete matrix. Approved release rows are limited to the company's matching
+manufacturer/model and each exposes `signed_compatibility_policy`,
+`signer_currently_trusted`, `protocols`, `from_versions`,
+`revoked` and `matches_observed_source`. Only an unrevoked manifest with
+a verified signature, current pinned signer certificate, matching OCPP
+protocol and exact current source firmware may report a match. An unsigned
+legacy policy, revoked trust pin or expired signer is never promoted.
+`source_snapshot_verified: true` confirms only the authenticated
+software-source read; `firmware_dispatch_authorized` and
+`physical_hardware_accepted` are **always false**. This endpoint does
+not replace separate artifact-byte/signer checks, hardware acceptance,
+post-command source correlation or approved physical on-site supervision.
+
+Vendor web and Flutter views offer an **explicit** inspection button;
+neither polls this private source automatically nor silently sends a
+firmware operation. Both displays fail closed on mismatched response
+identity, clear stale private source state when the user/account/charger
+changes, and never show upstream credentials or transport errors.
+
 ### Signed firmware compatibility paths
 
 A configured firmware entry may now include `compatibility: {protocols: ["1.6","2.0.1"], from_versions: ["vendor-version"]}` and `compatibility_signature` (base64 SHA-256/OpenSSL signature by the same independently pinned, current certificate that signs the firmware bytes). The manifest message is `creabiz-firmware-compatibility-v1\n` followed by compact UTF-8 JSON in this exact key order: `catalog_key,manufacturer,model,version,sha256,protocols,from_versions`. Unicode/slashes are unescaped; both lists are sorted with bytewise string order, unique and bounded (two protocols,20 exact source versions). No ranges, wildcards or inferred version ordering are accepted. Firmware source versions use1–80 ASCII letters/digits/dot/underscore/plus/colon/dash, beginning with a letter or digit. Changing any bound identity/policy invalidates the signature; a changed approved policy requires a new catalog identity.
