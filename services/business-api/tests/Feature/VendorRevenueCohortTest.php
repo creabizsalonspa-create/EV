@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\ChargingSession;
+use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
-use App\Models\TariffVersion;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Carbon\Carbon;
