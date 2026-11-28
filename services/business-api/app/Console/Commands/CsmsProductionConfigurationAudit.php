@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Charging\ChargerCertificateVerifier;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -115,8 +116,25 @@ final class CsmsProductionConfigurationAudit extends Command
         }
     }
 
+    private function certificateAuthority(): array
+    {
+        $currentRoots = [];
+        if ($this->pinsConfigured()) {
+            try {
+                $currentRoots = app(ChargerCertificateVerifier::class)->issuers();
+            } catch (Throwable) {
+                // Report unusable local trust without exposing paths or PEMs.
+            }
+        }
+        $threshold = now()->addDays(7)->timestamp;
+        $expiring = array_filter($currentRoots, fn (array $root) => $root['parsed']['validTo_time_t'] <= $threshold);
+
+        return ['current_roots' => count($currentRoots), 'roots_expiring_within_seven_days' => count($expiring)];
+    }
+
     public function handle(): int
     {
+        $certificateAuthority = $this->certificateAuthority();
         $base = config('csms.operations_base_url');
         $client = config('csms.operations_oauth_client_id');
         $scope = config('csms.operations_oauth_scope');
@@ -135,6 +153,7 @@ final class CsmsProductionConfigurationAudit extends Command
             'independent_service_secrets' => $this->independentSecrets(),
             'pinned_rsa_public_keys' => $this->pinnedKeys(),
             'certificate_issuer_pins_configured' => $this->pinsConfigured(),
+            'certificate_issuer_bundle_usable' => $certificateAuthority['current_roots'] > 0,
             'canonical_tables_present' => $this->schemaConfigured(),
         ];
         $complete = ! in_array(false, $checks, true);
@@ -142,6 +161,7 @@ final class CsmsProductionConfigurationAudit extends Command
             'status' => $complete ? 'configuration_checks_passed_live_validation_required' : 'blocked',
             'configuration_checks_passed' => $complete,
             'checks' => $checks,
+            'certificate_authority' => $certificateAuthority,
             'source_connected' => false,
             'oauth_token_verified' => false,
             'certificate_chain_verified' => false,

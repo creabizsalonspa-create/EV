@@ -5,11 +5,12 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Tests\Support\CreatesChargerCertificate;
 use Tests\TestCase;
 
 class CsmsProductionConfigurationAuditTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesChargerCertificate, RefreshDatabase;
 
     public function test_production_configuration_audit_is_offline_and_never_authorizes_release(): void
     {
@@ -36,9 +37,15 @@ class CsmsProductionConfigurationAuditTest extends TestCase
             'csms.event_secret' => str_repeat('b', 64),
             'csms.ingress_secret' => str_repeat('c', 64),
             'csms.operations_oauth_client_secret' => str_repeat('d', 64),
-            'csms.certificate_issuer_pins' => [str_repeat('e', 64)],
             'csms.certificate_denied_issuers' => [],
         ]);
+        [, $rootA] = $this->certificatePair(issuerDays: 6);
+        $pinA = openssl_x509_fingerprint($rootA, 'sha256');
+        $bundleA = config('csms.certificate_issuer_bundle');
+        [, $rootB] = $this->certificatePair();
+        $pinB = openssl_x509_fingerprint($rootB, 'sha256');
+        file_put_contents(config('csms.certificate_issuer_bundle'), $rootA.$rootB);
+        config(['csms.certificate_issuer_pins' => [$pinA, $pinB]]);
         $this->assertSame(1, Artisan::call('csms:production-config-audit'));
         $this->assertFalse(json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR)['checks']['production_environment']);
         $prior = app()->environment();
@@ -47,6 +54,8 @@ class CsmsProductionConfigurationAuditTest extends TestCase
             $this->assertSame(0, Artisan::call('csms:production-config-audit'));
             $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
             $this->assertTrue($report['configuration_checks_passed']);
+            $this->assertTrue($report['checks']['certificate_issuer_bundle_usable']);
+            $this->assertSame(['current_roots' => 2, 'roots_expiring_within_seven_days' => 1], $report['certificate_authority']);
             $this->assertSame('configuration_checks_passed_live_validation_required', $report['status']);
             foreach (['source_connected', 'oauth_token_verified', 'certificate_chain_verified', 'production_transport_verified',
                 'device_commands_sent', 'database_mutations', 'production_ready', 'physical_hardware_accepted'] as $field) {
@@ -67,11 +76,13 @@ class CsmsProductionConfigurationAuditTest extends TestCase
                 ['csms.operations_oauth_token_url', 'https://identity.example.test/token?secret=PRIVATE-VALUE', 'oauth_https_and_identity'],
                 ['csms.event_secret', str_repeat('a', 64), 'independent_service_secrets'],
                 ['csms.operations_oauth_public_keys', ['current' => 'PRIVATE-INVALID-KEY'], 'pinned_rsa_public_keys'],
-                ['csms.certificate_issuer_pins', [str_repeat('e', 64), str_repeat('E', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', [$pinA, str_repeat('E', 64)], 'certificate_issuer_pins_configured'],
                 ['csms.certificate_issuer_pins', [str_repeat('E', 64)], 'certificate_issuer_pins_configured'],
-                ['csms.certificate_issuer_pins', [str_repeat('e', 64), str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
-                ['csms.certificate_issuer_pins', ['named' => str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
-                ['csms.certificate_denied_issuers', [str_repeat('e', 64)], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', [$pinA, $pinA], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_pins', ['named' => $pinA], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_denied_issuers', [$pinA, $pinB], 'certificate_issuer_pins_configured'],
+                ['csms.certificate_issuer_bundle', '/missing/PRIVATE-ISSUER-BUNDLE.pem', 'certificate_issuer_bundle_usable'],
+                ['csms.certificate_issuer_pins', [str_repeat('f', 64)], 'certificate_issuer_bundle_usable'],
                 ['csms.certificate_denied_issuers', [['PRIVATE-INVALID-PIN']], 'certificate_issuer_pins_configured'],
             ] as [$field, $value, $check]) {
                 $original = config($field);
@@ -97,11 +108,19 @@ class CsmsProductionConfigurationAuditTest extends TestCase
             config([
                 'csms.operations_base_url' => 'https://operations.example.test',
                 'csms.operations_oauth_audience' => 'https://operations.example.test',
-                'csms.certificate_issuer_pins' => [str_repeat('e', 64), str_repeat('f', 64)],
-                'csms.certificate_denied_issuers' => [str_repeat('e', 64)],
+                'csms.certificate_issuer_bundle' => $bundleA,
+                'csms.certificate_denied_issuers' => [$pinB],
             ]);
             $this->assertSame(0, Artisan::call('csms:production-config-audit'));
-            $this->assertTrue(json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR)['checks']['certificate_issuer_pins_configured']);
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertTrue($report['checks']['certificate_issuer_pins_configured']);
+            $this->assertSame(['current_roots' => 1, 'roots_expiring_within_seven_days' => 1], $report['certificate_authority']);
+
+            $this->travel(7)->days();
+            $this->assertSame(1, Artisan::call('csms:production-config-audit'));
+            $report = json_decode(trim(Artisan::output()), true, 32, JSON_THROW_ON_ERROR);
+            $this->assertFalse($report['checks']['certificate_issuer_bundle_usable']);
+            $this->assertSame(['current_roots' => 0, 'roots_expiring_within_seven_days' => 0], $report['certificate_authority']);
         } finally {
             app()->detectEnvironment(fn () => $prior);
         }
