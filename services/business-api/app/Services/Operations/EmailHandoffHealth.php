@@ -22,17 +22,23 @@ final class EmailHandoffHealth
             return DB::transaction(function () {
                 $now = now('UTC');
                 $cutoff = $now->copy()->subMinutes(15);
-                $outbox = DB::table('notification_email_outbox');
+                // A single statement observes the claim and terminal states together.
+                // A concurrent recovery can move a receipt between these states.
+                $counts = DB::table('notification_email_outbox')
+                    ->whereIn('state', ['outcome_unknown', 'queued', 'claimed'])
+                    ->selectRaw(
+                        "COUNT(CASE WHEN state = 'outcome_unknown' THEN 1 END) AS outcome_unknown,
+                         COUNT(CASE WHEN state = 'queued' AND created_at <= ? THEN 1 END) AS overdue_queued,
+                         COUNT(CASE WHEN state = 'claimed' AND COALESCE(claimed_at, created_at) <= ? THEN 1 END) AS stale_claimed",
+                        [$cutoff, $cutoff],
+                    )
+                    ->first();
 
                 return [
                     'state' => 'available',
-                    'outcome_unknown' => (clone $outbox)->where('state', 'outcome_unknown')->count(),
-                    'overdue_queued' => (clone $outbox)->where('state', 'queued')->where('created_at', '<=', $cutoff)->count(),
-                    'stale_claimed' => (clone $outbox)->where('state', 'claimed')
-                        ->where(fn ($query) => $query
-                            ->where('claimed_at', '<=', $cutoff)
-                            ->orWhere(fn ($missing) => $missing->whereNull('claimed_at')->where('created_at', '<=', $cutoff)))
-                        ->count(),
+                    'outcome_unknown' => (int) $counts->outcome_unknown,
+                    'overdue_queued' => (int) $counts->overdue_queued,
+                    'stale_claimed' => (int) $counts->stale_claimed,
                     'age_threshold_seconds' => 900,
                     'delivery_confirmed' => false,
                     'automatic_retry' => false,
