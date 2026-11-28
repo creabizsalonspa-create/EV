@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargingRepairController;
 use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
@@ -11,6 +12,7 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\FaultMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -49,6 +51,55 @@ class ChargingRepairTest extends TestCase
     private function intent(int $alert, int $version, string $state): array
     {
         return ['request_key' => (string) Str::uuid(), 'alert_id' => $alert, 'expected_version' => $version, 'state' => $state, 'note' => 'PRIVATE repair inspection note'];
+    }
+
+    public function test_admin_repair_event_notifies_the_current_owner_after_a_company_transfer(): void
+    {
+        [$previousOwner, $company, $charger, $url, $alert, $binding] = $this->repairFixture();
+        $currentOwner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        VendorCompany::whereKey($company->id)->update(['owner_id' => $currentOwner->id]);
+        Station::whereKey($binding->station_id)->update(['vendor_id' => $currentOwner->id]);
+        $request = Request::create($url, 'POST', $this->intent($alert, 0, 'open'));
+        $request->setUserResolver(fn () => $admin);
+
+        // A model bound before transfer reaches the same transaction used by
+        // the normal route. Only the locked current company owns the event.
+        $response = app(ChargingRepairController::class)->save($request, $company, $charger);
+        $this->assertSame(200, $response->getStatusCode());
+        $notice = InboxNotification::where('kind', 'charging.repair.opened.simulated')->sole();
+        $this->assertSame($currentOwner->id, $notice->user_id);
+        $this->assertNotSame($previousOwner->id, $notice->user_id);
+        $this->assertSame($binding->station_id, $notice->metadata['station_id']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_conflicting_current_source_observations_cannot_close_repair_review(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $this->postJson($url, $this->intent($alert, 2, 'review'))->assertOk();
+        $generation = FaultMonitor::generation($binding);
+        $monitor = app(FaultMonitor::class);
+        $at = now()->subSeconds(2)->toISOString();
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [
+            ['id' => 11, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => $at],
+            ['id' => 12, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $at],
+        ]]);
+        $this->assertNotNull(DB::table('charging_fault_alerts')->where('id', $alert)->value('recovery_observation_id'));
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseHas('charging_repair_orders', ['alert_id' => $alert, 'state' => 'review', 'version' => 3]);
+
+        $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [
+            ['id' => 13, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => now()->subSecond()->toISOString()],
+        ]]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk()
+            ->assertJsonPath('state', 'closed')->assertJsonPath('capacity_changed', false);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
     }
 
     public function test_versioned_lifecycle_requires_recovery_and_preserves_immutable_encrypted_history(): void

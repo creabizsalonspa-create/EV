@@ -32,9 +32,9 @@ class ChargingRepairController extends Controller
             return false;
         }
         $generation = FaultMonitor::generation($binding);
-        $fault = DB::table('charging_status_observations')
+        $fault = DB::table('charging_status_observations')->where('binding_id', $binding->id)
             ->where('id', $alert->observation_id)->where('source_generation', $generation)->first();
-        $recovery = DB::table('charging_status_observations')
+        $recovery = DB::table('charging_status_observations')->where('binding_id', $binding->id)
             ->where('id', $alert->recovery_observation_id)->where('source_generation', $generation)->first();
         if (! $fault || ! $recovery
             || $fault->status !== 'Faulted'
@@ -49,7 +49,7 @@ class ChargingRepairController extends Controller
                 : ! in_array($recovery->error_code, [null, 'NoError'], true))) {
             return false;
         }
-        $source = DB::table('charging_status_observations')
+        $source = DB::table('charging_status_observations')->where('binding_id', $binding->id)
             ->where('source_generation', $generation)
             ->where('evse_number', $fault->evse_number)
             ->where('connector_number', $fault->connector_number);
@@ -67,6 +67,7 @@ class ChargingRepairController extends Controller
             && CarbonImmutable::parse($latest->occurred_at, 'UTC')->lte(now())
             && CarbonImmutable::parse($latest->occurred_at, 'UTC')->gt(now()->subMinutes(5))
             && $latest->status === 'Available'
+            && ! FaultMonitor::conflictsWithRecovery($binding, $latest)
             && ($binding->protocol === '1.6'
                 ? $latest->error_code === 'NoError'
                 : in_array($latest->error_code, [null, 'NoError'], true));
@@ -127,7 +128,9 @@ class ChargingRepairController extends Controller
         $hash = hash('sha256', json_encode([$company->id, $charger->id, $v['alert_id'], $v['expected_version'], $v['state'], $v['note']], JSON_THROW_ON_ERROR));
 
         return DB::transaction(function () use ($r, $company, $charger, $v, $hash) {
-            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            // Use the locked current company for authorization and for the
+            // owner notification committed alongside this lifecycle event.
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $b = $this->scope($r, $company, $charger, true);
             $locked = DB::table('csms_bindings')->where('id', $b->id)->lockForUpdate()->firstOrFail();
