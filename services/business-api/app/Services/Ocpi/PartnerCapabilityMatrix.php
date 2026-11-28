@@ -97,11 +97,17 @@ final class PartnerCapabilityMatrix
         // infer target, customer consent, physical availability or billing.
         $commandPolicyReady = false;
         $reservationPolicyReady = false;
-        if ($sandbox && $configured && $senderCurrent) {
+        $tokenSenderRequestReady = false;
+        $roaming = app(SandboxRoaming::class);
+        $tokenSenderConfigured = $sandbox && $configured && $roaming->tokenSenderConfigured($provider);
+        if ($tokenSenderConfigured && $senderCurrent) {
             try {
-                app(SandboxRoaming::class)->newWorkPolicy($provider);
-                $commandPolicyReady = true;
-                $reservationPolicyReady = app(ReservationRoaming::class)->supported($provider);
+                $roaming->policy($provider);
+                $tokenSenderRequestReady = true;
+                if (PartnerReadProfile::modules($connection) === PartnerReadProfile::MODULES) {
+                    $commandPolicyReady = true;
+                    $reservationPolicyReady = app(ReservationRoaming::class)->supported($provider);
+                }
             } catch (Throwable) {
                 // Missing, stale or invalid policy evidence stays unavailable.
             }
@@ -113,6 +119,8 @@ final class PartnerCapabilityMatrix
                 ? $connection['party_role'] : null,
             'credentials_current' => $credentialsCurrent,
             'modules' => $modules,
+            'sandbox_token_sender_configured' => $tokenSenderConfigured,
+            'sandbox_token_sender_request_ready' => $tokenSenderRequestReady,
             'sandbox_command_policy_ready' => $commandPolicyReady,
             'sandbox_reservation_policy_ready' => $reservationPolicyReady,
             'live_roaming_verified' => false,

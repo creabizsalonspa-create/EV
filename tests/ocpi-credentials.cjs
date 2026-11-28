@@ -24,6 +24,8 @@ withCredentialsFixture(async (f) => {
   assert.equal(state.capability_matrix.payment_authority, false);
   assert.equal(state.capability_matrix.sandbox_command_policy_ready, false);
   assert.equal(state.capability_matrix.sandbox_reservation_policy_ready, false);
+  assert.equal(state.capability_matrix.sandbox_token_sender_configured, false);
+  assert.equal(state.capability_matrix.sandbox_token_sender_request_ready, false);
   assert.deepEqual(state.capability_matrix.modules.map((m) => m.module), ["locations", "tariffs", "sessions", "cdrs"]);
   assert(state.capability_matrix.modules.every((m) => Object.values(m).every((v) => typeof v === "string" || typeof v === "boolean")));
   assert(!JSON.stringify(state).includes(f.local_token));
@@ -106,6 +108,8 @@ withCredentialsFixture(async (f) => {
       .waitFor();
     await detail.getByText("Configured or negotiated modules only", { exact: false }).waitFor();
     await detail.getByText("locations: Partner read", { exact: false }).waitFor();
+    await detail.getByText("Sandbox token sender ready: no", { exact: false }).waitFor();
+    await detail.getByText("Receive requests ready no", { exact: false }).first().waitFor();
     assert(!(await detail.textContent()).includes(newToken));
     assert(
       !(await page.locator("body").textContent()).includes(
