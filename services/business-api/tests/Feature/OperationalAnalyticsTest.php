@@ -160,6 +160,64 @@ class OperationalAnalyticsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_reversed_source_session_times_do_not_contribute_energy_or_invoice_facts(): void
+    {
+        [$owner, , , $binding, $map, $evse, $url] = $this->setupReport();
+        $this->sourceSession($binding, $map, $evse, '2026-11-06 09:00:00', '2026-11-06 10:00:00');
+        // Synthetic imported facts bypass the live bridge's monotonic clock
+        // guard. The report must independently reject a backwards end time.
+        $this->sourceSession($binding, $map, $evse, '2026-11-06 11:00:00', '2026-11-06 10:30:00');
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()
+            ->assertJsonPath('sites.0.excluded_sessions', 1)
+            ->assertJsonPath('sites.0.source_completed', 1)
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.observed_busy_seconds', 3600)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonPath('invoice_facts.0.invoiced_minor', 100);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_contradictory_same_station_target_is_excluded_from_energy_and_demand(): void
+    {
+        [$owner, , $charger, $binding, $map, $evse, $url] = $this->setupReport();
+        $connector = VendorConnector::create(['charger_id' => $charger->id, 'connector_number' => 2, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
+        $secondEvse = DB::table('charging_evses')->insertGetId(['charger_id' => $charger->id, 'number' => 2, 'mode' => 'exclusive', 'binding_id' => $binding->id, 'source_evse_number' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        $secondMap = DB::table('charging_connector_mappings')->insertGetId(['station_id' => $binding->station_id, 'evse_id' => $secondEvse, 'connector_id' => $connector->id, 'source_connector_number' => 2, 'source_target_key' => hash('sha256', 'contradictory-'.$binding->id), 'created_at' => now(), 'updated_at' => now()]);
+        $session = $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $before = DB::table('finance_journals')->count();
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000);
+
+        // All IDs remain real and belong to the same station/binding.
+        // Change each copied target independently in disposable test data.
+        foreach ([
+            ['reservations', $session->reservation_id, 'connector_mapping_id', $secondMap, $map],
+            ['reservations', $session->reservation_id, 'charging_evse_id', $secondEvse, $evse],
+            ['charging_sessions', $session->id, 'charging_evse_id', $secondEvse, $evse],
+        ] as [$table, $id, $field, $wrong, $original]) {
+            DB::table($table)->where('id', $id)->update([$field => $wrong]);
+            $this->getJson($url.$query)->assertOk()
+                ->assertJsonPath('sites.0.excluded_sessions', 1)
+                ->assertJsonPath('sites.0.source_completed', 0)
+                ->assertJsonPath('sites.0.completed_energy_wh', 0)
+                ->assertJsonPath('sites.0.observed_busy_seconds', 0)
+                ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', null)
+                ->assertJsonPath('sites.0.demand_observed_seconds', 0)
+                ->assertJsonCount(0, 'invoice_facts');
+            DB::table($table)->where('id', $id)->update([$field => $original]);
+        }
+        $this->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonCount(1, 'invoice_facts');
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_fractional_intermediate_accepted_meter_cannot_be_truncated_into_demand(): void
     {
         if (DB::connection()->getDriverName() !== 'sqlite') {
