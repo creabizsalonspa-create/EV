@@ -122,7 +122,7 @@ const { chromium } = require("playwright"),
     await page.locator('[name=dispute_currency]').fill("");
     await page.evaluate(() => forgeCurrency = true);
     await page.getByRole("button", { name: "Load provider disputes", exact: true }).click();
-    await page.getByRole("status").getByText("Provider dispute receipt cannot be verified.", { exact: true }).waitFor();
+    await page.getByRole("status").getByText("Provider receipt cannot be verified.", { exact: true }).waitFor();
     assert.equal(await page.locator("[data-dispute-id]").count(), 0);
     await page.evaluate(() => forgeCurrency = false);
     await page.locator('[name=dispute_currency]').fill("AED");
