@@ -60,13 +60,12 @@ function fixture(ar = false) {
     addEventListener: (key, fn) => (windowEvents[key] = fn),
     removeEventListener: (key) => delete windowEvents[key],
   };
-  vm.runInNewContext(
-    fs.readFileSync(
-      "services/business-api/public/vendor-session-observations.js",
-      "utf8",
-    ),
-    { window, document, AbortController, URLSearchParams },
-  );
+  for (const script of ["station-time", "vendor-session-observations"]) {
+    vm.runInNewContext(
+      fs.readFileSync(`services/business-api/public/${script}.js`, "utf8"),
+      { window, document, AbortController, URLSearchParams },
+    );
+  }
   let current = true;
   return {
     root,
@@ -96,7 +95,7 @@ function record(id) {
     energy_state: "recorded",
     record_created_at: "2026-11-19T06:00:00.000000Z",
     record_updated_at: "2026-11-19T06:01:00Z",
-    stopped_at: null,
+    stopped_at: "2026-11-19T06:00:00Z",
     protocol: null,
     evidence: "SIMULATED",
     physical_charging_verified: false,
@@ -144,6 +143,17 @@ for (const ar of [false, true])
     );
     assert(f.root.textContent.includes("Station 27"));
     assert(!f.root.textContent.includes("PRIVATE"));
+    const clocks = nodes(f.root, "time");
+    assert.deepEqual(clocks.map(clock => clock.dateTime), [
+      "2026-11-19T06:02:00Z",
+      "2026-11-19T06:01:00Z",
+      "2026-11-19T06:00:00Z",
+    ]);
+    for (const clock of clocks) {
+      assert.equal(clock.textContent, clock.dataset[ar ? "ar" : "en"]);
+      assert.match(clock.textContent, /\(UTC\)$/);
+      assert.notEqual(clock.dataset.en, clock.dataset.ar);
+    }
   });
 test("pagination clears old records, failure retries precise page and filter resets page", async () => {
   const f = fixture(),
@@ -351,6 +361,7 @@ for (const ar of [false, true])
       );
       await flush();
       assert(f.root.textContent.includes("1002500 Wh"));
+      assert(f.root.textContent.includes("2026-11-19T09:59:00.123456Z"));
       assert(!f.root.textContent.includes("PRIVATE"));
       assert(
         f.root.textContent.includes(

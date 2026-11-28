@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 
 const vendorSessionStates = [
   'pending_start',
@@ -545,7 +546,7 @@ class _VendorSessionObservationsState
               ),
               if (p.protocol != null) Text('OCPP ${p.protocol}'),
               Text(t('Observed at UTC', 'تمت الملاحظة بالتوقيت العالمي')),
-              Text(p.asOf, textDirection: TextDirection.ltr),
+              Text(serverEventTime(context, p.asOf)),
               if (p.items.isEmpty)
                 Text(
                   t(
@@ -722,7 +723,7 @@ class _VendorSessionObservationsState
                 ),
               ),
               Text(t('Observed at UTC', 'تمت الملاحظة بالتوقيت العالمي')),
-              Text(p.asOf, textDirection: TextDirection.ltr),
+              Text(serverEventTime(context, p.asOf)),
               if (p.items.isEmpty)
                 Text(
                   t(
@@ -766,7 +767,7 @@ class _VendorSessionObservationsState
                             'تحديث السجل بالتوقيت العالمي',
                           ),
                         ),
-                        Text(row.updated, textDirection: TextDirection.ltr),
+                        Text(serverEventTime(context, row.updated)),
                         if (row.stopped != null) ...[
                           Text(
                             t(
@@ -774,7 +775,7 @@ class _VendorSessionObservationsState
                               'التوقف المسجل بالتوقيت العالمي',
                             ),
                           ),
-                          Text(row.stopped!, textDirection: TextDirection.ltr),
+                          Text(serverEventTime(context, row.stopped)),
                         ],
                       ],
                     ),
