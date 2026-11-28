@@ -32,7 +32,7 @@ window.EvAdminOperationsMap = (() => {
     function clear() { epoch++; erase(); stopMap(); api = null; root.replaceChildren(); }
     function collect() {
         const query = {};
-        for (const [key, input] of Object.entries(fields)) if (input.value.trim()) query[key] = input.value.trim();
+        for (const [key, input] of Object.entries(fields)) if (!input.disabled && input.value.trim()) query[key] = input.value.trim();
         if (viewport.checked && map) {
             const b = map.getBounds(), width = b.getEast() - b.getWest();
             const normalize = value => ((value + 180) % 360 + 360) % 360 - 180;
@@ -42,13 +42,18 @@ window.EvAdminOperationsMap = (() => {
         return query;
     }
     const safeInt = value => Number.isSafeInteger(value) && value >= 0;
-    function safe(data) {
-        if (data?.scope !== 'platform_inventory_all_companies' || data.charging_authority_granted !== false || data.payment_authority_granted !== false ||
+    function safe(data, partner) {
+        if (data?.scope !== (partner ? 'authorized_partner_catalog' : 'platform_inventory_all_companies') || data.charging_authority_granted !== false || data.payment_authority_granted !== false ||
             !Array.isArray(data.data) || data.data.length > 25 || !safeInt(data.current_page) || !safeInt(data.last_page) || !safeInt(data.total) || typeof data.as_of !== 'string') return false;
         return data.data.every(row => safeInt(row.id) && row.id > 0 && typeof row.name === 'string' && typeof row.source === 'string' &&
             Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90 && Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180 &&
-            safeInt(row.charger_count) && safeInt(row.mapped_connector_count) && row.availability === 'unknown' && row.physical_availability_verified === false && row.remote_control === false &&
-            (row.company === null || (safeInt(row.company?.id) && typeof row.company.name === 'string' && typeof row.company.review_status === 'string')));
+            row.availability === 'unknown' && row.physical_availability_verified === false && row.remote_control === false &&
+            (partner ? row.source === 'PARTNER_REPORTED_UNVERIFIED' && safeInt(row.provider_id) && row.provider_id > 0 &&
+                typeof row.provider_label === 'string' && (row.country === null || typeof row.country === 'string') &&
+                (row.reported_source_age_minutes === null || safeInt(row.reported_source_age_minutes)) &&
+                !('company' in row) && !('charger_count' in row)
+                : safeInt(row.charger_count) && safeInt(row.mapped_connector_count) &&
+                    (row.company === null || (safeInt(row.company?.id) && typeof row.company.name === 'string' && typeof row.company.review_status === 'string'))));
     }
     async function load(page = 1, fresh = false) {
         if (!api || document.hidden) return;
@@ -59,17 +64,27 @@ window.EvAdminOperationsMap = (() => {
         try {
             const data = await api('admin/operations/map?' + new URLSearchParams({...filters, page: String(page)}), 'GET', undefined, controller.signal);
             if (ownEpoch !== epoch || ownSequence !== sequence || controller.signal.aborted || document.hidden) return;
-            if (!safe(data)) throw Error('Unexpected map contract');
+            const partner = filters.catalog === 'partner';
+            if (!safe(data, partner)) throw Error('Unexpected map contract');
             applied = filters; currentPage = data.current_page;
             say(`Loaded ${data.data.length} of ${data.total} locations · page ${currentPage}/${data.last_page} · as of ${data.as_of}`,
                 `تم تحميل ${data.data.length} من ${data.total} موقع · الصفحة ${currentPage}/${data.last_page} · وقت القراءة ${data.as_of}`);
             for (const row of data.data) {
-                const card = document.createElement('article'); card.dataset.stationId = String(row.id);
-                card.append(plain('h4', row.name + ' · #' + row.id), plain('p', `${row.country} · ${row.timezone} · ${row.latitude}, ${row.longitude}`),
-                    plain('p', row.source), node('p', `Chargers: ${row.charger_count} · mapped connectors: ${row.mapped_connector_count}`,
+                const card = document.createElement('article');
+                if (partner) card.dataset.partnerRecordId = String(row.id);
+                else card.dataset.stationId = String(row.id);
+                card.append(plain('h4', row.name + ' · #' + row.id),
+                    plain('p', `${row.country ?? '—'} · ${partner ? '' : row.timezone + ' · '}${row.latitude}, ${row.longitude}`), plain('p', row.source));
+                if (partner) {
+                    card.append(plain('p', row.provider_label + ' · #' + row.provider_id),
+                        node('p', row.reported_source_age_minutes === null ? 'Source age unknown' : `Reported source age: ${row.reported_source_age_minutes} min`,
+                            row.reported_source_age_minutes === null ? 'عمر المصدر غير معروف' : `عمر تقرير المصدر: ${row.reported_source_age_minutes} دقيقة`));
+                } else {
+                    card.append(node('p', `Chargers: ${row.charger_count} · mapped connectors: ${row.mapped_connector_count}`,
                         `الشواحن: ${row.charger_count} · الموصلات المرتبطة: ${row.mapped_connector_count}`));
-                if (row.company) card.append(plain('p', `${row.company.name} · #${row.company.id} · ${row.company.review_status}`));
-                else card.append(node('p', 'No matching company ownership', 'لا توجد ملكية شركة مطابقة'));
+                    if (row.company) card.append(plain('p', `${row.company.name} · #${row.company.id} · ${row.company.review_status}`));
+                    else card.append(node('p', 'No matching company ownership', 'لا توجد ملكية شركة مطابقة'));
+                }
                 card.append(node('p', 'Physical availability unknown. No controls are granted by this map.', 'التوفر الفعلي غير معروف. لا تمنح الخريطة صلاحية التحكم.'));
                 output.append(card);
                 if (map && Math.abs(row.latitude) <= 85.05112878) {
@@ -93,6 +108,11 @@ window.EvAdminOperationsMap = (() => {
         root.append(node('p', 'All-company platform inventory, 25 locations per page. Report filters describe recent simulator evidence as of the search, never physical availability. Coordinates beyond the map projection remain in the list.',
             'مخزون المنصة لجميع الشركات، 25 موقعاً في الصفحة. تصف مرشحات التقارير أدلة المحاكي الحديثة عند البحث وليس التوفر الفعلي. تبقى الإحداثيات خارج إسقاط الخريطة في القائمة.'));
         const form = document.createElement('form'); fields = {};
+        const catalogLabel = document.createElement('label'), catalog = document.createElement('select'); catalog.name = 'catalog';
+        catalog.append(Object.assign(node('option', 'Platform inventory', 'مخزون المنصة'), {value:'platform'}),
+            Object.assign(node('option', 'Authorized partner reports', 'تقارير الشركاء المصرح بها'), {value:'partner'}));
+        catalog.value = 'platform'; fields.catalog = catalog;
+        catalogLabel.append(node('span', 'Map source', 'مصدر الخريطة'), catalog); form.append(catalogLabel);
         for (const [key, en, ar] of [['q','Station name','اسم المحطة'], ['country','Country code','رمز الدولة'], ['company_id','Company ID','معرف الشركة']]) {
             const label = document.createElement('label'), input = document.createElement('input'); input.name = key; input.maxLength = key === 'q' ? 80 : key === 'country' ? 2 : 16;
             label.append(node('span', en, ar), input); form.append(label); fields[key] = input;
@@ -102,6 +122,15 @@ window.EvAdminOperationsMap = (() => {
         const states = {Available:'متاح', Occupied:'مشغول', Preparing:'قيد التجهيز', Charging:'قيد الشحن', SuspendedEV:'متوقف من المركبة', SuspendedEVSE:'متوقف من الشاحن', Finishing:'قيد الإنهاء', Reserved:'محجوز', Unavailable:'غير متاح', Faulted:'عطل'};
         for (const [value, ar] of Object.entries(states)) select.append(Object.assign(node('option', value, ar), {value}));
         statusLabel.append(node('span', 'Recent simulator report (5 minutes)', 'تقرير المحاكي الحديث (5 دقائق)'), select); fields.recent_source_status = select; form.append(statusLabel);
+        catalog.onchange = () => {
+            erase(); applied = {}; currentPage = 1;
+            const partner = catalog.value === 'partner';
+            fields.country.value = ''; fields.country.maxLength = partner ? 3 : 2;
+            fields.company_id.disabled = fields.recent_source_status.disabled = partner;
+            fields.company_id.value = fields.recent_source_status.value = '';
+            say(partner ? 'Partner-reported locations only; use three-letter country codes. Search explicitly.' : 'Platform inventory; use two-letter country codes. Search explicitly.',
+                partner ? 'مواقع مبلّغ عنها من الشركاء فقط؛ استخدم رموز دول من ثلاثة أحرف. ابحث صراحة.' : 'مخزون المنصة؛ استخدم رموز دول من حرفين. ابحث صراحة.');
+        };
         viewport = document.createElement('input'); viewport.type = 'checkbox'; viewport.disabled = true;
         const viewportLabel = document.createElement('label'); viewportLabel.append(viewport, node('span', 'Search only the current map area', 'البحث في منطقة الخريطة الحالية فقط')); form.append(viewportLabel);
         const submit = node('button', 'Search / refresh inventory', 'بحث / تحديث المخزون'); submit.type = 'submit'; form.append(submit);
