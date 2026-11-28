@@ -7,7 +7,9 @@ use App\Models\Charging\OperationalCase;
 use App\Models\Charging\SessionLink;
 use App\Models\InboxNotification;
 use App\Models\Station;
+use App\Models\User;
 use App\Services\Charging\CommandReconciler;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceConsumer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -24,10 +26,21 @@ class ChargingOperationsController extends Controller
      */
     private function currentOperatorRole(Request $r): string
     {
-        $role = DB::table('users')->where('id', $r->user()->id)->value('role');
-        abort_unless(in_array($role, ['vendor', 'admin'], true), 403);
+        $snapshot = $r->user();
+        $current = User::find($snapshot->id);
+        abort_unless($current && $current->account_status === 'active'
+            && $snapshot->account_status === 'active'
+            && in_array($current->role, ['vendor', 'admin'], true)
+            && in_array($snapshot->role, ['vendor', 'admin'], true), 403);
+        // A downgrade retains only the lower current scope. A stale login
+        // cannot acquire newly granted administrator authority.
+        abort_unless($current->role !== 'admin' || $snapshot->role === 'admin', 403);
+        abort_unless((int) $current->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $current->password, (string) $snapshot->password),
+            409, 'Operator credentials changed. Sign in again.');
+        app(MaintenanceActor::class)->checkBearer($snapshot);
 
-        return $role;
+        return $current->role;
     }
 
     private function authorizeOperator(Request $r, ?ChargerCommand $command = null): void
@@ -158,8 +171,7 @@ class ChargingOperationsController extends Controller
             ChargerCommand::whereKey($command->id)->firstOrFail()
         );
         $reconciled = $reconciler->forSession($link->charging_session_id);
-        $hasProof = DB::table('command_source_observations')->where('command_id', $command->id)->exists();
-        DB::transaction(function () use ($case, $r, $hasProof, $command) {
+        $hasProof = DB::transaction(function () use ($case, $r, $command) {
             $lockedCommand = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
             $station = Station::whereKey($lockedCommand->station_id)->lockForUpdate()->firstOrFail();
             $this->authorizeOperator($r, $lockedCommand);
@@ -168,6 +180,7 @@ class ChargingOperationsController extends Controller
             }
             $current = OperationalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->command_id === $lockedCommand->id, 409);
+            $hasProof = DB::table('command_source_observations')->where('command_id', $lockedCommand->id)->exists();
             if ($current->state !== 'resolved') {
                 $current->update(['state' => $hasProof ? 'source_observed' : 'awaiting_source']);
             }
@@ -196,6 +209,8 @@ class ChargingOperationsController extends Controller
                 );
             }
             $this->event($current, $r->user()->id, 'source_inspected', $hasProof ? 'Applied source evidence is present.' : 'No applied source evidence; command remains quarantined.');
+
+            return $hasProof;
         }, 3);
 
         return response()->json(['events_received' => $events, 'reconciled' => $reconciled, 'source_observed' => $hasProof, 'command_resent' => false, 'capacity_release_forced' => false, 'physical_charging_verified' => false]);
