@@ -9,6 +9,44 @@ use Illuminate\Support\Facades\DB;
 
 class FinancialSources
 {
+    private const MAX_EXACT_MINOR = 9_007_199_254_740_991;
+
+    /**
+     * PostgreSQL SUM/numeric and other canonical records can be returned
+     * as numeric strings. Reject decimals and any integer a web/native
+     * report could round before creating an immutable signed PDF/CSV.
+     */
+    private static function exactMoney(mixed $value, bool $signed = false): int
+    {
+        // FILTER_VALIDATE_INT also accepts whole-valued PHP floats and true.
+        // Those types can already have lost precision before we see them:
+        // immutable invoice sources must be integers or decimal DB strings.
+        abort_unless(is_int($value) || is_string($value), 409, 'Document source amount exceeds exact integer bounds.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false
+            && $number <= self::MAX_EXACT_MINOR
+            && $number >= ($signed ? -self::MAX_EXACT_MINOR : 0),
+            409, 'Document source amount exceeds exact integer bounds.');
+
+        return $number;
+    }
+
+    /**
+     * An immutable TEST document must not be rendered from floating-point
+     * array_sum results when individually valid line items overflow.
+     * Signed settlement refund debts remain supported within exact bounds.
+     */
+    private static function sumExact(array $lines, string $field, bool $signed = false): int
+    {
+        $total = 0;
+        foreach ($lines as $line) {
+            $value = self::exactMoney($line[$field], $signed);
+            $total = self::exactMoney($total + $value, $signed);
+        }
+
+        return $total;
+    }
+
     public const TABLES = [
         'charging_invoice' => 'finance_invoices',
         'charging_credit' => 'finance_refunds',
@@ -30,14 +68,17 @@ class FinancialSources
             $detail = app(CorporateBilling::class)->statement($id, $actor->id);
             $user = (int) $row->payer_id;
             $vendor = null;
-            $lines = $detail['lines']->map(fn ($line) => ['reference' => $line->invoice_number, 'invoice_id' => (int) $line->invoice_id, 'amount_minor' => (int) $line->total_minor, 'subtotal_minor' => (int) $line->subtotal_minor, 'tax_minor' => (int) $line->tax_minor, 'cost_center_code' => $line->cost_center_code, 'cost_center_name' => $line->cost_center_name, 'reason' => $line->cost_center_code.' — '.$line->cost_center_name])->all();
-            abort_unless(array_sum(array_column($lines, 'amount_minor')) === (int) $row->total_minor && array_sum(array_column($lines, 'subtotal_minor')) === (int) $row->subtotal_minor && array_sum(array_column($lines, 'tax_minor')) === (int) $row->tax_minor, 409, 'Corporate statement source lines do not reconcile.');
+            $lines = $detail['lines']->map(fn ($line) => ['reference' => $line->invoice_number, 'invoice_id' => (int) $line->invoice_id, 'amount_minor' => self::exactMoney($line->total_minor), 'subtotal_minor' => self::exactMoney($line->subtotal_minor), 'tax_minor' => self::exactMoney($line->tax_minor), 'cost_center_code' => $line->cost_center_code, 'cost_center_name' => $line->cost_center_name, 'reason' => $line->cost_center_code.' — '.$line->cost_center_name])->all();
+            abort_unless(self::sumExact($lines, 'amount_minor') === self::exactMoney($row->total_minor)
+                && self::sumExact($lines, 'subtotal_minor') === self::exactMoney($row->subtotal_minor)
+                && self::sumExact($lines, 'tax_minor') === self::exactMoney($row->tax_minor),
+                409, 'Corporate statement source lines do not reconcile.');
             $countries = DB::table('finance_invoices')->whereIn('id', array_column($lines, 'invoice_id'))->pluck('country')->unique();
             abort_unless($countries->count() === 1, 409, 'Corporate statement requires one immutable invoice jurisdiction.');
             $values = [
                 'country' => $countries->first(), 'issuer_vendor_id' => null, 'tax_bps' => null,
                 'original_number' => $row->number, 'invoice_reference' => $row->number,
-                'subtotal_minor' => (int) $row->subtotal_minor, 'tax_minor' => (int) $row->tax_minor, 'total_minor' => (int) $row->total_minor,
+                'subtotal_minor' => self::exactMoney($row->subtotal_minor), 'tax_minor' => self::exactMoney($row->tax_minor), 'total_minor' => self::exactMoney($row->total_minor),
                 'currency' => $row->currency, 'minor_units' => (int) $row->minor_units,
                 'evidence' => 'SIMULATED_CORPORATE_STATEMENT', 'state_at_generation' => $detail['state'],
                 'description_en' => 'Corporate consolidated statement', 'description_ar' => 'كشف حساب شركة مجمع',
@@ -54,13 +95,14 @@ class FinancialSources
                 $adjustment = $line->adjustment_id ? DB::table('commercial_adjustments')->find($line->adjustment_id) : null;
                 abort_unless(($invoice !== null) !== ($adjustment !== null), 409, 'Settlement source line requires reconciliation.');
 
-                return ['invoice_id' => $line->invoice_id ? (int) $line->invoice_id : null, 'adjustment_id' => $line->adjustment_id ? (int) $line->adjustment_id : null, 'reference' => $invoice?->number ?? ('ADJ-'.$adjustment->id), 'amount_minor' => (int) $line->amount_minor, 'reason' => $adjustment?->reason];
+                return ['invoice_id' => $line->invoice_id ? (int) $line->invoice_id : null, 'adjustment_id' => $line->adjustment_id ? (int) $line->adjustment_id : null, 'reference' => $invoice?->number ?? ('ADJ-'.$adjustment->id), 'amount_minor' => self::exactMoney($line->amount_minor, true), 'reason' => $adjustment?->reason];
             })->all();
-            abort_unless(array_sum(array_column($lines, 'amount_minor')) === (int) $row->amount_minor, 409, 'Settlement statement lines do not reconcile.');
+            abort_unless(self::sumExact($lines, 'amount_minor', true) === self::exactMoney($row->amount_minor, true),
+                409, 'Settlement statement lines do not reconcile.');
             $values = [
                 'country' => null, 'issuer_vendor_id' => null, 'tax_bps' => null,
                 'original_number' => $row->number, 'invoice_reference' => $row->number,
-                'subtotal_minor' => (int) $row->amount_minor, 'tax_minor' => 0, 'total_minor' => (int) $row->amount_minor,
+                'subtotal_minor' => self::exactMoney($row->amount_minor, true), 'tax_minor' => 0, 'total_minor' => self::exactMoney($row->amount_minor, true),
                 'currency' => $row->currency, 'minor_units' => (int) $row->minor_units,
                 'evidence' => $row->evidence, 'state_at_generation' => $row->state,
                 'description_en' => 'Vendor settlement statement', 'description_ar' => 'كشف تسوية المورد',
@@ -78,9 +120,13 @@ class FinancialSources
                 'tax_bps' => (int) $quote->tax_bps,
                 'original_number' => $credit ? $row->credit_note_number : $row->number,
                 'invoice_reference' => $invoice->number,
-                'subtotal_minor' => $credit ? (int) $row->amount_minor - (int) $row->tax_minor : (int) $row->subtotal_minor,
-                'tax_minor' => (int) $row->tax_minor,
-                'total_minor' => $credit ? (int) $row->amount_minor : (int) $row->total_minor,
+                'subtotal_minor' => $credit
+                    ? self::exactMoney($row->amount_minor) - self::exactMoney($row->tax_minor)
+                    : self::exactMoney($row->subtotal_minor),
+                'tax_minor' => self::exactMoney($row->tax_minor),
+                'total_minor' => $credit
+                    ? self::exactMoney($row->amount_minor)
+                    : self::exactMoney($row->total_minor),
                 'currency' => $invoice->currency, 'minor_units' => (int) $invoice->minor_units,
                 'evidence' => $row->evidence,
                 'description_en' => $kind === 'charging_unpaid_credit' ? 'Unpaid charging invoice credit (no cash or refund)' : ($credit ? 'Charging credit note' : 'Charging session'),
@@ -96,8 +142,11 @@ class FinancialSources
             $values = [
                 'country' => null, 'tax_bps' => (int) $plan->tax_bps,
                 'original_number' => $row->number, 'invoice_reference' => $invoice->number,
-                'subtotal_minor' => (int) $row->subtotal_minor, 'tax_minor' => (int) $row->tax_minor,
-                'total_minor' => $credit ? (int) $row->amount_minor : (int) $row->total_minor,
+                'subtotal_minor' => self::exactMoney($row->subtotal_minor),
+                'tax_minor' => self::exactMoney($row->tax_minor),
+                'total_minor' => $credit
+                    ? self::exactMoney($row->amount_minor)
+                    : self::exactMoney($row->total_minor),
                 'currency' => $invoice->currency, 'minor_units' => (int) $invoice->minor_units,
                 'evidence' => $row->evidence,
                 'description_en' => ($credit ? 'Subscription credit note — ' : 'Subscription — ').$plan->name,
@@ -106,7 +155,12 @@ class FinancialSources
             ];
         }
         abort_unless($kind === 'corporate_statement' || $actor->id === $user || ($actor->role === 'vendor' && $actor->id === $vendor) || $actor->role === 'admin', 404);
-        abort_unless($values['minor_units'] >= 0 && $values['minor_units'] <= 3 && $values['total_minor'] === $values['subtotal_minor'] + $values['tax_minor'], 409, 'Source financial record does not reconcile.');
+        abort_unless($values['minor_units'] >= 0 && $values['minor_units'] <= 3
+            && self::exactMoney($values['total_minor'], true) ===
+                self::exactMoney($values['subtotal_minor'], true) +
+                    self::exactMoney($values['tax_minor'])
+            && $values['total_minor'] === $values['subtotal_minor'] + $values['tax_minor'],
+            409, 'Source financial record does not reconcile.');
         $buyer = User::findOrFail($user);
 
         return $values + ['source_kind' => $kind, 'source_id' => $id, 'user_id' => $user, 'vendor_id' => $vendor, 'issued_at' => $row->created_at, 'reason' => $kind === 'charging_unpaid_credit' ? Crypt::decryptString($row->reason) : ($credit ? $row->reason : null), 'recipient' => ['id' => $user, 'name' => $buyer->name, 'email' => $buyer->email]];

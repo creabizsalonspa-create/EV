@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Documents;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\CorporateBilling;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -27,15 +28,23 @@ class FinancialDocuments
 
     public function access(User $actor, int $id): object
     {
-        $row = DB::table('financial_documents')->find($id);
-        if ($row && $row->source_kind === 'corporate_statement') {
-            $this->sources->read($actor, 'corporate_statement', (int) $row->source_id);
+        return DB::transaction(function () use ($actor, $id) {
+            // Never trust a cached role or account status when reading a
+            // previously stored encrypted tax/financial source document.
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actor);
+            $row = DB::table('financial_documents')->find($id);
+            if ($row && $row->source_kind === 'corporate_statement') {
+                $this->sources->read($current, 'corporate_statement', (int) $row->source_id);
+
+                return $row;
+            }
+            abort_unless($row && ($current->role === 'admin'
+                || $current->id === (int) $row->user_id
+                || ($current->role === 'vendor'
+                    && $current->id === (int) $row->vendor_id)), 404);
 
             return $row;
-        }
-        abort_unless($row && ($actor->role === 'admin' || $actor->id === (int) $row->user_id || ($actor->role === 'vendor' && $actor->id === (int) $row->vendor_id)), 404);
-
-        return $row;
+        }, 3);
     }
 
     public function generate(User $actor, string $kind, int $id, string $locale): object
@@ -44,6 +53,10 @@ class FinancialDocuments
         $files = [];
         try {
             return DB::transaction(function () use ($actor, $kind, $id, $locale, &$files) {
+                // The source's original actor must be current for the
+                // entire immutable snapshot and encrypted artifact write,
+                // including natural replay of a pre-existing document.
+                $actor = app(CurrentFinanceReader::class)->requireSnapshot($actor);
                 $source = $this->sources->read($actor, $kind, $id, true);
                 $template = self::TEMPLATE.(in_array($kind, ['vendor_settlement', 'corporate_statement'], true) ? ':'.$source['state_at_generation'] : '');
                 if ($old = DB::table('financial_documents')->where('source_kind', $kind)->where('source_id', $id)->where('locale', $locale)->where('template_version', $template)->first()) {

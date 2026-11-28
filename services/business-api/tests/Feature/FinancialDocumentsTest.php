@@ -8,13 +8,16 @@ use App\Services\Commercial\CorporateBilling;
 use App\Services\Commercial\Documents\DocumentRenderer;
 use App\Services\Commercial\Documents\FinancialDocuments;
 use App\Services\Commercial\Documents\FinancialProfiles;
+use App\Services\Commercial\Documents\FinancialSources;
 use App\Services\Commercial\SettlementService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\FinancialDocumentFixtures;
 use Tests\TestCase;
 
@@ -72,6 +75,190 @@ class FinancialDocumentsTest extends TestCase
         $this->assertStringNotContainsString($f['customer']->name, $row->encrypted_snapshot);
         $this->assertStringNotContainsString('%PDF-', app(FinancialDocuments::class)->disk()->get($row->pdf_path));
         $this->assertDatabaseHas('financial_document_sequences', ['next_number' => 2]);
+    }
+
+    public function test_all_seven_immutable_test_document_sources_require_exact_integer_minor_units(): void
+    {
+        $method = new \ReflectionMethod(
+            FinancialSources::class,
+            'exactMoney'
+        );
+        $this->assertSame(0, $method->invoke(null, '0'));
+        $this->assertSame(9_007_199_254_740_991,
+            $method->invoke(null, '9007199254740991'));
+        $this->assertSame(-9_007_199_254_740_991,
+            $method->invoke(null, '-9007199254740991', true));
+
+        foreach ([
+            ['9007199254740992', false],
+            ['-1', false],
+            ['-9007199254740992', true],
+            ['999999999999999999999', true],
+            ['0.01', false],
+            ['1e10', false],
+            [100.0, false],
+            [-100.0, true],
+            [true, false],
+            ['not-invoice-money', false],
+        ] as [$value, $signed]) {
+            try {
+                $method->invoke(null, $value, $signed);
+                $this->fail('Document unexpectedly accepted inexact money: '.$value);
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('financial_documents', 0);
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+    }
+
+    public function test_document_consolidation_refuses_float_origin_and_oversized_source_line_sums(): void
+    {
+        $sum = new \ReflectionMethod(FinancialSources::class, 'sumExact');
+        $this->assertSame(100, $sum->invoke(null, [
+            ['amount_minor' => '70'],
+            ['amount_minor' => 30],
+        ], 'amount_minor'));
+        $this->assertSame(100, $sum->invoke(null, [
+            ['amount_minor' => 150],
+            ['amount_minor' => -50],
+        ], 'amount_minor', true));
+
+        foreach ([
+            [['amount_minor' => 4_503_599_627_370_496],
+                ['amount_minor' => 4_503_599_627_370_496]],
+            [['amount_minor' => '9007199254740991'],
+                ['amount_minor' => 1]],
+            [['amount_minor' => 100.0]],
+            [['amount_minor' => true]],
+        ] as $unsafeLines) {
+            try {
+                $sum->invoke(null, $unsafeLines, 'amount_minor');
+                $this->fail('Unsafe corporate invoice line sum was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+        }
+
+        try {
+            $sum->invoke(null, [
+                ['amount_minor' => -9_007_199_254_740_991],
+                ['amount_minor' => -1],
+            ], 'amount_minor', true);
+            $this->fail('Unsafe signed settlement debt sum was accepted.');
+        } catch (HttpException $exception) {
+            $this->assertSame(409, $exception->getStatusCode());
+        }
+
+        $this->assertDatabaseCount('financial_documents', 0);
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_revoked_customer_source_cannot_read_download_or_generate_private_invoice_documents(): void
+    {
+        $f = $this->documentFixture();
+        $customer = $f['customer'];
+        $this->actingAs($customer);
+        $document = $this->generate($f['invoice']->id)
+            ->assertCreated()->json();
+        $docId = $document['id'];
+        $detail = '/document-test/financial/documents/'.$docId;
+        $before = DB::table('financial_documents')->count();
+        $sequence = DB::table('financial_document_sequences')->value('next_number');
+        $journals = DB::table('finance_journals')->count();
+        $persisted = DB::table('users')->where('id', $customer->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $restore = (array) $persisted;
+        $original = $this->get($detail.'/download/pdf')
+            ->assertOk()->getContent();
+
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $persisted->auth_epoch + 1],
+            ['password' => Hash::make('rotated-private-document-customer')],
+        ] as $revocation) {
+            DB::table('users')->where('id', $customer->id)->update($revocation);
+            // Deliberately keep the original Laravel authenticated model.
+            // A cached role/password cannot authorize encrypted documents.
+            $this->getJson('/document-test/financial/documents')->assertConflict();
+            $this->getJson($detail)->assertConflict();
+            $this->get($detail.'/download/pdf')->assertConflict();
+            $this->get($detail.'/download/csv')->assertConflict();
+            $this->generate($f['invoice']->id)->assertConflict();
+            try {
+                app(FinancialDocuments::class)->generate(
+                    $customer, 'charging_invoice', $f['invoice']->id, 'en'
+                );
+                $this->fail('Revoked service-level document generation was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+            try {
+                app(FinancialDocuments::class)->access($customer, $docId);
+                $this->fail('Revoked service-level document read was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+            DB::table('users')->where('id', $customer->id)->update($restore);
+        }
+
+        $this->assertSame($before, DB::table('financial_documents')->count());
+        $this->assertSame($sequence,
+            DB::table('financial_document_sequences')->value('next_number'));
+        $this->assertSame($journals, DB::table('finance_journals')->count());
+        $this->assertSame(
+            hash('sha256', $original),
+            hash('sha256', $this->get($detail.'/download/pdf')->assertOk()->getContent())
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_revoked_issuer_admin_never_probes_profile_validation_or_publishes_after_role_change(): void
+    {
+        $f = $this->documentFixture();
+        $admin = $f['admin'];
+        $this->actingAs($admin);
+        $this->getJson('/document-test/financial/profiles')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $bad = ['vendor_id' => -1, 'country' => 'wrong'];
+        $profileCount = DB::table('financial_profile_versions')->count();
+        $documentCount = DB::table('financial_documents')->count();
+        $persisted = DB::table('users')->where('id', $admin->id)
+            ->first(['role', 'account_status', 'auth_epoch', 'password']);
+        $restore = (array) $persisted;
+
+        $this->postJson('/document-test/financial/profiles', $bad)->assertUnprocessable();
+        foreach ([
+            ['role' => 'vendor'],
+            ['account_status' => 'suspended'],
+            ['auth_epoch' => (int) $persisted->auth_epoch + 1],
+            ['password' => Hash::make('rotated-private-issuer-admin')],
+        ] as $revocation) {
+            DB::table('users')->where('id', $admin->id)->update($revocation);
+            $this->getJson('/document-test/financial/profiles')->assertConflict();
+            $this->postJson('/document-test/financial/profiles', $bad)
+                ->assertConflict();
+            $this->postJson('/document-test/financial/documents', [
+                'source_kind' => 'invalid-source',
+            ])->assertConflict();
+            try {
+                app(FinancialProfiles::class)->publish(
+                    $admin, $this->profileValues($f['vendor']->id)
+                );
+                $this->fail('Revoked service-level issuer publish was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(409, $exception->getStatusCode());
+            }
+            DB::table('users')->where('id', $admin->id)->update($restore);
+        }
+        $this->assertSame($profileCount,
+            DB::table('financial_profile_versions')->count());
+        $this->assertSame($documentCount,
+            DB::table('financial_documents')->count());
+        $this->assertDatabaseCount('financial_document_sequences', 0);
+        Http::assertNothingSent();
     }
 
     public function test_all_four_immutable_source_types_generate_without_creating_financial_postings(): void
@@ -161,6 +348,19 @@ class FinancialDocumentsTest extends TestCase
         $values = str_getcsv($rows[1], ',', '"', '');
         $this->assertStringStartsWith("'", $values[6]);
         $this->assertStringContainsString('HYPERLINK', $values[6]);
+        $literal = new \ReflectionMethod(DocumentRenderer::class, 'csvCell');
+        foreach ([
+            "\u{00A0}=SUM(1,1)",
+            "\u{200B}@hidden",
+            "\u{202E}+bidi",
+            "\u{FEFF}-bom",
+            "\u{2009}=thin-space",
+        ] as $formula) {
+            $this->assertSame("'".$formula, $literal->invoke(app(DocumentRenderer::class), $formula));
+        }
+        $this->assertSame('Public disclosure', $literal->invoke(
+            app(DocumentRenderer::class), 'Public disclosure'
+        ));
         Http::assertNothingSent();
     }
 

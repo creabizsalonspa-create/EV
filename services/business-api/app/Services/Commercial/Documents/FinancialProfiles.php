@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Documents;
 
 use App\Models\User;
+use App\Security\CurrentFinanceReader;
 use Illuminate\Support\Facades\DB;
 
 class FinancialProfiles
@@ -19,7 +20,8 @@ class FinancialProfiles
         $hash = hash('sha256', json_encode($values, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
 
         return DB::transaction(function () use ($actor, $values, $key, $hash) {
-            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $current = app(CurrentFinanceReader::class)->requireSnapshot($actor);
+            abort_unless($current->role === 'admin', 403);
             if ($prior = DB::table('financial_profile_versions')->where('request_key', $key)->first()) {
                 abort_unless(hash_equals($prior->fingerprint, $hash), 409, 'Financial profile publishing key payload mismatch.');
 

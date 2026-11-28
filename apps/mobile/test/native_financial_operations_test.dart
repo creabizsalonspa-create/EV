@@ -43,7 +43,7 @@ class FinancialApi extends FixtureApi {
     'id': 9,
     'source_id': 3,
     'source_kind': 'charging_invoice',
-    'number': 'TEST-PRIVATE-9',
+    'number': 'CB-TDOC-AE-P-2026-000000009',
     'locale': 'ar',
     'pdf_sha256': sha256.convert(bytes).toString(),
     'legal_status': 'TEST_DOCUMENT_NOT_LEGALLY_APPROVED',
@@ -428,6 +428,14 @@ void main() {
       final api = FinancialApi();
       final doc = FinancialDocumentRecord.fromJson(api.document);
       doc.verify(PrivateDocument(api.bytes, 'application/pdf'));
+      // A generic TEST token is never a valid immutable issuer sequence.
+      expect(
+        () => FinancialDocumentRecord.fromJson({
+          ...api.document,
+          'number': 'TEST-PRIVATE-9',
+        }),
+        throwsFormatException,
+      );
       expect(
         () => doc.verify(
           PrivateDocument(Uint8List.fromList([1, 2]), 'application/pdf'),
@@ -451,7 +459,7 @@ void main() {
         wrap(FinancialDocumentsView(api: api, onExpired: () {})),
       );
       await t.pumpAndSettle();
-      expect(find.text('TEST-PRIVATE-9'), findsOneWidget);
+      expect(find.text('CB-TDOC-AE-P-2026-000000009'), findsOneWidget);
       expect(find.textContaining('secret-storage-path'), findsNothing);
       await t.ensureVisible(find.text('Next'));
       await t.tap(find.text('Next'));
