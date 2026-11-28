@@ -12,6 +12,7 @@ use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ChargerSourceRegistrationController;
 use App\Http\Controllers\ChargingRepairController;
 use App\Http\Controllers\ConnectorTopologyController;
+use App\Http\Controllers\DirectConnectorReviewController;
 use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\OperationalAnalyticsController;
 use App\Http\Controllers\VendorAgreementController;
@@ -67,6 +68,8 @@ Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{co
 Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
 Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
 Route::get('/companies/{company}/chargers/{charger}/live-connectors', ChargerLiveConnectorsController::class);
+Route::get('/companies/{company}/chargers/{charger}/direct-connector-reviews', [DirectConnectorReviewController::class, 'index'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::post('/companies/{company}/chargers/{charger}/direct-connector-reviews', [DirectConnectorReviewController::class, 'create'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
 Route::get('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'create']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', [ChargerConfigurationController::class, 'observe'])->where('operation', '[0-9]{1,18}');
