@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\ConfigurationProbe;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -17,10 +18,10 @@ class ChargerConfigurationController extends Controller
 {
     private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
-        $actor = User::findOrFail($r->user()->id);
-        $r->setUserResolver(fn () => $actor);
+        $scope = app(ChargerResetController::class)->scope($r, $company->fresh(), $charger->fresh(), $write);
+        app(MaintenanceActor::class)->checkBearer($r->user());
 
-        return app(ChargerResetController::class)->scope($r, $company->fresh(), $charger->fresh(), $write);
+        return $scope;
     }
 
     private function present(object $row): array

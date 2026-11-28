@@ -311,10 +311,21 @@ class ChargerConfigurationTest extends TestCase
         $f = $this->fixture();
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin);
-        $this->source('1.6', false, fn () => $admin->forceFill(['role' => 'customer'])->save());
-        $this->postJson($f['path'], ['idempotency_key' => 'revoked', 'reason' => 'Inspect operating settings safely'])->assertNotFound();
+        $this->source('1.6', false, fn () => DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']));
+        $this->postJson($f['path'], ['idempotency_key' => 'revoked', 'reason' => 'Inspect operating settings safely'])->assertConflict();
         Http::assertSentCount(2);
         $this->assertDatabaseHas('charger_configuration_reads', ['status' => 'not_dispatched']);
+    }
+
+    public function test_account_epoch_change_after_token_discovery_keeps_configuration_read_unsent(): void
+    {
+        $f = $this->fixture();
+        $this->source('1.6', false, fn () => DB::table('users')->where('id', $f['owner']->id)->increment('auth_epoch'));
+
+        $this->postJson($f['path'], ['idempotency_key' => 'expired-login', 'reason' => 'Inspect operating settings safely'])
+            ->assertConflict()->assertJsonMissingPath('snapshot');
+        Http::assertSentCount(2);
+        $this->assertDatabaseHas('charger_configuration_reads', ['status' => 'not_dispatched', 'observed_at' => null]);
     }
 
     public function test_foreign_actors_and_disabled_or_production_adapters_cannot_request_device_reads(): void
