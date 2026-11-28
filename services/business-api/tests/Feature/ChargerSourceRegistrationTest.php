@@ -252,6 +252,67 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
     }
 
+    public static function malformedEnvelopeCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach ([
+                [1, '{"data":{"ChargingStations":{}}}'],
+                [1, '{"data":{"ChargingStations":[]}, "errors":false}'],
+                [1, '{"data":{"ChargingStations":[]}, "errors":null}'],
+                [1, '{"data":{"ChargingStations":[]}, "errors":[]}'],
+                [1, '{"data":[]}'],
+                [1, '{"data":'],
+                [2, '{"data":{"insert_ChargingStations_one":[]}}'],
+                [3, '{"data":{"ChargingStations":{}}}'],
+                [3, '{"data":{"ChargingStations":[]}, "errors":[]}'],
+            ] as [$phase, $body]) {
+                $cases[] = [$protocol, $phase, $body];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('malformedEnvelopeCases')]
+    public function test_malformed_source_envelope_is_never_absence_or_verified_registration(string $protocol, int $phase, string $body): void
+    {
+        $f = $this->fixture($protocol);
+        $id = $this->prepare($f);
+        $calls = 0;
+        Http::fake(function (Request $request) use ($phase, $body, &$calls) {
+            $calls++;
+            if (str_contains($request['query'], 'insert_ChargingStations_one')) {
+                $this->writes++;
+                $this->remote = $request['variables']['object'] + ['id' => 401];
+            }
+            if ($calls === $phase) {
+                return Http::response($body, 200, ['Content-Type' => 'application/json']);
+            }
+            if ($calls === 2) {
+                return Http::response(['data' => ['insert_ChargingStations_one' => $this->remote]]);
+            }
+
+            return Http::response(['data' => ['ChargingStations' => $this->remote ? [$this->remote] : []]]);
+        });
+
+        $response = $this->postJson($f['path'].'/'.$id.'/register');
+        $this->assertContains($response->status(), [409, 503]);
+        $this->assertSame($phase, $calls);
+        $this->assertSame($phase === 1 ? 0 : 1, $this->writes);
+        $this->assertDatabaseHas('charger_source_registrations', [
+            'id' => $id, 'state' => 'requires_inspection', 'source_station_id' => null,
+            'source_receipt_hash' => null, 'verified_at' => null,
+        ]);
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk()
+            ->assertJsonPath('state', 'requires_inspection')->assertJsonPath('automatic_retry_allowed', false);
+        $this->assertSame($phase, $calls);
+        $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_existing_upstream_identity_is_never_adopted_or_overwritten(): void
     {
         $f = $this->fixture();
