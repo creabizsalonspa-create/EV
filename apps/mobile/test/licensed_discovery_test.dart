@@ -301,7 +301,10 @@ void main() {
     });
     expect(find.text('Platform catalog · Platform fixture'), findsOneWidget);
     expect(find.text('Partner report · Partner fixture'), findsOneWidget);
-    expect(find.text('Licensed crowd reports are unavailable.'), findsOneWidget);
+    expect(
+      find.text('Licensed crowd reports are unavailable.'),
+      findsOneWidget,
+    );
     api.rotate();
     await tester.pumpAndSettle();
     expect(find.text('Platform catalog · Platform fixture'), findsNothing);
@@ -317,6 +320,8 @@ void main() {
     final filter = find.byKey(const Key('licensed-operator_contains'));
     await tester.ensureVisible(filter);
     await tester.enterText(filter, 'Provider');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     final button = find.byKey(const Key('federated-nearby-search'));
     await tester.ensureVisible(button);
     await tester.tap(button);
@@ -627,10 +632,14 @@ void main() {
         final tiles = LicensedTiles();
         await prepare(tester, api, ar: ar, tiles: tiles);
         await search(tester);
-        await tester.ensureVisible(find.byKey(const Key('licensed-map-toggle')));
+        await tester.ensureVisible(
+          find.byKey(const Key('licensed-map-toggle')),
+        );
         await tester.tap(find.byKey(const Key('licensed-map-toggle')));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.byKey(const Key('licensed-report-map')));
+        await tester.ensureVisible(
+          find.byKey(const Key('licensed-report-map')),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(FlutterMap), findsOneWidget);
         expect(tiles.requests, greaterThan(0));
@@ -643,7 +652,9 @@ void main() {
         expect(find.text('<img src=x>'), findsNothing);
         expect(
           find.text(
-            ar ? 'أعد فتح الاكتشاف بعد تسجيل الدخول.' : 'Reopen discovery after signing in.',
+            ar
+                ? 'أعد فتح الاكتشاف بعد تسجيل الدخول.'
+                : 'Reopen discovery after signing in.',
           ),
           findsOneWidget,
         );
@@ -670,11 +681,13 @@ void main() {
           api.rotate();
           final invalidatedEpoch = api.epoch;
           if (replaced) api.rotate();
-          pending.completeError(ApiException(
-            status,
-            'Session expired',
-            expirationIsCurrent: () => api.epoch == invalidatedEpoch,
-          ));
+          pending.completeError(
+            ApiException(
+              status,
+              'Session expired',
+              expirationIsCurrent: () => api.epoch == invalidatedEpoch,
+            ),
+          );
           await tester.pumpAndSettle();
           expect(expired, replaced ? 0 : 1);
           expect(find.byKey(const Key('licensed-consent')), findsNothing);

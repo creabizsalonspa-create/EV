@@ -647,7 +647,9 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         body: input,
       );
       if (!current(ticket) || !consent) return;
-      final combined = federated ? FederatedNearbyResult.fromJson(result) : null;
+      final combined = federated
+          ? FederatedNearbyResult.fromJson(result)
+          : null;
       final parsed = federated
           ? combined?.licensed
           : LicensedSample.fromJson(result);
@@ -809,8 +811,10 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                             ? 80
                             : entry.key == 'address_contains'
                             ? 150
-                            : ['operator_contains', 'access_contains']
-                                  .contains(entry.key)
+                            : [
+                                'operator_contains',
+                                'access_contains',
+                              ].contains(entry.key)
                             ? 120
                             : 32,
                         onChanged: edited,
@@ -896,7 +900,10 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                     ),
                   if (nearby case final result?) ...[
                     Text(
-                      t('Published nearby locations', 'المواقع القريبة المنشورة'),
+                      t(
+                        'Published nearby locations',
+                        'المواقع القريبة المنشورة',
+                      ),
                     ),
                     Text(
                       t(
