@@ -472,6 +472,93 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_source_configuration_change_during_fetch_withholds_old_reports_on_both_mounts(): void
+    {
+        $point = $this->point();
+        $change = [];
+        $sent = 0;
+        Http::fake(['api.openchargemap.io/*' => function () use (&$change, $point) {
+            config($change);
+
+            return Http::response([$point], 200, ['Content-Type' => 'application/json']);
+        }]);
+        foreach (['/api/discovery/open-charge-map/search', '/api/v1/discovery/open-charge-map/search'] as $mount => $url) {
+            foreach ([
+                ['discovery.ocm_terms_accepted' => false],
+                ['discovery.ocm_enabled' => false],
+                ['discovery.ocm_api_key' => 'synthetic-rotated-private-key'],
+            ] as $index => $change) {
+                // Distinct credentials isolate each cold lookup from cache
+                // and provider quota state; the shared IP budget is unchanged.
+                $key = 'synthetic-retiring-private-key-'.$mount.'-'.$index;
+                config([
+                    'discovery.ocm_enabled' => true,
+                    'discovery.ocm_terms_accepted' => true,
+                    'discovery.ocm_api_key' => $key,
+                ]);
+                $this->postJson($url, $this->input())->assertStatus(503)
+                    ->assertJsonPath('reason', 'not_configured')
+                    ->assertJsonMissingPath('results')->assertJsonMissingPath('quality')
+                    ->assertHeader('Referrer-Policy', 'no-referrer')
+                    ->assertHeader('Cache-Control', 'no-store, private')
+                    ->assertDontSee('Fixture open charge station')->assertDontSee($key)
+                    ->assertDontSee('synthetic-rotated-private-key');
+                Http::assertSentCount(++$sent);
+                $identity = LicensedSourceCache::identity(25.2, 55.3, 10, null, $key);
+                $this->assertNull(app(LicensedSourceCache::class)->peek($identity));
+            }
+
+            config([
+                'discovery.ocm_enabled' => true,
+                'discovery.ocm_terms_accepted' => true,
+                'discovery.ocm_api_key' => 'synthetic-new-approved-key-'.$mount,
+            ]);
+            $change = [];
+            $this->postJson($url, $this->input())->assertOk()
+                ->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12345')
+                ->assertJsonPath('results.0.availability', 'unknown');
+            Http::assertSentCount(++$sent);
+        }
+    }
+
+    public function test_retired_source_failure_does_not_advertise_old_retry_advice(): void
+    {
+        Http::fake(['api.openchargemap.io/*' => function () {
+            config(['discovery.ocm_terms_accepted' => false]);
+
+            return Http::response([], 429, ['Retry-After' => '60', 'Content-Type' => 'application/json']);
+        }]);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertStatus(503)->assertJsonPath('reason', 'not_configured')
+            ->assertHeaderMissing('Retry-After')->assertJsonMissingPath('results');
+        Http::assertSentCount(1);
+        $this->assertNull(Cache::get('ocm-cooldown:'.hash('sha256', 'synthetic-private-ocm-key')));
+    }
+
+    public function test_restored_configuration_requires_new_fetch_after_retired_response(): void
+    {
+        $point = $this->point();
+        $retire = true;
+        Http::fake(['api.openchargemap.io/*' => function () use ($point, &$retire) {
+            if ($retire) {
+                config(['discovery.ocm_terms_accepted' => false]);
+
+                return Http::response([$point], 200, ['Content-Type' => 'application/json']);
+            }
+
+            return Http::response([array_replace($point, ['ID' => 54321])], 200, ['Content-Type' => 'application/json']);
+        }]);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertStatus(503)->assertJsonPath('reason', 'not_configured');
+        $retire = false;
+        config(['discovery.ocm_terms_accepted' => true]);
+        $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('results.0.id', 'ocm:54321');
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+            ->assertOk()->assertJsonPath('results.0.id', 'ocm:54321');
+        Http::assertSentCount(2);
+    }
+
     public function test_unapproved_terms_and_missing_key_fail_closed_without_any_outbound_request(): void
     {
         config(['discovery.ocm_terms_accepted' => false]);
