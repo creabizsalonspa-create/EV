@@ -44,6 +44,27 @@ class CancellationApi extends EvApi {
       'cancelled':true,'revision':2};
   }
 }
+class ConfirmedWriteApi extends CancellationApi {
+  final bool publish;
+  final int refreshError;
+
+  ConfirmedWriteApi(this.publish, this.refreshError);
+
+  @override
+  Future<dynamic> request(String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (method == 'POST') {
+      writes++;
+      return publish ? block : {...block, 'cancelled': true, 'revision': 2};
+    }
+    if (++reads == 2) throw ApiException(refreshError, 'PRIVATE LIST ERROR');
+    return {'station_id': 7, 'data': reads == 1 && !publish ? [block] : []};
+  }
+}
+
 void main(){
  testWidgets('mismatched cancellation receipt clears native cancel grant', (tester) async {
   tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
@@ -137,4 +158,51 @@ void main(){
   expect(tester.widget<TextField>(find.byKey(const Key('block-reason_en'))).controller!.text,isEmpty);
   expect(api.writes,isEmpty);
  });
+ for (final publish in [true, false]) {
+  testWidgets('keeps a confirmed ${publish ? 'publish' : 'cancel'} when the list fetch fails', (tester) async {
+   tester.view.physicalSize = const Size(900, 1600);
+   tester.view.devicePixelRatio = 1;
+   addTearDown(tester.view.resetPhysicalSize);
+   addTearDown(tester.view.resetDevicePixelRatio);
+   final api = ConfirmedWriteApi(publish, 503);
+   addTearDown(api.close);
+   await tester.pumpWidget(MaterialApp(home: StationAvailabilityBlocksView(api: api, stationId: 7)));
+   await tester.pumpAndSettle();
+   if (publish) {
+    for (final key in ['starts_at', 'ends_at', 'reason_en', 'reason_ar']) {
+     await tester.enterText(find.byKey(Key('block-$key')), api.block[key] as String);
+    }
+   }
+   await tester.tap(find.text(publish ? 'Publish station block' : 'Cancel this block'));
+   await tester.pumpAndSettle();
+   expect(find.textContaining(publish ? 'Station block published.' : 'Station block cancelled.'), findsOneWidget);
+   expect(find.textContaining('The block list is unavailable.'), findsOneWidget);
+   expect(find.textContaining('Action not confirmed.'), findsNothing);
+   expect(find.textContaining('PRIVATE LIST ERROR'), findsNothing);
+   expect(find.text('Retry same block request'), findsNothing);
+   expect(find.text('Cancel this block'), findsNothing);
+   await tester.tap(find.text('Refresh station blocks'));
+   await tester.pumpAndSettle();
+   expect(api.reads, 3);
+   expect(api.writes, 1);
+  });
+ }
+
+ testWidgets('post-write authorization expiry still clears the private view', (tester) async {
+  final api = ConfirmedWriteApi(false, 419);
+  addTearDown(api.close);
+  int expirations = 0;
+  await tester.pumpWidget(MaterialApp(home: StationAvailabilityBlocksView(
+   api: api, stationId: 7, onExpired: () => expirations++,
+  )));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Cancel this block'));
+  await tester.pumpAndSettle();
+  expect(api.writes, 1);
+  expect(expirations, 1);
+  expect(find.text('Cancel this block'), findsNothing);
+  expect(find.textContaining('Station block cancelled.'), findsNothing);
+  expect(find.textContaining('PRIVATE LIST ERROR'), findsNothing);
+ });
+
 }
