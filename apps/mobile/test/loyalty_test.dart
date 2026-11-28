@@ -9,6 +9,7 @@ import 'test_support.dart';
 
 class LoyaltyApi extends FixtureApi {
   bool forged = false, deny = false;
+  String eventClock = '2026-10-28T04:00:00+04:00';
   Completer<dynamic>? pending;
   final calls = <String>[];
   Map<String, dynamic> get account => {
@@ -48,7 +49,7 @@ class LoyaltyApi extends FixtureApi {
           {
             'action': 'requested',
             'reason': '<script>literal review</script>',
-            'created_at': '2026-10-28T00:00:00Z',
+            'created_at': eventClock,
             'private_reference': 'sensitive-provider-secret',
           },
         ],
@@ -65,7 +66,7 @@ class LoyaltyApi extends FixtureApi {
             'id': number,
             'points': -30,
             'kind': number == 1 ? 'redemption' : 'untrusted-provider-kind',
-            'created_at': '2026-10-28T00:00:00Z',
+            'created_at': eventClock,
             'private_reference': 'sensitive-provider-secret',
           }
         else if (path.endsWith('/rewards'))
@@ -87,6 +88,7 @@ class LoyaltyApi extends FixtureApi {
             'reward_id': 7,
             'points_cost': 30,
             'status': 'pending',
+            'created_at': eventClock,
             'private_reference': 'sensitive-provider-secret',
           },
       ],
@@ -153,6 +155,9 @@ void main() {
       await t.pumpAndSettle();
       await section(t, 'Points history');
       expect(find.text('Reward reservation: -30'), findsOneWidget);
+      expect(find.textContaining('10/28/2026'), findsOneWidget);
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining(api.eventClock), findsNothing);
       await t.ensureVisible(find.text('Next'));
       await t.tap(find.text('Next'));
       await t.pumpAndSettle();
@@ -168,7 +173,8 @@ void main() {
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.resetPhysicalSize);
       addTearDown(t.view.resetDevicePixelRatio);
-      await t.pumpWidget(app(LoyaltyApi(), ar: true));
+      final api = LoyaltyApi()..eventClock = '2026-02-30T00:00:00Z';
+      await t.pumpWidget(app(api, ar: true));
       await t.pumpAndSettle();
       await section(t, 'كتالوج المكافآت');
       expect(find.text('مكافأة تجريبية'), findsOneWidget);
@@ -180,6 +186,11 @@ void main() {
       expect(t.takeException(), isNull);
       await section(t, 'طلبات مكافآتي');
       expect(find.textContaining('بانتظار التسليم اليدوي'), findsOneWidget);
+      expect(find.textContaining('وقت الحدث غير متاح'), findsOneWidget);
+      await t.tap(find.textContaining('#'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('وقت الحدث غير متاح'), findsOneWidget);
+      expect(find.textContaining(api.eventClock), findsNothing);
       expect(t.takeException(), isNull);
     },
   );
@@ -194,6 +205,9 @@ void main() {
       await t.pumpAndSettle();
       expect(api.calls.last, 'commercial/loyalty/redemptions/9:');
       expect(find.text('Pending manual fulfillment'), findsOneWidget);
+      expect(find.textContaining('10/28/2026'), findsOneWidget);
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining(api.eventClock), findsNothing);
       expect(
         find.textContaining('<script>literal review</script>'),
         findsOneWidget,
