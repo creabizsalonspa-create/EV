@@ -123,6 +123,62 @@ class SubscriptionConcurrencyTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_invoices', 1);
     }
 
+    public function test_enrollment_waits_for_a_concurrent_plan_retirement_before_issuing_an_invoice(): void
+    {
+        [$customer, $plan] = $this->fixture();
+        $directory = sys_get_temp_dir().'/subscription-retirement-'.bin2hex(random_bytes(8));
+        mkdir($directory, 0700);
+        $gate = $directory.'/start';
+        $ready = $directory.'/ready';
+        $worker = null;
+        $pipes = [];
+        DB::beginTransaction();
+        try {
+            DB::table('commercial_plan_availability')->where('plan_id', $plan->id)->update(['available' => false]);
+            $worker = proc_open([
+                PHP_BINARY, base_path('tests/Support/subscription-concurrency-worker.php'),
+                'enroll', (string) $plan->id, (string) $customer->id, '0', 'retirement-race', $gate, $ready,
+            ], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, base_path());
+            $this->assertIsResource($worker);
+            touch($gate);
+            $deadline = microtime(true) + 10;
+            $waiting = false;
+            do {
+                DB::select('SELECT pg_stat_clear_snapshot()');
+                $waiting = DB::table('pg_stat_activity')
+                    ->whereRaw('pid <> pg_backend_pid()')
+                    ->whereRaw('datname = current_database()')
+                    ->where('wait_event_type', 'Lock')
+                    ->where('query', 'like', '%commercial_plan_availability%')
+                    ->exists();
+                if (! $waiting) {
+                    usleep(10000);
+                }
+            } while (! $waiting && proc_get_status($worker)['running'] && microtime(true) < $deadline);
+
+            $this->assertTrue($waiting, 'Enrollment must wait on the plan availability row.');
+            DB::commit();
+            $this->assertSame('409', trim(stream_get_contents($pipes[1])));
+            $error = stream_get_contents($pipes[2]);
+            $this->assertSame(0, proc_close($worker), $error);
+            $worker = null;
+            $this->assertDatabaseCount('commercial_subscriptions', 0);
+            $this->assertDatabaseCount('commercial_subscription_invoices', 0);
+        } finally {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            if (is_resource($worker)) {
+                proc_terminate($worker);
+                proc_close($worker);
+            }
+            foreach (glob($directory.'/*') as $file) {
+                unlink($file);
+            }
+            rmdir($directory);
+        }
+    }
+
     public function test_racing_mock_payment_replays_post_one_receipt_and_balanced_journal(): void
     {
         [$customer, $plan] = $this->fixture();
