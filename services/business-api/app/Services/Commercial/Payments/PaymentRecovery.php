@@ -152,9 +152,9 @@ class PaymentRecovery
                 }
                 $match = $op->where('amount_minor', $intent->amount_minor)->first();
                 if ($hint->scope === 'subscription' && $intent->kind === 'refund') {
-                    $match = DB::table('subscription_credits as c')->join('subscription_credit_requests as r', 'r.id', '=', 'c.request_id')->where('r.recovery_identity', $intent->identity)->where('c.amount_minor', $intent->amount_minor)->first();
+                    $match = DB::table('subscription_credits as c')->join('subscription_credit_requests as r', 'r.id', '=', 'c.request_id')->where('r.recovery_identity', $intent->identity)->where('r.checkout_id', $intent->checkout_id)->where('c.amount_minor', $intent->amount_minor)->select('c.*')->first();
                 }
-                if ($checkout && $match) {
+                if ($checkout && $match && $this->committedEvidenceMatches($intent, $checkout, $match)) {
                     DB::table('payment_recovery_intents')->where('id', $id)->update(['status' => 'completed', 'lease' => null, 'lease_until' => null, 'updated_at' => now()]);
                     $this->event($id, 'completed');
                 } elseif ($intent->status !== 'needs_review') {
@@ -165,6 +165,50 @@ class PaymentRecovery
         }
 
         return $ids->count();
+    }
+
+    /** A local operation row alone is not proof that money was posted. */
+    private function committedEvidenceMatches(object $intent, object $checkout, object $operation): bool
+    {
+        if ($checkout->provider !== $intent->provider || $checkout->currency !== $intent->currency) {
+            return false;
+        }
+        if ($intent->kind === 'capture') {
+            if ($checkout->status !== 'captured') {
+                return false;
+            }
+            if ($intent->scope === 'subscription') {
+                return DB::table('commercial_subscription_receipts')->where('id', $operation->receipt_id)
+                    ->where('invoice_id', $checkout->invoice_id)->where('amount_minor', $intent->amount_minor)
+                    ->where('currency', $intent->currency)->where('evidence', 'STRIPE_TEST_CONTRACT')
+                    ->where('provider_reference', $operation->provider_operation_reference)->exists();
+            }
+
+            return $this->chargingPostingMatches($intent, $checkout, 'finance_payments', $operation->payment_id, 'payment');
+        }
+        if ($intent->kind === 'refund') {
+            if ($intent->scope === 'subscription') {
+                return (int) $operation->invoice_id === (int) $checkout->invoice_id
+                    && (int) $operation->subscription_id === (int) $checkout->subscription_id
+                    && $operation->currency === $intent->currency && $operation->evidence === 'STRIPE_TEST_CONTRACT'
+                    && DB::table('commercial_subscription_receipts')->where('id', $operation->receipt_id)
+                        ->where('invoice_id', $checkout->invoice_id)->where('currency', $intent->currency)
+                        ->where('evidence', 'STRIPE_TEST_CONTRACT')->exists();
+            }
+
+            return $this->chargingPostingMatches($intent, $checkout, 'finance_refunds', $operation->refund_id, 'refund');
+        }
+
+        return true;
+    }
+
+    private function chargingPostingMatches(object $intent, object $checkout, string $table, mixed $receiptId, string $kind): bool
+    {
+        return DB::table($table.' as p')->join('finance_journals as j', 'j.id', '=', 'p.journal_id')
+            ->where('p.id', $receiptId)->where('p.invoice_id', $checkout->invoice_id)
+            ->where('p.amount_minor', $intent->amount_minor)->where('p.evidence', 'SIMULATED')
+            ->whereColumn('j.invoice_id', 'p.invoice_id')->whereColumn('j.amount_minor', 'p.amount_minor')
+            ->where('j.kind', $kind)->where('j.currency', $intent->currency)->exists();
     }
 
     public function reconcileProvider(int $id): object

@@ -188,6 +188,30 @@ class PaymentRecoveryTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_local_capture_operation_without_linked_receipt_cannot_release_recovery_hold(): void
+    {
+        [$user, $invoice, $checkout] = $this->fixture();
+        Http::fake(['*' => Http::failedConnection()]);
+        $this->failure(fn () => app(GatewayService::class)->operate($checkout->id, $user->id, 'capture', 'lost-capture'), 503);
+        $intent = DB::table('payment_recovery_intents')->sole();
+        // A contradictory imported operation is not a committed financial post.
+        DB::table('gateway_checkouts')->where('id', $checkout->id)->update(['status' => 'captured']);
+        DB::table('gateway_operations')->insert([
+            'checkout_id' => $checkout->id, 'kind' => 'capture',
+            'request_key' => hash('sha256', 'orphan-recovery-operation'),
+            'fingerprint' => hash('sha256', 'orphan-recovery-operation'),
+            'amount_minor' => 100, 'provider_reference' => 'synthetic-orphan-capture',
+            'payment_id' => null, 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->assertSame(1, app(PaymentRecovery::class)->scan());
+        $this->assertDatabaseHas('payment_recovery_intents', ['id' => $intent->id, 'status' => 'needs_review']);
+        $this->assertDatabaseMissing('payment_recovery_events', ['intent_id' => $intent->id, 'status' => 'completed']);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_journals', $before);
+        Http::assertSentCount(1);
+    }
+
     public function test_authenticated_capture_webhook_completes_uncertain_recovery_only_with_committed_ledger(): void
     {
         [$user, $invoice, $checkout] = $this->fixture();
