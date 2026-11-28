@@ -6,6 +6,7 @@ use App\Models\ChargingSession;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Security\AdminTransactionAuthority;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -30,9 +31,13 @@ final class VendorStaffChargingReadController extends Controller
                 ->join('stations as station', 'station.id', '=', 'booking.station_id')
                 ->join('vendor_sites as site', 'site.station_id', '=', 'station.id')
                 ->leftJoin('csms_session_links as source', 'source.charging_session_id', '=', 'charging_sessions.id')
+                ->leftJoin('csms_bindings as binding', function ($join) {
+                    $join->on('binding.id', '=', 'source.binding_id')->on('binding.station_id', '=', 'station.id')
+                        ->on('binding.identifier', '=', 'source.identifier')->on('binding.protocol', '=', 'source.protocol');
+                })
                 ->where('site.company_id', $current->id)->where('station.vendor_id', $current->owner_id)
                 ->select(['charging_sessions.id', 'charging_sessions.status', 'charging_sessions.energy_wh', 'charging_sessions.created_at', 'charging_sessions.updated_at', 'charging_sessions.stopped_at',
-                    'station.id as station_id', 'station.name as station_name', 'station.source as station_source', 'source.protocol as source_protocol']);
+                    'station.id as station_id', 'station.name as station_name', 'station.source as station_source', 'binding.protocol as source_protocol', 'source.id as source_link_id']);
             if ($status === 'unknown') {
                 $query->whereNotIn('charging_sessions.status', self::STATUSES);
             } elseif ($status !== null) {
@@ -50,7 +55,8 @@ final class VendorStaffChargingReadController extends Controller
                     'record_created_at' => $row->created_at->toISOString(), 'record_updated_at' => $row->updated_at->toISOString(),
                     'stopped_at' => $row->stopped_at === null ? null : CarbonImmutable::parse($row->stopped_at, 'UTC')->toISOString(),
                     'protocol' => $protocol,
-                    'evidence' => $row->station_source === 'simulator' ? ($protocol === null ? 'SIMULATED' : 'SIMULATED_CSMS') : 'RECORDED_SOURCE_UNVERIFIED',
+                    'evidence' => $row->station_source === 'simulator' && ($row->source_link_id === null || $protocol !== null)
+                        ? ($protocol === null ? 'SIMULATED' : 'SIMULATED_CSMS') : 'RECORDED_SOURCE_UNVERIFIED',
                     'physical_charging_verified' => false, 'live_availability_verified' => false,
                 ];
             });
@@ -80,6 +86,9 @@ final class VendorStaffChargingReadController extends Controller
             abort_unless($actor->account_status === 'active', 403);
             abort_unless($actor->role === $snapshot->role && (int) $actor->auth_epoch === (int) $snapshot->auth_epoch && hash_equals((string) $actor->password, (string) $snapshot->password), 409, 'Account authority changed; sign in again.');
         }
+        // A staff member's individual bearer can expire or be revoked without
+        // changing the user's epoch or accepted company membership.
+        app(MaintenanceActor::class)->checkBearer($snapshot);
         $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
         app(VendorAccess::class)->require($actor, $current, 'charging.read');
 
@@ -105,6 +114,7 @@ final class VendorStaffChargingReadController extends Controller
             $link = DB::table('csms_session_links as link')
                 ->join('csms_bindings as binding', 'binding.id', '=', 'link.binding_id')
                 ->where('link.charging_session_id', $session)->where('binding.station_id', $owned->station_id)
+                ->whereColumn('binding.identifier', 'link.identifier')->whereColumn('binding.protocol', 'link.protocol')
                 ->whereIn('link.protocol', ['1.6', '2.0.1'])->first(['link.id', 'link.protocol']);
             $query = DB::table('csms_inbox_events')->when($link !== null, fn ($q) => $q->where('link_id', $link->id), fn ($q) => $q->whereRaw('1 = 0'))
                 ->where('outcome', 'applied')->whereIn('type', ['started', 'meter', 'ended']);

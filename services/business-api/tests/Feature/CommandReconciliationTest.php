@@ -162,7 +162,7 @@ class CommandReconciliationTest extends TestCase
         $link = SessionLink::where('charging_session_id', $session->id)->firstOrFail();
         $events = DB::table('csms_inbox_events')->where('link_id', $link->id);
         $started = (clone $events)->where('type', 'started')->first();
-        foreach (['meter_wh' => 999, 'occurred_at' => now()->subMinute()] as $field => $value) {
+        foreach (['meter_wh' => 999, 'occurred_at' => now()->subMinute(), 'fingerprint' => 'invalid-digest'] as $field => $value) {
             DB::table('csms_inbox_events')->where('id', $started->id)->update([$field => $value]);
             $this->assertFalse($real->forCommand($start->id));
             $this->assertSame('outcome_unknown', $start->fresh()->status);
@@ -177,7 +177,7 @@ class CommandReconciliationTest extends TestCase
         $stop->update(['status' => 'outcome_unknown']);
         $bridge->ingest($this->event($session, 'ended', $protocol));
         $ended = (clone $events)->where('type', 'ended')->first();
-        foreach (['meter_wh' => 3501, 'sequence' => 2, 'occurred_at' => now()->subMinute()] as $field => $value) {
+        foreach (['meter_wh' => 3501, 'sequence' => 2, 'occurred_at' => now()->subMinute(), 'fingerprint' => str_repeat('Z', 64)] as $field => $value) {
             DB::table('csms_inbox_events')->where('id', $ended->id)->update([$field => $value]);
             $this->assertFalse($real->forCommand($stop->id));
             $this->assertSame('outcome_unknown', $stop->fresh()->status);
@@ -192,6 +192,32 @@ class CommandReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
         Http::assertNothingSent();
         $this->app->instance(CommandReconciler::class, $real);
+    }
+
+    #[DataProvider('stopProtocols')]
+    public function test_retained_source_receipt_cannot_reconcile_after_station_source_change(string $protocol): void
+    {
+        [, , $session, $start] = $this->fixture($protocol);
+        $real = app(CommandReconciler::class);
+        $fake = \Mockery::mock(CommandReconciler::class);
+        $fake->shouldReceive('forSession')->once()->andReturn(0);
+        $this->app->instance(CommandReconciler::class, $fake);
+        $start->update(['status' => 'outcome_unknown']);
+        app(SessionBridge::class)->ingest($this->event($session, protocol: $protocol));
+        $this->app->instance(CommandReconciler::class, $real);
+
+        $station = Station::findOrFail($start->station_id);
+        $station->update(['source' => 'partner']);
+        $this->assertFalse($real->forCommand($start->id));
+        $this->assertSame('outcome_unknown', $start->fresh()->status);
+        $this->assertDatabaseCount('command_source_observations', 0);
+
+        $station->update(['source' => 'simulator']);
+        $this->assertTrue($real->forCommand($start->id));
+        $this->assertFalse($real->forCommand($start->id));
+        $this->assertDatabaseCount('command_source_observations', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
     }
 
     public function test_missing_or_unapplied_evidence_never_recovers_and_scope_is_checked_before_work(): void

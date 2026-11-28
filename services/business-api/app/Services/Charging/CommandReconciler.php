@@ -5,6 +5,8 @@ namespace App\Services\Charging;
 use App\Models\ChargerCommand;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
+use App\Models\Reservation;
+use App\Models\Station;
 use Illuminate\Support\Facades\DB;
 
 /** Observe already authenticated, applied source evidence. Never send commands. */
@@ -42,6 +44,14 @@ class CommandReconciler
                 return false;
             }
             $session = ChargingSession::findOrFail($link->charging_session_id);
+            $reservation = Reservation::find($session->reservation_id);
+            $station = Station::find($binding->station_id);
+            if (! $reservation || ! $station || $station->source !== 'simulator'
+                || $session->roaming_order_id !== null || $reservation->station_id !== $station->id
+                || $reservation->connector_mapping_id !== $link->connector_mapping_id
+                || $reservation->charging_evse_id !== $session->charging_evse_id) {
+                return false;
+            }
             $end = $command->action === 'stop';
             if ($end && ! OcppTransactionId::matchesStop(
                 $link->protocol, $command->payload['transaction_id'] ?? null, $link->transaction_id

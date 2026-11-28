@@ -51,10 +51,48 @@ class CsmsSessionBridgeTest extends TestCase
 
     private function send(array $event, ?string $timestamp = null, ?string $key = null)
     {
-        $raw = json_encode($event, JSON_THROW_ON_ERROR);
+        return $this->sendRaw(json_encode($event, JSON_THROW_ON_ERROR), timestamp: $timestamp, key: $key);
+    }
+
+    private function sendRaw(string $raw, string $query = '', ?string $timestamp = null, ?string $key = null)
+    {
         $ts = $timestamp ?? (string) now()->timestamp;
 
-        return $this->call('POST', '/api/internal/csms/events', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
+        return $this->call('POST', '/api/internal/csms/events'.$query, [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_signed_event_uses_only_exact_unambiguous_json_body_for_meter_and_billing(string $protocol): void
+    {
+        [, $customer, , $reservation] = $this->fixture($protocol);
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $this->send($this->event($session->id, 'started', 0, 1000))->assertOk();
+        $end = $this->event($session->id, 'ended', 1, 3500);
+        $raw = json_encode($end, JSON_THROW_ON_ERROR);
+        $missing = $end;
+        unset($missing['meter_wh']);
+        $this->sendRaw(json_encode($missing, JSON_THROW_ON_ERROR), '?meter_wh=3500')->assertUnprocessable();
+        foreach ([
+            '{"meter_wh":1,'.substr($raw, 1),
+            '{"meter\u005fwh":1,'.substr($raw, 1),
+            str_replace('"meter_wh":3500', '"meter_wh":"3500"', $raw),
+            str_replace('"meter_wh":3500', '"meter_wh":3500.0', $raw),
+            str_replace('"meter_wh":3500', '"meter_wh":true', $raw),
+            '['.$raw.']',
+            substr($raw, 0, -1),
+        ] as $invalid) {
+            $this->sendRaw($invalid)->assertUnprocessable();
+        }
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame('charging', $session->fresh()->status);
+        $this->assertSame(0, (int) $session->fresh()->energy_wh);
+        $this->sendRaw($raw, '?meter_wh=999999')->assertOk()->assertJsonPath('energy_wh', 2500);
+        $this->sendRaw($raw)->assertOk()->assertJsonPath('outcome', 'duplicate');
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
     }
 
     public function test_source_event_requires_explicit_absolute_time_and_preserves_existing_clock_tolerance(): void
