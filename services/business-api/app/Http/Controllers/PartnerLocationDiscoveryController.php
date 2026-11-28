@@ -47,7 +47,7 @@ final class PartnerLocationDiscoveryController extends Controller
 
         $query = OcpiRecord::query()
             ->where('module', 'locations')
-            ->where('normalized->publish', true)
+            ->explicitlyPublished()
             ->whereIn('ocpi_provider_id', $authorizedProviders->select('id'))
             ->when($text !== '', function ($query) use ($text) {
                 // SQL LIKE wildcards are not the user's search text. Both supported

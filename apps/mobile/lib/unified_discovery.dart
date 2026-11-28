@@ -7,6 +7,7 @@ import 'partner_report_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' show TileProvider;
 import 'api.dart';
+import 'federated_nearby.dart';
 
 /// Published local records only. This view never grants remote charging rights.
 String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
@@ -245,6 +246,13 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     });
   }
 
+  Widget federationPanel(){
+    final api=widget.api, fence=ownSession, epoch=formEpoch, customer=widget.customer;
+    return FederatedNearbyPanel(key:ValueKey('unified-federation-$epoch'),api:api,
+      currentSession:()=>mounted&&foreground&&formEpoch==epoch&&
+        identical(widget.api,api)&&identical(ownSession,fence)&&widget.customer==customer&&fence());
+  }
+
   @override
   Widget build(BuildContext context)=>!foreground||!ownSession()
     ? Scaffold(
@@ -317,6 +325,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       )),
       for(final row in rows)card(row),
       Wrap(children:[if(page>1)TextButton(onPressed:busy||writing?null:guard((){load(page-1);}),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy||writing?null:guard((){load(page+1);}),child:Text(tr('Next','التالي')))]),
+      federationPanel(),
     ]),
   );
   // A partner's map pin or saved-place action needs explicit *read-only*

@@ -35,6 +35,7 @@ use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\StationAvailabilityBlockController;
 use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController;
+use App\Http\Controllers\FederatedNearbyDiscoveryController;
 use App\Http\Controllers\UnifiedDiscoveryController;
 use App\Http\Controllers\VehicleBatteryController;
 use App\Http\Middleware\RejectAdminPersonalAccessToken;
@@ -66,6 +67,7 @@ Route::middleware('throttle:authentication')->group(function () {
 });
 Route::get('/api/stations', [P::class, 'stations'])->middleware('throttle:catalog');
 Route::get('/api/discovery/search', [UnifiedDiscoveryController::class, 'index'])->middleware(['auth', 'throttle:catalog']);
+Route::post('/api/discovery/federated-nearby', [FederatedNearbyDiscoveryController::class, 'search'])->middleware(['auth', 'throttle:catalog', 'throttle:discovery-lookups']);
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::get('/api/me', fn (Request $r) => response()->json($r->user()));
     Route::post('/api/logout', [P::class, 'logout']);

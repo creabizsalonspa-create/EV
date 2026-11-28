@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -263,6 +265,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       key: TextEditingController(),
   };
   late bool Function() ownSession;
+  StreamSubscription<int>? sessionSubscription;
   bool foreground = true, busy = false, consent = false;
   bool? enabled;
   bool showMap = false;
@@ -281,7 +284,19 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     fields['radius_km']!.text = '25';
     WidgetsBinding.instance.addObserver(this);
+    subscribeToSession();
     if (foreground) capabilities();
+  }
+
+  // A same-client credential change must redact visible source reports
+  // even if no request is pending and the Navigator route stays mounted.
+  void subscribeToSession() {
+    final api = widget.api;
+    sessionSubscription = api.sessionEvents.listen((_) {
+      if (mounted && identical(api, widget.api) && !ownSession()) {
+        setState(() => clear(all: true));
+      }
+    });
   }
 
   void clear({bool all = false}) {
@@ -305,8 +320,12 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
   void didUpdateWidget(covariant LicensedDiscoveryScreen old) {
     super.didUpdateWidget(old);
     if (!identical(old.api, widget.api)) {
+      unawaited(sessionSubscription?.cancel());
       clear(all: true);
       ownSession = widget.api.sessionFence();
+      subscribeToSession();
+    } else if (!ownSession()) {
+      clear(all: true);
     }
   }
 
@@ -327,10 +346,13 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
     return true;
   }
 
-  void failure(Object e, int ticket) {
-    if (mounted &&
-        foreground &&
-        ticket == generation &&
+  void failure(Object e, int ticket, EvApi api) {
+    // EvApi invalidates the fence before throwing a genuine 401/419.
+    // Redaction may already have advanced generation. A still-current
+    // expiry from this exact client must nevertheless reach the owner.
+    if (!mounted || !identical(api, widget.api)) return;
+    if (foreground &&
+        (ticket == generation || !ownSession()) &&
         e is ApiException &&
         e.endsCurrentSession) {
       setState(() {
@@ -361,6 +383,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
 
   Future<void> capabilities() async {
     if (!foreground || busy || !ownSession()) return;
+    final api = widget.api;
     final ticket = ++generation;
     setState(() {
       busy = true;
@@ -370,7 +393,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       consent = false;
     });
     try {
-      final result = await widget.api.request(
+      final result = await api.request(
         'discovery/open-charge-map/capabilities',
       );
       if (!current(ticket)) return;
@@ -391,7 +414,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         busy = false;
       });
     } catch (e) {
-      failure(e, ticket);
+      failure(e, ticket, api);
     }
   }
 
@@ -501,6 +524,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         return;
       }
     }
+    final api = widget.api;
     final ticket = ++generation;
     setState(() {
       busy = true;
@@ -509,7 +533,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       error = null;
     });
     try {
-      final result = await widget.api.request(
+      final result = await api.request(
         'discovery/open-charge-map/search',
         method: 'POST',
         body: input,
@@ -521,7 +545,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
         busy = false;
       });
     } catch (e) {
-      failure(e, ticket);
+      failure(e, ticket, api);
     }
   }
 
@@ -560,6 +584,7 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
   @override
   void dispose() {
     generation++;
+    unawaited(sessionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     for (final f in fields.values) {
       f.dispose();
