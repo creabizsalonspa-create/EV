@@ -152,7 +152,7 @@ test('Admin moderation history stays text-only and is cleared on signout', async
   const marker = '<img src=x onerror=alert(1)>';
   ui.setActor({role:'admin'}, async path => {
     if (path.endsWith('/moderations')) {
-      return {data:[{id:2, from_status:'active', to_status:'suspended',
+      return {current_page:1,last_page:1,data:[{id:2, from_status:'active', to_status:'suspended',
         reason:marker, created_at:'2026-11-07T12:00:00Z'}]};
     }
     return {current_page:1, last_page:1, total:1,
@@ -214,4 +214,39 @@ test('business directory combines owner lookup with one-company country and KYC 
   assert.equal(nodes(ui.root, 'script').length, 0);
   ui.setActor({role:'vendor'}, () => { throw Error('vendor must not query Admin accounts'); });
   assert.equal(ui.root.children.length, 0);
+});
+
+test('history pagination is bound to account, page and current directory controls',async()=>{
+  const ui=fixture(),calls=[];
+  let release;
+  ui.setActor({role:'admin'},async path=>{
+    calls.push(path);
+    if(path.endsWith('/moderations'))return {current_page:1,last_page:2,data:[{id:1,from_status:'active',to_status:'suspended',reason:'first page',created_at:'2026-11-07'}]};
+    if(path.endsWith('/moderations?page=2'))return new Promise(resolve=>{release=resolve;});
+    return {current_page:1,last_page:1,total:1,data:[{...data.data[0],account_status:'active'}]};
+  });
+  await tick();
+  await nodes(ui.root,'button').find(b=>b.textContent.includes('Review history')).onclick();
+  const oldAction=nodes(ui.root,'button').find(b=>b.textContent.includes('Suspend'));
+  const oldNext=nodes(ui.root,'button').find(b=>b.textContent.includes('Next history'));
+  oldNext.onclick();
+  nodes(ui.root,'form')[0].onsubmit({preventDefault(){}});
+  await tick();
+  oldAction.onclick();
+  assert.equal(nodes(ui.root,'textarea').length,0);
+  release({current_page:2,last_page:2,data:[{id:2,from_status:'suspended',to_status:'active',reason:'STALE PRIVATE REASON',created_at:'2026-11-08'}]});
+  await tick();
+  assert(!ui.root.textContent.includes('STALE PRIVATE REASON'));
+  oldNext.onclick();
+  assert.equal(calls.filter(p=>p.endsWith('/moderations?page=2')).length,1);
+});
+test('wrong history page fails closed without rendering private reason',async()=>{
+  const ui=fixture();
+  ui.setActor({role:'admin'},async path=>path.endsWith('/moderations')?
+    {current_page:2,last_page:2,data:[{from_status:'active',to_status:'suspended',reason:'WRONG PAGE PRIVATE',created_at:'2026-11-07'}]}:
+    {current_page:1,last_page:1,total:1,data:[{...data.data[0],account_status:'active'}]});
+  await tick();
+  await nodes(ui.root,'button').find(b=>b.textContent.includes('Review history')).onclick();
+  assert(!ui.root.textContent.includes('WRONG PAGE PRIVATE'));
+  assert(ui.root.textContent.includes('Private moderation history unavailable'));
 });
