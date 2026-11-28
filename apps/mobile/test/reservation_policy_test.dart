@@ -7,6 +7,28 @@ import 'package:creabiz_ev/reservation_intent.dart';
 
 const terms=<String,dynamic>{'version':1,'slot_minutes':30,'arrival_before_minutes':15,'unused_expiry_minutes':30,'no_show_fee_minor':0,'cancellation_fee_minor':0,'cancellation_rule':'BEFORE_ADMITTED_OR_UNCERTAIN_START','occupancy_basis':'CANONICAL_LOGICAL_SESSION_ONLY','occupancy_enforcement':'START_ADMISSION','physical_occupancy_verified':false,'unresolved_session_requires_reconciliation':true,'automatic_stop':false,'evidence':'SIMULATED_BUSINESS_POLICY'};
 void main(){
+ for (final language in ['en', 'ar']) {
+  testWidgets('unused expiry explains the recorded outcome in $language', (tester) async {
+    final expected = language == 'ar' ? 'رسوم عدم الحضور صفر' : 'The no-show fee is zero';
+    Future<void> show(String status, Map<String, dynamic> snapshot) {
+      return tester.pumpWidget(MaterialApp(
+        locale: Locale(language),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Scaffold(body: ReservationPolicyPanel(terms: snapshot, status: status)),
+      ));
+    }
+    await show('confirmed', terms);
+    expect(find.textContaining(expected), findsNothing);
+    await show('expired_unused', terms);
+    expect(find.textContaining(expected), findsOneWidget);
+    await show('expired_unstarted', terms);
+    expect(find.textContaining(expected), findsNothing);
+    await show('expired_unused', {...terms, 'no_show_fee_minor': 500});
+    expect(find.textContaining(expected), findsNothing);
+  });
+ }
+
  test('UTC booking calendar bounds do not inherit the device date or DST', () {
   final west = reservationUtcCalendarDay(DateTime.parse('2026-11-26T23:45:00-05:00'));
   final east = reservationUtcCalendarDay(DateTime.parse('2026-11-27T02:15:00+04:00'));

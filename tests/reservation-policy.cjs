@@ -31,3 +31,20 @@ test('web and native terms accept legacy snapshots but reject contradictory pric
   }
  }
 });
+
+test('only supported unused-expiry records display the zero-fee outcome in both languages', () => {
+  for (const arabic of [false, true]) {
+    const policy = fixture(arabic);
+    const expected = arabic ? /رسوم عدم الحضور صفر/ : /The no-show fee is zero/;
+    for (const status of ['confirmed', 'expired_unstarted', 'expired_unused']) {
+      const root = new Element('section');
+      policy.attach(root, terms, status);
+      const recordedOutcome = root.children.find(child => child.tag === 'p');
+      if (status === 'expired_unused') assert.match(recordedOutcome.textContent, expected);
+      else assert.equal(recordedOutcome, undefined);
+    }
+    const unsupported = new Element('section');
+    policy.attach(unsupported, {...terms, no_show_fee_minor: 500}, 'expired_unused');
+    assert.equal(unsupported.children.length, 0);
+  }
+});

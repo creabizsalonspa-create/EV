@@ -7,8 +7,15 @@ window.EvReservationPolicy = (() => {
             terms.unresolved_session_requires_reconciliation === true && terms.automatic_stop === false && terms.evidence === 'SIMULATED_BUSINESS_POLICY' &&
             (!Object.prototype.hasOwnProperty.call(terms,'price_acceptance_required') || terms.price_acceptance_required === true);
     }
-    function attach(root, terms) {
+    function attach(root, terms, status) {
         if (!valid(terms)) return;
+        if (status === 'expired_unused') {
+            const outcome = document.createElement('p');
+            outcome.dataset.en = 'The slot expired without a linked charging session. The no-show fee is zero, and the record does not verify physical attendance.';
+            outcome.dataset.ar = 'انتهت مدة الحجز دون جلسة شحن مرتبطة. رسوم عدم الحضور صفر ولا يثبت السجل الحضور الفعلي.';
+            outcome.textContent = document.documentElement.lang === 'ar' ? outcome.dataset.ar : outcome.dataset.en;
+            root.append(outcome);
+        }
         const details = document.createElement('details'), summary = document.createElement('summary'), text = document.createElement('p');
         summary.dataset.en = '30-minute slot; no cancellation/no-show fee; physical space is unverified.';
         summary.dataset.ar = 'موعد 30 دقيقة؛ دون رسوم إلغاء أو عدم حضور؛ المكان الفعلي غير مؤكد.';

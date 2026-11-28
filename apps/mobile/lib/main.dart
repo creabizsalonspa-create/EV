@@ -871,7 +871,10 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                 '${row['vehicle_label'] ?? (s.arabic ? 'موصل المركبة' : 'Vehicle connector')} · ${row['vehicle_connector_type']}',
               ),
             if (tab == 1 && row['reservation_terms_snapshot'] is Map)
-              ReservationPolicyPanel(terms: Map<String,dynamic>.from(row['reservation_terms_snapshot'] as Map)),
+              ReservationPolicyPanel(
+                terms: Map<String, dynamic>.from(row['reservation_terms_snapshot'] as Map),
+                status: row['status'],
+              ),
             if (tab == 1 && row['checked_in_at'] != null)
               Text(
                 '${arrivalText(context, 'reported')} · ${reservationTime(context, row, 'checked_in_at')}',
