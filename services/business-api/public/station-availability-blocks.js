@@ -28,20 +28,32 @@ window.EvStationBlocks = (() => {
             Array.isArray(data.data) && data.data.length <= 50 &&
             data.data.every(row => validReceipt(row, false)) &&
             new Set(data.data.map(row => row.id)).size === data.data.length;
-        async function read() {
+        async function read(confirmation = null) {
             const data = await api(path);
             if (!current()) return;
             if (!validatedRows(data)) throw Error('Invalid station block response');
-            rows = data.data; render();
+            rows = data.data; render(confirmation);
         }
-        function render() {
+        async function readAfterWrite(confirmation) {
+            try {
+                await read(confirmation);
+            } catch {
+                if (!current()) return;
+                rows = [];
+                render([
+                    confirmation[0] + ' The block list is unavailable. Refresh to view current blocks.',
+                    confirmation[1] + ' قائمة الفترات غير متاحة. حدّث الصفحة لعرض الفترات الحالية.',
+                ]);
+            }
+        }
+        function render(confirmation = null) {
             if (!current()) return;
             const view = ++renderVersion;
             root.replaceChildren();
             root.append(text('h3', 'Station availability blocks', 'فترات حجب المحطة'));
             root.append(text('p', 'Blocks prevent new bookings and starts; existing bookings remain and active charging can finish. Times are UTC. No physical charger command is sent.',
                 'يمنع الحجب الحجوزات وبدء الشحن الجديدة. تبقى الحجوزات السابقة ويمكن إكمال الشحن الجاري. الأوقات بتوقيت UTC ولا ترسل أوامر فعلية للشاحن.'));
-            const notice = text('p', '', ''); notice.setAttribute('role', 'status'); root.append(notice);
+            const notice = text('p', confirmation?.[0] ?? '', confirmation?.[1] ?? ''); notice.setAttribute('role', 'status'); root.append(notice);
             async function act(task) {
                 if (busy || !current() || view !== renderVersion) return; busy = true; root.querySelectorAll('button').forEach(b => b.disabled = true);
                 try { await task(); }
@@ -69,7 +81,7 @@ window.EvStationBlocks = (() => {
                     if (!validReceipt(result, true) || result.id !== row.id || result.revision !== row.revision + 1 ||
                         result.starts_at !== row.starts_at || result.ends_at !== row.ends_at ||
                         result.reason_en !== row.reason_en || result.reason_ar !== row.reason_ar) throw Error('Invalid cancellation receipt');
-                    await read();
+                    await readAfterWrite(['Station block cancelled.', 'أُلغيت فترة حجب المحطة.']);
                 });
                 item.append(cancel); root.append(item);
             }
@@ -88,7 +100,11 @@ window.EvStationBlocks = (() => {
                         Date.parse(result.starts_at) !== Date.parse(pending.starts_at) ||
                         Date.parse(result.ends_at) !== Date.parse(pending.ends_at) ||
                         result.reason_en !== pending.reason_en || result.reason_ar !== pending.reason_ar) throw Error('Invalid block receipt');
-                    pending = null; await read(); });
+                    pending = null;
+                    const confirmation = result.cancelled
+                        ? ['This station block was already cancelled.', 'أُلغيت فترة حجب المحطة سابقاً.']
+                        : ['Station block published.', 'نُشرت فترة حجب المحطة.'];
+                    await readAfterWrite(confirmation); });
             };
             root.append(form);
         }

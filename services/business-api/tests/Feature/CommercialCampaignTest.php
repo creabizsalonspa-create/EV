@@ -42,13 +42,77 @@ class CommercialCampaignTest extends TestCase
         return $c;
     }
 
-    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true)
+    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true, ?string $occurredAt = null)
     {
-        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => now()->utc()->toIso8601String()];
+        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => $occurredAt ?? now()->utc()->toIso8601String()];
         $raw = json_encode($body, JSON_THROW_ON_ERROR);
         $stamp = (string) time();
 
         return $this->call('POST', '/internal/commercial/campaign-deliveries', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_CAMPAIGN_TIMESTAMP' => $stamp, 'HTTP_X_CAMPAIGN_SIGNATURE' => hash_hmac('sha256', $stamp.'.'.$raw, $valid ? config('campaigns.delivery_secret') : 'invalid')], $raw);
+    }
+
+    public function test_fresh_publisher_events_cannot_predate_current_approved_window(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixture();
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $c = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$c['id'];
+        $this->postJson($path.'/submit', ['reason' => 'Review requested'])->assertOk();
+        $this->travel(2)->seconds();
+        $beforeApproval = now()->utc()->toIso8601String();
+        $this->travel(2)->seconds();
+        $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Approved'])->assertOk();
+        $this->delivery($c['id'], 'before-approval', occurredAt: $beforeApproval)->assertConflict();
+        $first = now()->utc()->toIso8601String();
+        $this->delivery($c['id'], 'approved-window', occurredAt: $first)->assertOk();
+        $this->travel(2)->seconds();
+        $this->actingAs($f['vendor'])->postJson($path.'/pause', ['reason' => 'Pause'])->assertOk();
+        $this->travel(2)->seconds();
+        $paused = now()->utc()->toIso8601String();
+        $this->travel(2)->seconds();
+        $this->postJson($path.'/resume', ['reason' => 'Resume'])->assertOk();
+        $this->delivery($c['id'], 'while-paused', occurredAt: $paused)->assertConflict();
+        $this->delivery($c['id'], 'approved-window', occurredAt: $first)
+            ->assertOk()->assertJsonPath('duplicate', true);
+        $this->delivery($c['id'], 'resumed-window')->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 2);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $cash);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_receipt_without_matching_payment_postings_cannot_grant_campaign_budget(): void
+    {
+        $f = $this->fixture(paid: false);
+        $invoice = $f['invoice'];
+        // Disposable import fixture: an orphan receipt and a paid-cycle pointer
+        // are not proof of payment, even when the existing ledger balances.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice->id, 'provider_reference' => 'synthetic-orphan-receipt',
+            'amount_minor' => $invoice->total_minor, 'currency' => $invoice->currency,
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        DB::table('commercial_subscriptions')->where('id', $f['subscription']->id)->update([
+            'status' => 'active', 'cycle_number' => $invoice->cycle_number,
+            'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end,
+        ]);
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+        $this->actingAs($f['vendor'])->postJson('/campaign-test/commercial/campaigns', $f['values'])->assertConflict();
+        $this->assertDatabaseCount('commercial_campaigns', 0);
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledger);
+    }
+
+    public function test_paid_package_pointer_must_match_immutable_cycle_before_delivery(): void
+    {
+        $f = $this->fixture();
+        $c = $this->approved($f);
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+        DB::table('commercial_subscriptions')->where('id', $f['subscription']->id)
+            ->update(['period_end' => now()->addDays(10)]);
+        $this->delivery($c['id'], 'contradictory-paid-cycle')->assertConflict();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledger);
     }
 
     public function test_paid_package_campaign_review_delivery_and_governance_preserve_cash_journals(): void
@@ -540,6 +604,52 @@ class CommercialCampaignTest extends TestCase
         DB::table('commercial_subscriptions')->where('id', $f['subscription']->id)->update(['status' => 'cancelled']);
         $this->delivery($c['id'], 'after-cancellation')->assertConflict();
         $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+    }
+
+    public function test_campaign_review_and_reactivation_require_current_station_ownership(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$campaign['id'];
+        $station = DB::table('stations')->where('id', $f['station']->id);
+        $events = DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id']);
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+
+        $station->update(['vendor_id' => $f['other']->id]);
+        $this->postJson($path.'/submit', ['reason' => 'Request review of original station'])->assertConflict();
+        $this->assertSame(1, $events->count());
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $this->postJson($path.'/submit', ['reason' => 'Request review of original station'])->assertOk();
+        $station->update(['vendor_id' => $f['other']->id]);
+        $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Reviewed original station'])->assertConflict();
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'submitted']);
+        $this->assertSame(2, $events->count());
+
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $approved = $this->postJson($path.'/approve', ['reason' => 'Reviewed original station'])->assertOk()->json('campaign');
+        $station->update(['vendor_id' => $f['other']->id]);
+        $paused = $this->actingAs($f['vendor'])->postJson($path.'/pause', [
+            'reason' => 'Stop former station delivery', 'expected_control_revision' => $approved['control_revision'],
+        ])->assertOk()->json('campaign');
+        $this->postJson($path.'/resume', [
+            'reason' => 'Resume original station delivery', 'expected_control_revision' => $paused['control_revision'],
+        ])->assertConflict();
+        $this->assertSame(4, $events->count());
+        $station->update(['vendor_id' => $f['vendor']->id]);
+        $this->postJson($path.'/resume', ['reason' => 'Resume original station delivery'])->assertOk();
+        $station->update(['vendor_id' => $f['other']->id]);
+        $suspended = $this->actingAs($f['admin'])->postJson($path.'/suspend', [
+            'reason' => 'Suspend transferred station',
+        ])->assertOk()->json('campaign');
+        $this->postJson($path.'/reinstate', [
+            'reason' => 'Reinstate original station', 'expected_control_revision' => $suspended['control_revision'],
+        ])->assertConflict();
+        $this->assertSame(6, $events->count());
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'suspended']);
+        $this->actingAs($f['vendor'])->postJson($path.'/cancel', ['reason' => 'Cancel former station campaign'])->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 0);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledger);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_uncertain_and_pending_refund_sources_hold_delivery_but_known_failure_does_not(): void
