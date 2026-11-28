@@ -26,6 +26,8 @@ The authoritative GitHub `business-platform` CI workflow invokes the same `test:
 
 Each test starts a unique local WebSocket client, sends explicit BootNotification and Heartbeat, confirms typed source charger identity and firmware from authenticated Hasura, then confirms persisted connector event order from the same source station. The status sequence ends in Available; the test must never confuse another test's station model/firmware. Eight bounded parallel **read-only** Hasura queries must resolve the same station primary key, vendor, model and firmware.
 
+The connected matrix also requires strictly ordered positive source-event IDs, absolute non-regressing status times, exact connector/EVSE targeting, explicit OCPP 1.6 clearance codes and protocol identity on every parallel read. `npm run test:ocpp` first runs 28 isolated contract tests, including foreign model/firmware, wrong protocol, duplicate IDs, malformed clocks, contradictory clearance and truncated history. These negative projections are synthetic, not additional real charger-model observations.
+
 The existing OCPP command controls remain intact: unauthenticated remote-start must fail; only a local test administrator token may send the simulator remote-start command. The business command is recorded as submitted, not proven to have delivered energy. Source status/fault messages are software observations, not certificates of physical power, wiring, onsite safety, actual connector energization, or production readiness.
 
 ### Evidence retention and acceptance
