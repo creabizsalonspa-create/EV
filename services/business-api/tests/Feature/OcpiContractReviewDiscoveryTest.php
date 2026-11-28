@@ -208,6 +208,71 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_corrupt_document_identity_denies_review_authority_before_pagination(): void
+    {
+        [$customer, $owner, $admin, $provider, $record] = $this->fixture();
+        config(['ocpi.contract_review_required' => true]);
+        $this->approve($admin, $provider);
+        $this->actingAs($customer)->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        $gate = app(ContractReviewGate::class);
+        $review = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
+        $original = ['reference_id' => 'REVIEW-SYNTHETIC-001', 'evidence_sha256' => str_repeat('b', 64)];
+        $changes = [
+            ['reference_id' => null],
+            ['reference_id' => '-12345'],
+            ['reference_id' => 'ABC 123'],
+            ['reference_id' => 'short'],
+            ['evidence_sha256' => null],
+            ['evidence_sha256' => str_repeat('B', 64)],
+            ['evidence_sha256' => str_repeat('z', 64)],
+            ['evidence_sha256' => str_repeat('b', 63)],
+        ];
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $changes[] = ['reference_id' => "REVIEW-SYNTHETIC-001\0hidden"];
+            $changes[] = ['evidence_sha256' => str_repeat('b', 64)."\0hidden"];
+        }
+
+        foreach ($changes as $change) {
+            $review->update(array_replace($original, $change));
+            $this->assertFalse($gate->current($provider));
+            $this->assertFalse($gate->eligiblePublic(OcpiProvider::query())->whereKey($provider->id)->exists());
+            $this->actingAs($customer)->getJson('/api/discovery/search?scope=partner')
+                ->assertOk()->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+            $this->getJson('/api/roaming/favorites')->assertOk()
+                ->assertJsonPath('data.0.location_available', false)
+                ->assertJsonPath('data.0.location', null);
+            $this->actingAs($admin)->getJson('/api/ocpi/providers/'.$provider->id.'/contract-review')
+                ->assertOk()->assertJsonPath('review_valid_for_current_owner', false);
+        }
+        $review->update($original);
+        $this->assertTrue($gate->current($provider));
+        $this->actingAs($customer)->getJson('/api/discovery/search?scope=partner')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_review_history_does_not_mix_connections_for_the_same_owner(): void
+    {
+        [$customer, $owner, $admin, $provider] = $this->fixture();
+        $this->approve($admin, $provider);
+        $path = '/api/ocpi/providers/'.$provider->id.'/contract-review/history';
+        $this->actingAs($owner)->getJson($path)->assertOk()->assertJsonPath('history.total', 1);
+        $provider->update(['connection_key' => 'contract-discovery-rebound']);
+        $this->getJson($path)->assertOk()->assertJsonPath('history.total', 0)
+            ->assertJsonPath('current_revision', 1);
+        $this->approve($admin, $provider, 1);
+        $this->getJson($path)->assertOk()->assertJsonPath('history.total', 1)
+            ->assertJsonPath('history.data.0.revision', 2)
+            ->assertJsonPath('current_revision', 2);
+        $this->actingAs($owner)->getJson($path)->assertOk()->assertJsonPath('history.total', 1)
+            ->assertJsonPath('history.data.0.revision', 2)
+            ->assertJsonMissingPath('history.data.0.evidence_sha256');
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        Http::assertNothingSent();
+    }
+
     public function test_later_revocation_cannot_be_hidden_by_an_earlier_approved_review(): void
     {
         [$customer, $owner, $admin, $provider, $record] = $this->fixture();

@@ -61,6 +61,7 @@ final class OcpiContractReviewController extends Controller
         return $review && $review->owner_id === $owner->id
             && $review->connection_key === $provider->connection_key
             && $review->decision === 'review'
+            && ContractReviewGate::validEvidence($review->reference_id, $review->evidence_sha256)
             && $owner->role === 'vendor' && $owner->account_status === 'active'
             && ContractReviewGate::validUntil($review->valid_until, CarbonImmutable::now('UTC'));
     }
@@ -104,7 +105,8 @@ final class OcpiContractReviewController extends Controller
             [$owner, $current] = $this->provider($provider, $actor);
             $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
             $rows = DB::table(self::TABLE)->where('provider_id', $current->id)
-                ->where('owner_id', $owner->id)->orderByDesc('revision')->paginate(25, [
+                ->where('owner_id', $owner->id)->where('connection_key', $current->connection_key)
+                ->orderByDesc('revision')->paginate(25, [
                     'revision', 'decision', 'reference_id', 'evidence_sha256',
                     'valid_until', 'reason_ciphertext', 'created_at',
                 ]);

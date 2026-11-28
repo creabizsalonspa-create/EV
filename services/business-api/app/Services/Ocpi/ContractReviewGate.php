@@ -25,6 +25,15 @@ final class ContractReviewGate
             && $value <= $checkedAt->copy()->addYears(3)->toDateString();
     }
 
+    /** Stored manual review evidence must retain the accepted document identity. */
+    public static function validEvidence(mixed $reference, mixed $digest): bool
+    {
+        return is_string($reference)
+            && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{5,119}$/D', $reference) === 1
+            && is_string($digest)
+            && preg_match('/^[a-f0-9]{64}$/D', $digest) === 1;
+    }
+
     /**
      * Gate source-labelled public discovery at SQL selection time, before
      * pagination and before hydration. An old owner or revoked latest review
@@ -51,6 +60,18 @@ final class ContractReviewGate
                 ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
                 ->whereColumn('review.connection_key', 'ocpi_providers.connection_key')
                 ->where('review.decision', 'review')
+                ->when($sqlite, function ($query) {
+                    $query->whereRaw("length(review.reference_id) between 6 and 120")
+                        ->whereRaw("review.reference_id GLOB '[A-Za-z0-9]*'")
+                        ->whereRaw("review.reference_id NOT GLOB '*[^A-Za-z0-9_.-]*'")
+                        ->whereRaw("instr(review.reference_id, char(0)) = 0")
+                        ->whereRaw("length(review.evidence_sha256) = 64")
+                        ->whereRaw("review.evidence_sha256 NOT GLOB '*[^a-f0-9]*'")
+                        ->whereRaw("instr(review.evidence_sha256, char(0)) = 0");
+                }, function ($query) {
+                    $query->whereRaw('review.reference_id ~ ?', ['^[A-Za-z0-9][A-Za-z0-9_.-]{5,119}$'])
+                        ->whereRaw('review.evidence_sha256 ~ ?', ['^[a-f0-9]{64}$']);
+                })
                 ->whereBetween('review.valid_until', [$checkedAt->toDateString(), $checkedAt->copy()->addYears(3)->toDateString()])
                 // SQLite DATE affinity permits malformed calendar strings.
                 // PostgreSQL's typed date column already enforces calendar validity.
@@ -79,6 +100,7 @@ final class ContractReviewGate
         return $latest && (int) $latest->owner_id === (int) $owner->id
             && $latest->connection_key === $provider->connection_key
             && $latest->decision === 'review'
+            && self::validEvidence($latest->reference_id, $latest->evidence_sha256)
             && self::validUntil($latest->valid_until, now('UTC'));
     }
 }
