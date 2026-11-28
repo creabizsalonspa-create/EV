@@ -26,6 +26,17 @@
   for(const [key,en,ar,limit] of [['operator','Operator label','اسم المشغل',100],['address','Address or city','العنوان أو المدينة',150],['access','Platform access description','وصف الوصول في المنصة',150],['min_power_kw','Minimum published station rating (kW)','أقل قدرة منشورة للمحطة (كيلوواط)',4],['max_power_kw','Maximum published station rating (kW)','أعلى قدرة منشورة للمحطة (كيلوواط)',4],['max_rate_per_kwh','Maximum simulated energy rate per kWh','أقصى سعر طاقة محاكاة لكل كيلوواط ساعة',10],['price_currency','Rate currency (for example AED)','عملة السعر (مثلاً AED)',3]]){
    const field=text('label',en,ar),control=document.createElement('input');control.name=key;control.maxLength=limit;field.append(control);advancedInputs[key]=control;advanced.append(field);
   }
+  const partnerState=document.createElement('select');
+  partnerState.name='reported_evse_status';
+  for(const [value,en,ar] of [["","All partner states","كل حالات الشركاء"],["AVAILABLE","Available","متاح"],["BLOCKED","Blocked","محظور"],["CHARGING","Charging","قيد الشحن"],["INOPERATIVE","Inoperative","خارج الخدمة"],["OUTOFORDER","Out of order","معطل"],["PLANNED","Planned","مخطط له"],["REMOVED","Removed","تمت إزالته"],["RESERVED","Reserved","محجوز"],["UNKNOWN","Unknown","غير معروف"]]){
+   const option=text('option',en,ar);option.value=value;partnerState.append(option);
+  }
+  const partnerStateGroup=document.createElement('div');
+  const partnerStateLabel=text('label','Partner-reported EVSE state','حالة وحدة الشحن حسب تقرير الشريك');
+  partnerStateLabel.append(partnerState);
+  partnerStateGroup.append(partnerStateLabel,text('p','This filter uses partner catalog reports. Select a simulated source state as well to include matching platform results.','يستخدم هذا المرشح تقارير كتالوج الشركاء. اختر أيضاً حالة مصدر محاكاة لتضمين نتائج المنصة المطابقة.'));
+  advancedInputs[partnerState.name]=partnerState;
+  advanced.append(partnerStateGroup);
   advanced.append(text('p','Operator and address match published labels. Access, power and price filters exclude partner reports. Published station kW is a catalog rating, not measured live power. Price matches current simulated energy rates only, excluding tax; it is not a total-cost quote. Enter both rate and currency.','يطابق المشغل والعنوان الأوصاف المنشورة. تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية فقط دون الضريبة؛ وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.'));form.append(advanced);
   const normalizeRate=value=>value.replace(/[٠-٩۰-۹]/g,c=>String(c.charCodeAt(0)-(c>='۰'?0x6f0:0x660))).replace(/٫/g,'.');
   const submit=text('button','Search all sources','البحث في كل المصادر');submit.type='submit';form.append(submit);state.setAttribute('role','status');

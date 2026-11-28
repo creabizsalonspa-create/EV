@@ -209,6 +209,23 @@ test('explicit partner age filter persists on pagination and clears with the acc
 });
 
 
+for(const lang of ['en','ar'])test('partner EVSE state survives paging and clears with the account view '+lang,async()=>{
+ const f=fixture(lang);
+ const details=f.form.children.find(node=>node.tag==='details');
+ const control=details.children.flatMap(node=>node.children).flatMap(node=>node.children).find(node=>node.name==='reported_evse_status');
+ assert(control.children.some(node=>node.value==='AVAILABLE'));
+ assert.match(details.textContent,lang==='ar'?/حالة وحدة الشحن حسب تقرير الشريك/:/Partner-reported EVSE state/);
+ control.value='AVAILABLE';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const query=index=>new URLSearchParams(f.calls[index][0].split('?')[1]);
+ assert.equal(query(0).get('reported_evse_status'),'AVAILABLE');
+ f.nav.children.find(node=>node.tag==='button').onclick();await tick();
+ assert.equal(query(1).get('reported_evse_status'),'AVAILABLE');
+ f.control.clear();
+ assert.equal(control.value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(query(2).has('reported_evse_status'),false);
+});
 for(const lang of ['en','ar'])test('advanced filters are explicit, normalize digits and persist until account clearing '+lang,async()=>{
  const f=fixture(lang),details=f.form.children.find(n=>n.tag==='details'),controls=Object.fromEntries(details.children.filter(n=>n.tag==='label').map(n=>{const input=n.children.find(c=>c.tag==='input');return[input.name,input];}));
  assert.equal(f.calls.length,0);controls.operator.value='100%_operator';controls.address.value='دبي';controls.access.value='Visitors';controls.max_rate_per_kwh.value='١٫٥٠';controls.price_currency.value='aed';
