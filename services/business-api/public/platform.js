@@ -51,7 +51,8 @@ const el = (id) => document.getElementById(id),
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     if (client.securityChange) throw new SessionChangedError();
-    const changesSecurity = method === "POST" && ["account/second-factor/enable", "account/second-factor/disable", "account/second-factor/recovery-codes"].includes(path);
+    const changesSecurity = method === "POST" && (["account/second-factor/enable", "account/second-factor/disable", "account/second-factor/recovery-codes"].includes(path)
+        || /^account\/privacy-requests\/[1-9][0-9]{0,17}\/secure-account$/.test(path));
     let securityAttempt = null;
     if (changesSecurity) {
         // Fence earlier responses before the server can revoke their session.
@@ -321,7 +322,11 @@ function renderIdentity() {
     window.EvAdminKycQueue?.setActor(user, api);
     window.EvAdminStaffPermissions?.setActor(user, api);
     window.EvAdminAuditTrail?.setActor(user, api);
-    window.EvPrivacyRequests?.setSelfActor(user, api);
+    window.EvPrivacyRequests?.setSelfActor(user, api, () => {
+        clearIdentity();
+        signalSessionRevocation();
+        window.location.assign("/?sessions=revoked");
+    });
     window.EvPrivacyRequests?.setAdminActor(user, api);
     window.EvAdminSessions?.setActor(user, api);
     window.EvAccountSessions?.setActor(user, api, () => {
