@@ -66,16 +66,16 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "mobile-ar", "copy", "unicode", "overlong", "unsafe", "bad-quality", "late", "late-filter"]) {
+    for (const mode of ["disabled", "enabled", "mobile-ar", "copy", "unicode", "overlong", "unsafe", "bad-quality", "late", "late-filter", "federated", "federated-unavailable", "federated-invalid", "federated-late"]) {
       const context = await browser.newContext({
         permissions: [],
         ...(mode === "mobile-ar" ? { viewport: { width: 390, height: 844 } } : {}),
       });
       const page = await context.newPage();
-      if (mode === "late" || mode === "late-filter") await page.addInitScript(() => {
+      if (mode === "late" || mode === "late-filter" || mode === "federated-late") await page.addInitScript(() => {
         const original = Response.prototype.json;
         Response.prototype.json = function(...args) {
-          if (this.url.includes("/api/discovery/open-charge-map/search")) {
+          if (this.url.includes("/api/discovery/open-charge-map/search") || this.url.includes("/api/discovery/federated-nearby")) {
             return new Promise((resolve, reject) => {
               window.__releaseOcmJson = async () => {
                 try { resolve(await original.apply(this, args)); }
@@ -126,6 +126,27 @@ const reply = {
           } : reply,
         });
       });
+      const federatedRequests = [];
+      await page.route("**/api/discovery/federated-nearby", (route) => {
+        federatedRequests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+        const partner = {
+          kind: "partner", key: "partner:8", record_id: 8, location: { name: "Partner fixture" },
+          evidence: "PARTNER_REPORTED_UNVERIFIED", availability: "unknown",
+          reservable: false, remote_control: mode === "federated-invalid",
+        };
+        return route.fulfill({ json: {
+          evidence: "FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY",
+          distance_basis: "great_circle", complete_geographic_coverage: false,
+          live_status_verified: false, combined_total: null,
+          published: { data: [
+            { kind: "catalog", key: "catalog:1", station: { id: 1, name: "Platform fixture" } },
+            partner,
+          ], total: 26, per_page: 25, current_page: 1, last_page: 2 },
+          licensed: mode === "federated-unavailable"
+            ? { state: "unavailable", reason: "not_configured", sample: null }
+            : { state: "observed", sample: reply },
+        } });
+      });
       await page.goto(base);
       const root = page.locator("#open-charge-map-discovery");
       await root.waitFor({ state: "attached" });
@@ -146,6 +167,58 @@ const reply = {
         return status && status.textContent.trim() !== "" &&
           stations && !stations.hasAttribute("aria-busy");
       });
+      if (mode.startsWith("federated")) {
+        const submit = root.getByRole("button", { name: "Search nearby across published and licensed sources" });
+        const consent = root.locator('input[type="checkbox"]');
+        const published = root.locator("#federated-published-results");
+        await root.locator('[name="ocm_latitude"]').fill("25.2");
+        await root.locator('[name="ocm_longitude"]').fill("55.3");
+        await root.locator('[name="ocm_country"]').fill("AE");
+        await submit.click();
+        assert.equal(federatedRequests.length, 0, "Consent is required");
+        const filter = root.locator('[name="ocm_operator_contains"]');
+        await filter.fill("some operator");
+        await consent.check();
+        await submit.click();
+        await root.getByText(/Clear crowd-report filters/).waitFor();
+        assert.equal(federatedRequests.length, 0, "Source-only filters may not be silently ignored");
+        await filter.clear();
+        await consent.check();
+        await submit.click();
+        if (mode === "federated-late") {
+          await page.waitForFunction(() => typeof window.__releaseOcmJson === "function");
+          await page.evaluate(async () => {
+            window.dispatchEvent(new Event("catalog-map-clear"));
+            await window.__releaseOcmJson();
+          });
+          assert.equal(await published.locator("li").count(), 0, "Old identity results must stay cleared");
+          assert.equal(await root.locator("article").count(), 0);
+        } else if (mode === "federated-invalid") {
+          await root.getByText(/Nearby search is unavailable/).waitFor();
+          assert.equal(await published.locator("li").count(), 0);
+          assert.equal(await root.locator("article").count(), 0);
+        } else {
+          await published.getByText("Platform catalog · Platform fixture").waitFor();
+          assert.match(await published.textContent(), /Showing 2 of 26 published results/);
+          assert.equal(await published.locator("button, a").count(), 0);
+          if (mode === "federated-unavailable") {
+            await root.getByText(/Licensed crowd reports are unavailable/).waitFor();
+            assert.equal(await root.locator("article").count(), 0);
+          } else {
+            await root.locator("article").waitFor();
+          }
+          await root.locator('[name="ocm_latitude"]').fill("25.3");
+          assert.equal(await published.locator("li").count(), 0);
+          assert.equal(await root.locator("article").count(), 0);
+        }
+        assert.deepEqual(federatedRequests, [{ method: "POST",
+          body: { consent: true, latitude: 25.2, longitude: 55.3, radius_km: 25, country: "AE" },
+        }]);
+        assert.equal(searchRequests.length, 0);
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       if (mode === "mobile-ar") {
         await page.locator("#language").click();
         assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
