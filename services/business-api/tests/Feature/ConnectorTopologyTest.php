@@ -13,6 +13,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\SessionBridge;
 use App\Services\CsmsDispatcher;
@@ -95,6 +96,228 @@ class ConnectorTopologyTest extends TestCase
         $this->postJson('/api/reservations', $this->book($f, 0, 'blocked'))->assertConflict();
         $f['company']->update(['status' => 'suspended']);
         $this->postJson('/api/reservations', $this->book($f, 2, 'suspended'))->assertConflict();
+    }
+
+    #[DataProvider('protocols')]
+    public function test_corrupted_source_mapping_digest_cannot_advertise_freshness_or_admit_reservation(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $evse = $protocol === '1.6' ? 0 : 5;
+        $mapId = $f['maps'][0]['id'];
+        $digest = hash('sha256', $binding->id.':'.$evse.':7');
+        DB::table('charging_status_observations')->insert([
+            'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+            'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64),
+            'evse_number' => $evse, 'connector_number' => 7,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now(), 'created_at' => now(),
+        ]);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.state', 'recent');
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)
+                ->update(['source_target_key' => $invalid]);
+            $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', false)
+                ->assertJsonPath('data.0.status_freshness.state', 'unknown')
+                ->assertJsonPath('data.0.status_freshness.reported_status', null);
+            $this->postJson('/api/reservations', $this->book($f, 0, 'digest-recovery'))->assertConflict();
+            $this->assertDatabaseCount('reservations', 0);
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)
+            ->update(['source_target_key' => $digest]);
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.state', 'recent');
+        $this->postJson('/api/reservations', $this->book($f, 0, 'digest-recovery'))->assertCreated();
+        $this->assertDatabaseCount('reservations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_pending_start_replay_rejects_corrupted_source_mapping_without_duplicating_command(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $body = $this->book($f, 0, 'source-replay');
+        $booking = $this->postJson('/api/reservations', $body)->assertCreated()->json();
+        $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
+        $path = '/api/reservations/'.$booking['id'].'/csms-start';
+        $queued = $this->postJson($path)->assertAccepted()->json();
+        $map = DB::table('charging_connector_mappings')->where('id', $f['maps'][0]['id']);
+        $digest = $map->value('source_target_key');
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            $map->update(['source_target_key' => $invalid]);
+            $this->postJson($path)->assertConflict();
+            $this->assertDatabaseCount('charging_sessions', 1);
+            $this->assertDatabaseCount('charger_commands', 1);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+        $map->update(['source_target_key' => $digest]);
+        $this->postJson($path)->assertAccepted()->assertJsonPath('session.id', $queued['session']['id']);
+        $this->assertDatabaseCount('charger_commands', 1);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('protocols')]
+    public function test_all_recent_source_searches_require_exact_mapping_and_consistent_source_order(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->topology($protocol);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $evse = $protocol === '1.6' ? 0 : 5;
+        $mapId = $f['maps'][0]['id'];
+        $digest = hash('sha256', $binding->id.':'.$evse.':7');
+        $admin = User::factory()->create(['role' => 'admin']);
+        $assertSearches = function (int $available) use ($f, $admin): void {
+            $this->actingAs($f['customer']);
+            foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $endpoint) {
+                $this->getJson($endpoint.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', $available);
+            }
+            $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')
+                ->assertOk()->assertJsonPath('total', $available);
+            $this->actingAs($f['customer']);
+        };
+        $row = [
+            'binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding),
+            'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64),
+            'evse_number' => $evse, 'connector_number' => 7, 'status' => 'Available',
+            'error_code' => null, 'occurred_at' => now()->subSeconds(10), 'created_at' => now(),
+        ];
+        DB::table('charging_status_observations')->insert($row);
+        $assertSearches($protocol === '1.6' ? 0 : 1);
+        DB::table('charging_status_observations')->where('binding_id', $binding->id)
+            ->where('source_event_id', 1)->update(['error_code' => 'NoError']);
+        $assertSearches(1);
+        foreach ([null, str_repeat('f', 64), strtoupper($digest)] as $invalid) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)->update(['source_target_key' => $invalid]);
+            $assertSearches(0);
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)->update(['source_target_key' => $digest]);
+        $assertSearches(1);
+        // A higher source ID with an older clock must suppress the previously
+        // visible latest-by-time receipt on all discovery surfaces.
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 2, 'status' => 'Faulted', 'error_code' => 'GroundFailure',
+            'occurred_at' => now()->subSeconds(20),
+        ]));
+        $assertSearches(0);
+        DB::table('charging_status_observations')->insert(array_replace($row, [
+            'source_event_id' => 3, 'error_code' => 'NoError', 'occurred_at' => now(),
+        ]));
+        $assertSearches(1);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_mapping_writer_hashes_validated_integer_not_request_spelling(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $this->actingAs($f['owner']);
+        $evse = $f['evses'][0];
+        $connector = VendorConnector::create([
+            'charger_id' => $f['charger']->id, 'connector_number' => 4,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $path = $f['base'].'/evses/'.$evse['id'].'/connectors/'.$connector->id.'/mapping';
+        $response = $this->postJson($path, ['source_connector_number' => '+10'])->assertCreated();
+        $id = $response->json('id');
+        $digest = hash('sha256', $f['binding'].':'.$evse['source_evse_number'].':10');
+        $this->assertDatabaseHas('charging_connector_mappings', [
+            'id' => $id, 'source_connector_number' => 10, 'source_target_key' => $digest,
+        ]);
+
+        $duplicate = VendorConnector::create([
+            'charger_id' => $f['charger']->id, 'connector_number' => 5,
+            'connector_type' => 'CCS2', 'max_power_kw' => 50,
+        ]);
+        $duplicatePath = $f['base'].'/evses/'.$evse['id'].'/connectors/'.$duplicate->id.'/mapping';
+        $this->postJson($duplicatePath, ['source_connector_number' => 10])->assertConflict();
+        $this->postJson($duplicatePath, ['source_connector_number' => '+10'])->assertConflict();
+        $this->assertDatabaseCount('charging_connector_mappings', 4);
+
+        $this->actingAs($f['customer']);
+        $this->getJson('/api/stations/'.$f['station']->id.'/connectors')->assertOk()
+            ->assertJsonPath('data.3.id', $id)->assertJsonPath('data.3.reservable', true);
+        $f['maps'][] = ['id' => $id];
+        $this->postJson('/api/reservations', $this->book($f, 3, 'normalized-connector'))->assertCreated();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_application_mapping_cannot_carry_csms_target_metadata(): void
+    {
+        $f = $this->topology();
+        $mapId = $f['maps'][0]['id'];
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        foreach ([
+            ['source_connector_number' => 7, 'source_target_key' => null],
+            ['source_connector_number' => null, 'source_target_key' => str_repeat('a', 64)],
+        ] as $metadata) {
+            DB::table('charging_connector_mappings')->where('id', $mapId)->update($metadata);
+            $this->getJson($path)->assertOk()->assertJsonPath('data.0.reservable', false)
+                ->assertJsonPath('data.0.status_freshness.state', 'unknown');
+            $this->postJson('/api/reservations', $this->book($f, 0, 'application-lineage'))->assertConflict();
+        }
+        DB::table('charging_connector_mappings')->where('id', $mapId)
+            ->update(['source_connector_number' => null, 'source_target_key' => null]);
+        $this->postJson('/api/reservations', $this->book($f, 0, 'application-lineage'))->assertCreated();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_detached_csms_mapping_cannot_be_reinterpreted_as_application_reservation(string $protocol): void
+    {
+        $f = $this->topology($protocol);
+        $body = $this->book($f, 0, 'detached-source');
+        $booking = $this->postJson('/api/reservations', $body)->assertCreated()->json();
+        $reservation = Reservation::findOrFail($booking['id']);
+        $topology = app(ConnectorTopology::class);
+        $evse = DB::table('charging_evses')->where('id', $f['evses'][0]['id']);
+        $this->assertSame($f['binding'], $topology->binding($reservation)->id);
+        $evse->update(['binding_id' => null]);
+        try {
+            $topology->binding($reservation);
+            $this->fail('A detached CSMS reservation was treated as application inventory.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertConflict();
+        $this->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertConflict();
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+        $evse->update(['binding_id' => $f['binding']]);
+        $this->assertSame($f['binding'], $topology->binding($reservation)->id);
+    }
+
+    public function test_unbound_application_reservation_requires_empty_source_metadata(): void
+    {
+        $f = $this->topology();
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'application-identity'))->assertCreated()->json();
+        $reservation = Reservation::findOrFail($booking['id']);
+        $topology = app(ConnectorTopology::class);
+        $map = DB::table('charging_connector_mappings')->where('id', $f['maps'][0]['id']);
+        $this->assertNull($topology->binding($reservation));
+        $map->update(['source_connector_number' => 7]);
+        try {
+            $topology->binding($reservation);
+            $this->fail('Application reservation retained unexpected source metadata.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $map->update(['source_connector_number' => null]);
+        $this->assertNull($topology->binding($reservation));
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
     }
 
     public function test_application_sessions_are_parallel_across_evses_but_unresolved_prior_slot_blocks_same_evse(): void
@@ -318,7 +541,7 @@ class ConnectorTopologyTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-14T19:59:58Z'));
         $f = $this->topology('1.6');
         $binding = DB::table('csms_bindings')->find($f['binding']);
-        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => null, 'occurred_at' => now(), 'created_at' => now()]);
+        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()]);
         $path = '/api/stations?recent_source_status=Available';
         $this->getJson($path)->assertJsonPath('total', 1);
         foreach ([[$f['company'], 'status', 'suspended'], [$f['connectors'][0], 'maintenance_blocked', true], [$f['station'], 'vendor_id', User::factory()->create(['role' => 'vendor'])->id], [$f['charger'], 'ocpp_protocol', '2.0.1']] as [$model, $field, $value]) {
