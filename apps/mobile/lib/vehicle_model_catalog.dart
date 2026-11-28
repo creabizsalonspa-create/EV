@@ -97,6 +97,7 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
   }
 
   Future<void> reload([int target = 1]) async {
+    if (busy || saving) return;
     final ticket = ++generation, fence = widget.api.sessionFence();
     // A failed refresh must not leave a previous vehicle's editable link
     // visible while the backend response is uncertain.
@@ -180,7 +181,15 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
           'تدير الإدارة سجلات الكتالوج دون تحقق من الشركة المصنعة. ربط الطراز لا يغير موصل المركبة أو صلاحيات الشحن المباشر.',
         )),
         Text(t('Vehicle connector: ', 'موصل المركبة: ')+widget.vehicleConnector),
-        if (busy) const LinearProgressIndicator(),
+        if (busy || saving)
+          Semantics(
+            liveRegion: true,
+            child: LinearProgressIndicator(
+              semanticsLabel: saving
+                  ? t('Updating vehicle model link', 'جارٍ تحديث ارتباط طراز المركبة')
+                  : t('Loading vehicle models', 'جارٍ تحميل طرازات المركبات'),
+            ),
+          ),
         if (error != null) Semantics(liveRegion:true,
           child:Text(error!,key:const Key('model-link-error'))),
         if (success != null) Semantics(liveRegion:true,
@@ -194,9 +203,12 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
           TextField(
             key:const Key('model-search'),
             controller:search,maxLength:100,
+            readOnly: saving,
+            textInputAction: TextInputAction.search,
             decoration:InputDecoration(
               labelText:t('Search make or model', 'البحث عن العلامة أو الطراز'),
               suffixIcon:IconButton(icon:const Icon(Icons.search),
+                tooltip: t('Search vehicle models', 'بحث في طرازات المركبات'),
                 onPressed:busy || saving ? null : () => reload(1)),
             ),
             onSubmitted:(_) => reload(1),
