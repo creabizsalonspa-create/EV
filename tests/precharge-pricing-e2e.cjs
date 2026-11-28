@@ -25,14 +25,20 @@ let stage='fixture';
   });
   page.on('dialog',async d=>{
    if(d.type()==='prompt'){assert.match(d.message(),/Estimated energy in Wh/);prompt++;await d.accept('1500');}
-   else {assert.equal(d.type(),'confirm');assert.match(d.message(),/AED 3.96/);assert.match(d.message(),/not a spending cap/);assert.match(d.message(),/Simulator session\/idle fees: 0/);assert.match(d.message(),/External parking\/access fees are excluded/);assert.match(d.message(),/No real payment occurs/);confirmation++;decline?await d.dismiss():await d.accept();}
+   else {assert.equal(d.type(),'confirm');assert.equal(d.message().split('\n')[0],`Tariff version #${f.tariff_version_id}`);assert.match(d.message(),/AED 3.96/);assert.match(d.message(),/not a spending cap/);assert.match(d.message(),/Simulator session\/idle fees: 0/);assert.match(d.message(),/External parking\/access fees are excluded/);assert.match(d.message(),/No real payment occurs/);confirmation++;decline?await d.dismiss():await d.accept();}
   });
   stage='display';
   await page.goto(c.base);await page.locator('#reservation-list article').filter({hasText:'#'+f.reservation_id+' ·'}).waitFor();
   const card=page.locator('#reservation-list article').filter({hasText:'#'+f.reservation_id+' ·'});
   stage='decline';
   const preview=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/reservations/${f.reservation_id}/price-estimate`);
-  await card.getByRole('button',{name:'Review charging price',exact:true}).click();assert.equal((await preview).status(),200);
+  await card.getByRole('button',{name:'Review charging price',exact:true}).click();
+  const previewResponse=await preview;
+  assert.equal(previewResponse.status(),200);
+  const {estimate}=await previewResponse.json();
+  assert.equal(estimate.tariff_version_id,f.tariff_version_id);
+  assert.equal(estimate.currency,'AED');
+  assert.equal(estimate.minor_units,2);
   await page.waitForFunction(()=>!Array.from(document.querySelectorAll('#reservation-list button')).find(x=>x.textContent==='Review charging price')?.disabled);
   assert.equal(confirmation,1);assert(!(await c.request('simulations')).data.some(x=>x.reservation_id===f.reservation_id));
   // A separate review can be declined, but so must the actual Start action.
@@ -55,15 +61,51 @@ let stage='fixture';
   assert.equal(prompt,3);assert.equal(confirmation,3);
   assert.deepEqual(priceWrites,['price-estimate','price-estimate','price-estimate','price-consent']);
   assert(!(await c.request('simulations')).data.some(x=>x.reservation_id===f.reservation_id),'Standalone review must not start charging');
-  stage='accepted_start';
+  stage='expired_start_acknowledgement';
+  const consentPath=`**/api/reservations/${f.reservation_id}/price-consent`;
+  await page.route(consentPath,async route=>{
+   const receipt=await route.fetch();
+   assert.equal(receipt.status(),200);
+   const {valid_until}=await receipt.json();
+   const expiry=Date.parse(valid_until);
+   assert(Number.isFinite(expiry));
+   // Deliver a genuine Laravel receipt when the browser reaches its expiry.
+   await page.clock.setFixedTime(expiry);
+   await route.fulfill({response:receipt});
+  },{times:1});
+  await startButton.click();
+  await page.getByText('Price confirmation expired. Review a fresh estimate.',{exact:true}).waitFor();
+  await page.clock.setFixedTime(new Date());
+  assert.equal(prompt,4);assert.equal(confirmation,4);
+  assert.deepEqual(priceWrites,['price-estimate','price-estimate','price-estimate','price-consent','price-estimate','price-consent'],'A late receipt must never dispatch a start');
+  assert(!(await c.request('simulations')).data.some(x=>x.reservation_id===f.reservation_id));
+  stage='uncertain_start';
   const startConsent=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/reservations/${f.reservation_id}/price-consent`);
-  const startResult=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/reservations/${f.reservation_id}/simulate-start`);
+  const startPath=`/api/reservations/${f.reservation_id}/simulate-start`;
+  let session;
+  await page.route(`**${startPath}`,async route=>{
+   const started=await route.fetch();
+   assert.equal(started.status(),201);
+   session=await started.json();
+   await route.abort('connectionreset');
+  },{times:1});
+  const lostStart=page.waitForEvent('requestfailed',request=>new URL(request.url()).pathname===startPath);
   await startButton.click();
   assert.equal((await startConsent).status(),200);
-  const started=await startResult;assert.equal(started.status(),201);
-  const session=await started.json();assert.equal(session.currency,'AED');
-  assert.equal(prompt,4);assert.equal(confirmation,4);
-  assert.deepEqual(priceWrites,['price-estimate','price-estimate','price-estimate','price-consent','price-estimate','price-consent','simulate-start'],'Start must follow the explicit current price consent, exactly once');
+  await lostStart;
+  assert.equal(session.currency,'AED');
+  assert.equal(prompt,5);assert.equal(confirmation,5);
+  assert.deepEqual(priceWrites,['price-estimate','price-estimate','price-estimate','price-consent','price-estimate','price-consent','price-estimate','price-consent','simulate-start'],'Start must follow the explicit current price consent, exactly once');
+  stage='recover_uncertain_start';
+  const recovered=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/reservations/${f.reservation_id}/price-estimate`);
+  await startButton.click();
+  assert.deepEqual(await (await recovered).json(),{existing_session_id:session.id,start_already_recorded:true});
+  await page.locator('#simulation-list').getByText(`SIMULATED · #${session.id} ·`,{exact:false}).waitFor();
+  assert.equal(prompt,6);assert.equal(confirmation,5);
+  assert.deepEqual(priceWrites.slice(-3),['price-consent','simulate-start','price-estimate']);
+  assert.equal(priceWrites.filter(path=>path==='simulate-start').length,1);
+  const sessions=(await c.request('simulations')).data.filter(x=>x.reservation_id===f.reservation_id);
+  assert.deepEqual(sessions.map(x=>x.id),[session.id]);
   stage='replay';
   const replay=await c.request(`reservations/${f.reservation_id}/simulate-start`,'POST');assert.equal(session.id,replay.id);
   const existing=await c.request(`reservations/${f.reservation_id}/price-estimate`,'POST',{energy_wh:10000});assert.equal(existing.existing_session_id,session.id);assert.equal(existing.quote_token,undefined);
@@ -79,6 +121,6 @@ let stage='fixture';
   const invoiced=(await c.request('simulations')).data.find(row=>row.id===session.id).cost_projection;
   assert.equal(invoiced.state,'invoiced');assert.equal(invoiced.invoice_id,issued.invoice.id);assert.equal(invoiced.total_minor,String(issued.invoice.total_minor));
   await page.reload();await page.locator('#simulation-list').getByText(/Simulated invoice total: AED 3.96/).waitFor();
-  console.log('Actual Laravel/browser pre-charge review, decline, explicit acceptance, metered estimate, canonical invoice and start replay passed (synthetic; no payment or hardware).');
+  console.log('Actual Laravel/browser pre-charge tariff review, decline, late acknowledgement, explicit acceptance, uncertain start recovery, metered estimate, canonical invoice and start replay passed (synthetic; no payment or hardware).');
  } finally {await browser.close();}
 })().catch(error=>{const name=['AssertionError','TimeoutError','Error'].includes(error?.name)?error.name:'Error';console.error(JSON.stringify({suite:'synthetic_precharge',stage,error:name}));process.exit(1);});
