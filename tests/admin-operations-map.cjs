@@ -52,3 +52,18 @@ test('pagination retains applied filters and invalid authority is rejected',asyn
  const q=nodes(f.root,'input').find(x=>x.name==='q');q.value='original';submit(f);await flush();q.value='unsubmitted';click(f,'Next page');await flush();
  assert.match(reads[1],/q=original/);assert.match(reads[1],/page=2/);assert.equal(nodes(f.root,'article').length,0);assert(f.root.textContent.includes('could not load'));
 });
+
+test('partner layer is explicit and source-qualified, rejects mismatched platform results',async()=>{
+ const f=fixture(),reads=[];
+ const report={id:1,provider_id:2,provider_label:'Synthetic peer',name:'Peer report',country:'ARE',latitude:1,longitude:179,source:'PARTNER_REPORTED_UNVERIFIED',reported_source_age_minutes:60,availability:'unknown',physical_availability_verified:false,remote_control:false};
+ f.setActor({id:1,role:'admin'},async(path)=>{reads.push(path);return reads.length===1?{...reply([report]),scope:'authorized_partner_catalog'}:reply();});
+ const catalog=nodes(f.root,'select').find(x=>x.name==='catalog');catalog.value='partner';catalog.onchange();
+ assert.equal(reads.length,0);assert(nodes(f.root,'input').find(x=>x.name==='company_id').disabled);
+ nodes(f.root,'input').find(x=>x.name==='country').value='ARE';submit(f);await flush();
+ assert.match(reads[0],/catalog=partner/);assert.match(reads[0],/country=ARE/);
+ assert(!reads[0].includes('company_id'));assert(f.root.textContent.includes('Synthetic peer'));
+ assert(f.root.textContent.includes('Reported source age: 60 min'));assert(f.root.textContent.includes('Physical availability unknown'));
+ assert.equal(nodes(f.root,'article')[0].dataset.partnerRecordId,'1');
+ submit(f);await flush();assert.equal(nodes(f.root,'article').length,0);
+ assert(f.root.textContent.includes('could not load'));
+});
