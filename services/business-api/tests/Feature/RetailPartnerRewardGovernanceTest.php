@@ -99,6 +99,94 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_customer_history_and_replay_reject_contradictory_redemption_owner(): void
+    {
+        [$reviewer, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $other = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $source = DB::table('partner_reward_reviews')->find($review);
+        $approval = DB::table('partner_reward_review_events')->where('review_id', $review)
+            ->where('decision', 'approve')->first();
+        $key = 'contradictory-owner';
+        $request = hash('sha256', 'partner-reward-claim:'.$customer->id.':'.$key);
+        $redemption = DB::table('loyalty_redemptions')->insertGetId([
+            'user_id' => $other->id, 'reward_id' => $source->reward_id, 'points_cost' => 0,
+            'status' => 'pending', 'request_key' => $request, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('partner_reward_claims')->insert([
+            'review_id' => $review, 'approval_event_id' => $approval->id, 'user_id' => $customer->id,
+            'redemption_id' => $redemption, 'request_key' => $request, 'created_at' => now(),
+        ]);
+        $this->actingAs($customer)->getJson("$base/claims")->assertConflict();
+        $this->postJson("$base/offers/$review/claim", ['idempotency_key' => $key])->assertConflict();
+        $this->postJson("$base/claim-receipt", ['idempotency_key' => $key])->assertConflict();
+        $this->postJson("$base/claim-intents/cancel", ['review_id' => $review, 'idempotency_key' => $key])->assertConflict();
+        $this->actingAs($other)->getJson("$base/claims")->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($reviewer);
+        foreach (['fulfill', 'reject'] as $action) {
+            $this->postJson("/api/commercial/loyalty/redemptions/$redemption/$action",
+                ['reason' => 'Contradictory imported claim must remain unchanged'])->assertConflict();
+        }
+        $this->assertDatabaseHas('loyalty_redemptions', ['id' => $redemption, 'status' => 'pending']);
+        $this->assertDatabaseCount('loyalty_redemption_events', 0);
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_redemptions', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_member_eligibility_is_rechecked_at_fulfillment_but_not_valid_release(): void
+    {
+        [$reviewer, $review] = $this->sandboxOffer();
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $one = $this->actingAs($first)->postJson("$base/offers/$review/claim",
+            ['idempotency_key' => 'first-current-member'])->assertCreated()->json('claim');
+        $two = $this->actingAs($second)->postJson("$base/offers/$review/claim",
+            ['idempotency_key' => 'second-current-member'])->assertCreated()->json('claim');
+        DB::table('users')->where('id', $first->id)->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $second->id)->update(['email_verified_at' => null]);
+        $this->actingAs($reviewer);
+        $events = DB::table('loyalty_redemption_events')->count();
+        foreach ([$one, $two] as $claim) {
+            $this->postJson('/api/commercial/loyalty/redemptions/'.$claim['redemption_id'].'/fulfill',
+                ['reason' => 'Manual synthetic fulfillment'])->assertConflict();
+            $this->assertDatabaseHas('loyalty_redemptions', ['id' => $claim['redemption_id'], 'status' => 'pending']);
+        }
+        $this->assertDatabaseCount('loyalty_redemption_events', $events);
+        DB::table('users')->where('id', $first->id)->update(['account_status' => 'active']);
+        $this->postJson('/api/commercial/loyalty/redemptions/'.$one['redemption_id'].'/fulfill',
+            ['reason' => 'Member eligibility restored'])->assertOk()->assertJsonPath('redemption.status', 'fulfilled');
+        $this->postJson('/api/commercial/loyalty/redemptions/'.$two['redemption_id'].'/reject',
+            ['reason' => 'Release unavailable member entitlement'])->assertOk()->assertJsonPath('redemption.status', 'rejected');
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_customer_claim_history_is_bounded_and_private(): void
+    {
+        [, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $claim = $this->actingAs($customer)->postJson("$base/offers/$review/claim",
+            ['idempotency_key' => 'bounded-history'])->assertCreated()->json('claim');
+        $this->getJson("$base/claims?page=1")->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('per_page', 25)->assertJsonPath('data.0.id', $claim['id']);
+        $this->getJson("$base/claims?page=2")->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        foreach (['0', '-1', '100001', '1.5', 'invalid'] as $invalid) {
+            $this->getJson("$base/claims?page=$invalid")->assertUnprocessable();
+        }
+        $this->getJson("$base/claims?page[]=1")->assertUnprocessable();
+        $this->actingAs(User::factory()->create())->getJson("$base/claims")->assertOk()
+            ->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_admin_claim_history_is_scoped_to_exact_review_and_preserves_historical_approval(): void
     {
         [$reviewer, $review, $path] = $this->sandboxOffer();
