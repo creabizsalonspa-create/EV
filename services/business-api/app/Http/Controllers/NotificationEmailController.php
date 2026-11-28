@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Notifications\EmailNoticeHistory;
 use App\Services\Notifications\EmailNotices;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,8 @@ class NotificationEmailController extends Controller
             $user = $service->actor($r->user());
             $page = DB::table('notification_email_outbox')->where('user_id', $user->id)->orderByDesc('created_at')->orderByDesc('id')
                 ->paginate(25, ['id', 'state', 'failure_code', 'evidence', 'created_at', 'claimed_at', 'completed_at']);
+
+            $page->through(fn ($row) => EmailNoticeHistory::project($row));
 
             return response()->json(['receipts' => $page->toArray(), 'delivery_confirmed' => false, 'automatic_retry' => false])->header('Cache-Control', 'private, no-store');
         });
