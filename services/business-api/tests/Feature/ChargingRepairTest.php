@@ -14,7 +14,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
@@ -374,11 +373,15 @@ class ChargingRepairTest extends TestCase
     {
         [, , , $url, $alert] = $this->repairFixture();
         $admin = User::factory()->create(['role' => 'admin']);
-        Sanctum::actingAs($admin);
+        // A real persisted bearer exercises the current-token guard. Sanctum's
+        // actingAs helper installs a Mockery token with no database identity.
+        $issued = $admin->createToken('repair-native-fixture');
+        $this->actingAs($admin->fresh()->withAccessToken($issued->accessToken), 'sanctum');
         $native = str_replace('/api/', '/api/v1/', $url);
         $this->postJson($native, $this->intent($alert, 0, 'open'))->assertForbidden();
         $this->getJson($native)->assertForbidden();
-        $this->actingAs($admin, 'web')->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        // The separate browser credential must not retain the native token.
+        $this->actingAs($admin->fresh(), 'web')->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
         $this->getJson($url)->assertOk()->assertJsonPath('can_manage', true);
         $this->postJson($url, $this->intent($alert, 1, 'review'))->assertConflict();
     }
