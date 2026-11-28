@@ -110,10 +110,29 @@ final class CpoCatalogPublisher
         ], JSON_THROW_ON_ERROR));
     }
 
-    private function deliveryMatches(object $row, object $operation): bool
+    /**
+     * Bind the original publication AND negotiated authority in the durable
+     * receipt. No token or private endpoint is stored in plaintext. Legacy
+     * payload-only digests cannot prove which receiver was actually contacted.
+     */
+    private function deliveryAuthorityDigest(object $row, OcpiProvider $provider, object $link): string
+    {
+        return hash('sha256', json_encode([
+            'cpo-delivery-authority-v2', $this->deliveryDigest($row),
+            (string) $provider->id, (string) $provider->owner_id, $provider->connection_key,
+            $provider->authorization_revision, $provider->version, $provider->authorized,
+            $provider->endpoints[$row->module.'_receiver'] ?? null,
+            (string) $link->id, (string) $link->provider_id, (string) $link->owner_id,
+            $link->generation, $link->state, $link->configuration_hash,
+            $link->bootstrap_hash, $link->bootstrap_expires_at, $link->local_token_digest,
+            $link->local_token_ciphertext, $link->remote_token_ciphertext,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    private function deliveryMatches(object $row, object $operation, OcpiProvider $provider, object $link): bool
     {
         return $this->payloadIntact($row) && is_string($operation->publication_digest)
-            && hash_equals($operation->publication_digest, $this->deliveryDigest($row));
+            && hash_equals($operation->publication_digest, $this->deliveryAuthorityDigest($row, $provider, $link));
     }
 
     /** Match the exact publication snapshot across a transport boundary. */
@@ -317,6 +336,19 @@ final class CpoCatalogPublisher
         }, 3);
     }
 
+    /** A generation label alone cannot bind a delivery to its negotiated receiver or credential bytes. */
+    private function sameDeliveryAuthority(OcpiProvider $expected, object $expectedLink, OcpiProvider $current, object $currentLink, string $module): bool
+    {
+        return $expected->id === $current->id
+            && $expected->owner_id === $current->owner_id
+            && $expected->connection_key === $current->connection_key
+            && $expected->authorization_revision === $current->authorization_revision
+            && $expected->version === $current->version
+            && $expected->authorized === $current->authorized
+            && ($expected->endpoints[$module.'_receiver'] ?? null) === ($current->endpoints[$module.'_receiver'] ?? null)
+            && $this->credentials->sameLink($expectedLink, $currentLink);
+    }
+
     private function pushEnabled(OcpiProvider $provider): bool
     {
         return app()->environment(['local', 'testing']) && config('ocpi.cpo_push_enabled')
@@ -325,7 +357,7 @@ final class CpoCatalogPublisher
 
     public function push(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, string $key): array
     {
-        [$provider, $row, $payload, $existing] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt, $key) {
+        [$provider, $row, $payload, $existing, $claimedLink] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt, $key) {
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $this->admin($actor);
             [$contract, $link] = $this->authority($current);
@@ -338,9 +370,9 @@ final class CpoCatalogPublisher
             abort_if($operation && ($operation->publication_id !== $row->id || $operation->published_at !== $publishedAt), 409);
             $operation ??= DB::table(self::OPERATIONS)->where(['publication_id' => $row->id, 'published_at' => $publishedAt])->first();
             if ($operation) {
-                abort_unless($this->deliveryMatches($row, $operation), 409, 'Existing delivery has no matching immutable receipt evidence.');
+                abort_unless($this->deliveryMatches($row, $operation, $current, $link), 409, 'Existing delivery has no matching immutable receipt authority.');
 
-                return [$current, $row, $payload, $operation->state];
+                return [$current, $row, $payload, $operation->state, $link];
             }
             abort_if($module === 'cdrs' && DB::table(self::OPERATIONS)->where('publication_id', $row->id)->exists(),
                 409, 'An immutable CDR has already been dispatched to this partner.');
@@ -350,17 +382,17 @@ final class CpoCatalogPublisher
             }
             DB::table(self::OPERATIONS)->insert([
                 'publication_id' => $row->id, 'actor_id' => $actor->id, 'operation_key' => $key,
-                'published_at' => $publishedAt, 'publication_digest' => $this->deliveryDigest($row), 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
+                'published_at' => $publishedAt, 'publication_digest' => $this->deliveryAuthorityDigest($row, $current, $link), 'state' => 'dispatching', 'created_at' => now(), 'updated_at' => now(),
             ]);
 
-            return [$current, $row, $payload, null];
+            return [$current, $row, $payload, null, $link];
         }, 3);
         if ($existing !== null) {
             return ['delivery' => $existing, 'published_at' => $publishedAt];
         }
         // The claim is committed before I/O. Hold the authority locks across the
         // one attempt, and never retry this transaction after transport.
-        $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key) {
+        $state = DB::transaction(function () use ($actor, $provider, $row, $module, $source, $payload, $publishedAt, $key, $claimedLink) {
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $claim = DB::table(self::OPERATIONS)->where('operation_key', $key);
             $operation = (clone $claim)->lockForUpdate()->first();
@@ -372,7 +404,7 @@ final class CpoCatalogPublisher
             // Keep a durable claim when its bytes no longer match; deleting
             // the claim would permit a replacement send of altered content.
             $stored = DB::table(self::TABLE)->where('id', $row->id)->lockForUpdate()->first();
-            if (! $stored || ! $this->deliveryMatches($stored, $operation)
+            if (! $stored || ! $this->deliveryMatches($stored, $operation, $provider, $claimedLink)
                 || ! hash_equals($this->deliveryDigest($row), $this->deliveryDigest($stored))) {
                 $claim->update(['state' => 'unknown', 'updated_at' => now()]);
 
@@ -382,6 +414,7 @@ final class CpoCatalogPublisher
                 $this->admin($actor);
                 [$contract, $link] = $this->authority($current);
                 abort_unless($this->pushEnabled($current) && is_string($current->endpoints[$module.'_receiver'] ?? null)
+                    && $this->sameDeliveryAuthority($provider, $claimedLink, $current, $link, $module)
                     && $this->samePublication($current, $link, $row), 409);
                 if (! $row->withdrawn) {
                     $fresh = $this->sourcePayload($current, $contract, $module, $source);
@@ -416,8 +449,9 @@ final class CpoCatalogPublisher
                 $this->admin($actor);
                 $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
                 [, $receiptLink] = $this->authority($current);
-                abort_unless($this->samePublication($current, $receiptLink, $row)
-                    && $this->deliveryMatches($row, $receiptClaim), 409);
+                abort_unless($this->sameDeliveryAuthority($provider, $claimedLink, $current, $receiptLink, $module)
+                    && $this->samePublication($current, $receiptLink, $row)
+                    && $this->deliveryMatches($row, $receiptClaim, $current, $receiptLink), 409);
             } catch (OcpiException|HttpExceptionInterface) {
                 $state = 'unknown';
             }
@@ -432,7 +466,7 @@ final class CpoCatalogPublisher
 
     public function reconcile(User $actor, OcpiProvider $provider, string $module, int $source, string $publishedAt, ?string $cdrReceipt = null): array
     {
-        [$current, $row, $operation] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt) {
+        [$current, $row, $operation, $claimedLink] = DB::transaction(function () use ($actor, $provider, $module, $source, $publishedAt) {
             $current = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
             $this->admin($actor);
             [, $link] = $this->authority($current);
@@ -441,10 +475,10 @@ final class CpoCatalogPublisher
             abort_unless($row, 409, 'Refresh the current publication before reconciling it.');
             $operation = DB::table(self::OPERATIONS)->where(['publication_id' => $row->id, 'published_at' => $publishedAt])->lockForUpdate()->first();
             abort_unless($operation, 404);
-            abort_unless($this->deliveryMatches($row, $operation), 409, 'Original delivery bytes are unavailable or changed.');
+            abort_unless($this->deliveryMatches($row, $operation, $current, $link), 409, 'Original delivery bytes or receiver authority are unavailable or changed.');
             abort_if($operation->state === 'dispatching' && CarbonImmutable::parse($operation->created_at, 'UTC')->greaterThan(now()->subMinute()), 409, 'Delivery is still within its response window.');
 
-            return [$current, $row, $operation];
+            return [$current, $row, $operation, $link];
         }, 3);
         if (in_array($operation->state, ['acknowledged', 'reconciled'], true)) {
             return ['delivery' => $operation->state, 'published_at' => $publishedAt];
@@ -462,17 +496,18 @@ final class CpoCatalogPublisher
             // An unavailable or mismatched source is still an unknown delivery.
         }
 
-        return DB::transaction(function () use ($actor, $current, $row, $operation, $verified, $publishedAt) {
+        return DB::transaction(function () use ($actor, $current, $row, $operation, $verified, $publishedAt, $claimedLink, $module) {
             $provider = OcpiProvider::whereKey($current->id)->lockForUpdate()->firstOrFail();
             $this->admin($actor);
             [, $link] = $this->authority($provider);
-            abort_unless($this->samePublication($provider, $link, $row), 409);
+            abort_unless($this->sameDeliveryAuthority($current, $claimedLink, $provider, $link, $module)
+                && $this->samePublication($provider, $link, $row), 409);
             $currentOperation = DB::table(self::OPERATIONS)->where('id', $operation->id)->lockForUpdate()->first();
             abort_unless($currentOperation && $currentOperation->publication_id === $row->id
                 && $currentOperation->operation_key === $operation->operation_key
                 && $currentOperation->actor_id === $operation->actor_id
                 && $currentOperation->published_at === $publishedAt
-                && $this->deliveryMatches($row, $currentOperation), 409);
+                && $this->deliveryMatches($row, $currentOperation, $provider, $link), 409);
             $updated = DB::table(self::OPERATIONS)->where('id', $operation->id)->whereIn('state', ['dispatching', 'unknown'])
                 ->update(['state' => $verified ? 'reconciled' : 'unknown', 'updated_at' => now()]);
             if ($verified && $updated === 1) {

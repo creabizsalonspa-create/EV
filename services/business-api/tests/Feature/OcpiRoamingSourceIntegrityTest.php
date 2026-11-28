@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Services\Ocpi\RecordNormalizer;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\TestWith;
 use Tests\Support\CreatesSandboxRoaming;
@@ -177,6 +179,42 @@ class OcpiRoamingSourceIntegrityTest extends TestCase
         $this->assertEquals($source->id, DB::table('ocpi_roaming_orders')->find($id)->source_cdr_record_id);
         DB::table('ocpi_records')->where('id', $source->id)->update(['received_at' => $source->getRawOriginal('received_at')]);
         $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'source_consistent');
+
+        // Simulate storage corruption below the immutable model boundary:
+        // internally consistent replacement bytes are still not the observed CDR.
+        $normalizer = app(RecordNormalizer::class);
+        $original = [
+            'payload' => $source->getRawOriginal('payload'),
+            'normalized' => $source->getRawOriginal('normalized'),
+            'content_hash' => $source->content_hash,
+        ];
+        $assertPreserved = function () use ($id, $source) {
+            $held = DB::table('ocpi_roaming_orders')->find($id);
+            $this->assertEquals($source->id, $held->source_cdr_record_id);
+            $this->assertSame($source->content_hash, $held->source_cdr_hash);
+        };
+        $replaceStored = function (array $changed) use ($source, $normalizer) {
+            DB::table('ocpi_records')->where('id', $source->id)->update([
+                'payload' => Crypt::encryptString(json_encode($changed, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)),
+                'normalized' => json_encode($normalizer->normalize('cdrs', $changed), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION),
+                'content_hash' => $normalizer->hash($changed),
+            ]);
+        };
+        $replaceStored(array_replace($cdr, ['total_time' => '0.002']));
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'requires_review');
+        $assertPreserved();
+        $replaceStored(array_replace($cdr, ['authorization_reference' => 'unrelated-reference']));
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'requires_review');
+        $assertPreserved();
+        DB::table('ocpi_records')->where('id', $source->id)->update($original);
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'source_consistent');
+        $assertPreserved();
+
+        // A distinct matching record cannot rebind the previously observed lineage.
+        $replaceStored(array_replace($cdr, ['authorization_reference' => 'unrelated-reference']));
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [array_replace($cdr, ['id' => 'C2'])]);
+        $this->postJson($url)->assertOk()->assertJsonPath('reconciliation_state', 'requires_review');
+        $assertPreserved();
         $this->assertCount(2, $this->writes);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);

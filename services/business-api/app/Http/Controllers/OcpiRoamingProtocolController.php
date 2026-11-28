@@ -88,6 +88,21 @@ class OcpiRoamingProtocolController extends Controller
         }
     }
 
+    /** A stored callback key alone is not evidence of an intact dispatched intent. */
+    private function assertCallbackIntent(object $order, object $claim, array $local): void
+    {
+        try {
+            $payload = json_decode(Crypt::decryptString($claim->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+            $expectedUrl = substr($local['url'], 0, -strlen('versions')).'2.2.1/commands/'.$claim->callback_key;
+            $valid = is_array($payload) && ! array_is_list($payload)
+                && ($payload['response_url'] ?? null) === $expectedUrl
+                && hash_equals($claim->intent_hash, hash('sha256', json_encode([$order->id, $claim->action, $payload], JSON_THROW_ON_ERROR)));
+        } catch (Throwable) {
+            $valid = false;
+        }
+        abort_unless($valid, 409, 'Command intent requires source reconciliation.');
+    }
+
     public function callback(Request $r, string $key)
     {
         try {
@@ -107,7 +122,7 @@ class OcpiRoamingProtocolController extends Controller
                 [$current,$active] = $this->peer($r);
                 abort_unless($current->id === $p->id && $active->id === $link->id && $active->generation === $link->generation, 401);
                 $order = DB::table('ocpi_roaming_orders')->where('id', $command->order_id)->lockForUpdate()->firstOrFail();
-                app(SandboxRoaming::class)->current($order);
+                [, , $local] = app(SandboxRoaming::class)->current($order);
                 $row = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
                 abort_unless((int) $order->provider_id === (int) $current->id
                     && (int) $row->order_id === (int) $order->id
@@ -117,6 +132,7 @@ class OcpiRoamingProtocolController extends Controller
                     && $row->request_key === $command->request_key
                     && hash_equals($command->intent_hash, $row->intent_hash)
                     && hash_equals($command->payload_ciphertext, $row->payload_ciphertext), 409);
+                $this->assertCallbackIntent($order, $row, $local);
                 if ($result === 'CANCELED_RESERVATION') {
                     abort_unless(($order->intent_kind ?? 'start') === 'reservation', 409);
                     if ($order->reservation_cancel_hash !== null) {
