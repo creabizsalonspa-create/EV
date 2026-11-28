@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -28,16 +29,11 @@ final class AdminSecurityDenialSummaryController extends Controller
             abort_unless($snapshot instanceof User
                 && $snapshot->role === 'admin'
                 && $snapshot->account_status === 'active', 403);
-            $current = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
-            abort_unless($current->role === 'admin'
-                && $current->account_status === 'active', 403);
-            abort_unless((int) $current->auth_epoch === (int) $snapshot->auth_epoch
-                && hash_equals((string) $current->password, (string) $snapshot->password),
-                409, 'Account credentials changed; sign in again.');
+            $current = AdminTransactionAuthority::requireCurrent($snapshot);
 
             $v = $request->validate([
                 'window' => 'sometimes|required|in:1h,24h,7d',
-                'actor_id' => 'sometimes|integer|between:1,9007199254740991',
+                'actor_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,15}\z/', 'integer', 'between:1,9007199254740991'],
             ]);
             $window = $v['window'] ?? '24h';
             $hours = match ($window) {
@@ -71,7 +67,9 @@ final class AdminSecurityDenialSummaryController extends Controller
                     $actorCounts[$id] = ($actorCounts[$id] ?? 0) + 1;
                 }
             }
-            arsort($actorCounts);
+            // Stable tie order is actor ID ascending, not database encounter order.
+            ksort($actorCounts, SORT_NUMERIC);
+            arsort($actorCounts, SORT_NUMERIC);
             $actors = [];
             foreach (array_slice($actorCounts, 0, 25, true) as $id => $count) {
                 $actors[] = ['actor_id' => (int) $id, 'observed_denials' => $count];
@@ -89,6 +87,7 @@ final class AdminSecurityDenialSummaryController extends Controller
 
             return response()->json([
                 'window' => $window,
+                'actor_id' => isset($v['actor_id']) ? (int) $v['actor_id'] : null,
                 'from' => $from->toISOString(),
                 'as_of' => $asOf->toISOString(),
                 'source' => 'existing_admin_mfa_denial_audit_only',

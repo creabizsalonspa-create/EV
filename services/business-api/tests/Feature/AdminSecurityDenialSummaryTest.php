@@ -44,6 +44,7 @@ class AdminSecurityDenialSummaryTest extends TestCase
         $response = $this->actingAs($admin)->getJson('/api/admin/security-denials')
             ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('window', '24h')
+            ->assertJsonPath('actor_id', null)
             ->assertJsonPath('observed_denials', 3)
             ->assertJsonPath('top_actors.0.actor_id', $other->id)
             ->assertJsonPath('top_actors.0.observed_denials', 2)
@@ -81,7 +82,7 @@ class AdminSecurityDenialSummaryTest extends TestCase
         }
 
         $response = $this->actingAs($admin)->getJson('/api/admin/security-denials?window=1h&actor_id='.$admin->id)
-            ->assertOk()->assertJsonPath('observed_denials', 500)
+            ->assertOk()->assertJsonPath('actor_id', $admin->id)->assertJsonPath('observed_denials', 500)
             ->assertJsonPath('sample_truncated', true)
             ->assertJsonPath('complete_for_selected_actions', false)
             ->assertJsonPath('sample_limit', 500)
@@ -95,6 +96,9 @@ class AdminSecurityDenialSummaryTest extends TestCase
         $this->getJson('/api/admin/security-denials?window=1d')->assertUnprocessable();
         $this->getJson('/api/admin/security-denials?actor_id=0')->assertUnprocessable();
         $this->getJson('/api/admin/security-denials?actor_id=abc')->assertUnprocessable();
+        foreach (['9007199254740992', '01', '+1', '1.5'] as $invalid) {
+            $this->getJson('/api/admin/security-denials?actor_id='.rawurlencode($invalid))->assertUnprocessable();
+        }
         $this->postJson('/api/admin/security-denials', [])->assertStatus(405);
     }
 
