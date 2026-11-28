@@ -280,7 +280,8 @@ class SignedFirmwareTest extends TestCase
         $compatibilityReads = 0;
         $capabilityReads = 0;
         $firstProof = null;
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $faultedIdle, $duringToken, $capabilityFailure, $dispatchCapabilityFailure, &$compatibilityReads, &$capabilityReads, &$firstProof) {
+        $reviewStationReads = 0;
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, $malformedSource, $malformedReview, $faultedIdle, $duringToken, $capabilityFailure, $dispatchCapabilityFailure, &$compatibilityReads, &$capabilityReads, &$firstProof, &$reviewStationReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -338,6 +339,7 @@ class SignedFirmwareTest extends TestCase
                     // every test gets id=1 as on a freshly reset SQLite DB.
                     $requestId = $r['variables']['match']['requestId'];
                     $status = ['id' => 42, 'createdAt' => now()->toISOString(),
+                        'action' => $f['protocol'] === '1.6' ? 'SignedFirmwareStatusNotification' : 'FirmwareStatusNotification',
                         'payload' => ['status' => 'Installed', 'requestId' => $requestId]];
                     if ($malformedReview === 'bad_status_list') {
                         return Http::response(['data' => ['OCPPMessages' => ['status' => $status]]]);
@@ -350,6 +352,23 @@ class SignedFirmwareTest extends TestCase
                     }
                     if ($malformedReview === 'missing_status_payload') {
                         unset($status['payload']);
+                    }
+
+                    if ($malformedReview === 'wrong_status_action') {
+                        $status['action'] = $f['protocol'] === '1.6' ? 'FirmwareStatusNotification' : 'SignedFirmwareStatusNotification';
+                    }
+                    if ($malformedReview === 'status_before_request_id') {
+                        $status['id'] = 41;
+                    }
+                    if ($malformedReview === 'conflicting_terminal' || $malformedReview === 'nonterminal_after_terminal') {
+                        $next = $status;
+                        $next['id'] = 43;
+                        $next['payload']['status'] = $malformedReview === 'conflicting_terminal' ? 'InstallationFailed' : 'Installing';
+
+                        return Http::response(['data' => ['OCPPMessages' => [$status, $next]]]);
+                    }
+                    if ($malformedReview === 'oversized_status_history') {
+                        return Http::response(['data' => ['OCPPMessages' => array_fill(0, 51, $status)]]);
                     }
 
                     return Http::response(['data' => ['OCPPMessages' => [$status]]]);
@@ -368,6 +387,15 @@ class SignedFirmwareTest extends TestCase
                     }
                     if (! $isCompatibility && $malformedReview === 'string_review_station_id') {
                         $row['id'] = '9';
+                    }
+                    if (! $isCompatibility && str_contains($q, '{id firmwareVersion}')) {
+                        $reviewStationReads++;
+                        if ($reviewStationReads > 1 && $malformedReview === 'version_drift_after_status') {
+                            $row['firmwareVersion'] = 'changed-after-status';
+                        }
+                        if ($reviewStationReads > 1 && $malformedReview === 'station_drift_after_status') {
+                            $row['id'] = 10;
+                        }
                     }
                     if ($isCompatibility && $malformedSource !== null) {
                         if ($malformedSource === 'missing_collection') {
@@ -766,7 +794,10 @@ class SignedFirmwareTest extends TestCase
         foreach (['1.6', '2.0.1'] as $protocol) {
             foreach (['bad_review_station_list', 'string_review_station_id',
                 'bad_request_list', 'string_request_id', 'bad_status_list',
-                'wrong_status_request', 'string_status_request', 'missing_status_payload'] as $kind) {
+                'wrong_status_request', 'string_status_request', 'missing_status_payload',
+                'wrong_status_action', 'status_before_request_id', 'conflicting_terminal',
+                'nonterminal_after_terminal', 'oversized_status_history', 'version_drift_after_status',
+                'station_drift_after_status'] as $kind) {
                 $cases[$protocol.'_'.$kind] = [$protocol, $kind];
             }
         }

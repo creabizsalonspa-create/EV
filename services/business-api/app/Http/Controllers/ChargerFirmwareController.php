@@ -550,24 +550,48 @@ class ChargerFirmwareController extends Controller
                     409, 'One typed owned firmware source request is required.');
                 $requestAt = SourceStatusTime::parse($requests[0]['createdAt'], 300);
                 abort_unless($requestAt->gte(CarbonImmutable::parse($op->attempted_at)), 409, 'Source firmware request predates its operation.');
-                $messageData = $source->graph('query($station:Int!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_in:["FirmwareStatusNotification","SignedFirmwareStatusNotification"]},payload:{_contains:$match}},order_by:{id:desc},limit:1){id createdAt payload}}', ['station' => $station[0]['id'], 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]]);
+                $statusAction = $b->protocol === '1.6' ? 'SignedFirmwareStatusNotification' : 'FirmwareStatusNotification';
+                $messageData = $source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_eq:$action},payload:{_contains:$match}},order_by:{id:asc},limit:51){id createdAt action payload}}', ['station' => $station[0]['id'], 'action' => $statusAction, 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]]);
                 $this->sourceAuthority($authority);
                 $messages = $messageData['OCPPMessages'] ?? null;
-                abort_unless(is_array($messages) && array_is_list($messages) && count($messages) === 1 &&
-                    is_array($messages[0]) && is_int($messages[0]['id'] ?? null) &&
-                    $messages[0]['id'] > 0 && is_string($messages[0]['createdAt'] ?? null) &&
-                    is_array($messages[0]['payload'] ?? null) &&
-                    is_int($messages[0]['payload']['requestId'] ?? null) &&
-                    $messages[0]['payload']['requestId'] === (int) $op->id &&
-                    is_string($messages[0]['payload']['status'] ?? null),
-                    409, 'One typed correlated firmware status is required.');
-                abort_unless(SourceStatusTime::parse($messages[0]['createdAt'], 300)->gte($requestAt), 409,
-                    'Source firmware status predates the owned request.');
-                $status = $messages[0]['payload']['status'];
-                $installed = $status === 'Installed';
-                abort_unless($installed || in_array($status, ['DownloadFailed', 'InstallationFailed', 'InvalidSignature', 'InstallVerificationFailed', 'InvalidCertificate'], true), 409, 'A correlated terminal firmware report is required.');
+                abort_unless(is_array($messages) && array_is_list($messages) && count($messages) >= 1 && count($messages) <= 50, 409,
+                    'A complete bounded correlated firmware status history is required.');
+                $lastId = $requests[0]['id'];
+                $lastAt = $requestAt;
+                $terminal = null;
+                $terminalStates = ['Installed', 'DownloadFailed', 'InstallationFailed', 'InvalidSignature', 'InstallVerificationFailed', 'InvalidCertificate'];
+                foreach ($messages as $message) {
+                    abort_unless(is_array($message) && is_int($message['id'] ?? null)
+                        && $message['id'] > $lastId && is_string($message['createdAt'] ?? null)
+                        && ($message['action'] ?? null) === $statusAction
+                        && is_array($message['payload'] ?? null)
+                        && is_int($message['payload']['requestId'] ?? null)
+                        && $message['payload']['requestId'] === (int) $op->id
+                        && is_string($message['payload']['status'] ?? null), 409,
+                        'Typed protocol-specific firmware status provenance is required.');
+                    $at = SourceStatusTime::parse($message['createdAt'], 300);
+                    abort_unless($at->gte($lastAt), 409, 'Firmware source status chronology requires reconciliation.');
+                    $lastId = $message['id'];
+                    $lastAt = $at;
+                    $status = $message['payload']['status'];
+                    if ($terminal !== null) {
+                        abort_unless($status === $terminal, 409, 'Conflicting firmware status after terminal evidence requires review.');
+                    } elseif (in_array($status, $terminalStates, true)) {
+                        $terminal = $status;
+                    }
+                }
+                abort_unless($terminal !== null, 409, 'A correlated terminal firmware report is required.');
+                $installed = $terminal === 'Installed';
                 if ($installed) {
-                    abort_unless($release->revoked_at === null && ($station[0]['firmwareVersion'] ?? null) === $release->version, 409, 'Installed version must match the approved release.');
+                    // Re-read after status history; an earlier station snapshot
+                    // cannot certify a version which changed during review.
+                    $currentStation = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id firmwareVersion}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
+                    $this->sourceAuthority($authority);
+                    abort_unless($release->revoked_at === null && ($station[0]['firmwareVersion'] ?? null) === $release->version
+                        && is_array($currentStation) && array_is_list($currentStation) && count($currentStation) === 1
+                        && is_array($currentStation[0]) && ($currentStation[0]['id'] ?? null) === $station[0]['id']
+                        && ($currentStation[0]['firmwareVersion'] ?? null) === $release->version, 409,
+                        'Installed version must match the approved release and current source identity.');
                 }
                 $this->sourceAuthority($authority);
                 $guard->requireCurrentScope($r, $company, $charger, $b);
