@@ -308,6 +308,9 @@ class EvStrings {
     'expired_unstarted': 'Expired before charging started',
     'expired_unused':
         'Reservation window ended without a linked charging session',
+    'reservationNoArrival': 'No arrival was reported for this reservation',
+    'reservationArrivalUnused':
+        'Arrival was reported but the reservation went unused',
     'charging': 'Charging',
     'stopped': 'Stopped',
     'open': 'Open',
@@ -717,6 +720,8 @@ class EvStrings {
     'cancelled': 'ملغى',
     'expired_unstarted': 'انتهى الحجز قبل بدء الشحن',
     'expired_unused': 'انتهى موعد الحجز دون جلسة شحن مرتبطة',
+    'reservationNoArrival': 'لم يُبلّغ عن الوصول لهذا الحجز',
+    'reservationArrivalUnused': 'أُبلغ عن الوصول لكن الحجز لم يُستخدم',
     'charging': 'جارٍ الشحن',
     'stopped': 'متوقف',
     'open': 'مفتوح',

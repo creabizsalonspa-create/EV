@@ -19,6 +19,7 @@ void main() {
         (r) => r['id'] == f['current'],
       );
       expect(current['can_check_in'], true);
+      expect(current['unused_outcome'], isNull);
       final body = {'self_reported_arrival': true};
       final first = await api.request(
         'reservations/${f['current']}/check-in',
@@ -38,12 +39,17 @@ void main() {
         first['reservation']['checked_in_at'],
       );
       final rows = await api.request('reservations');
-      expect(
-        (rows['data'] as List).firstWhere(
-          (r) => r['id'] == f['unused'],
-        )['status'],
-        'expired_unused',
-      );
+      for (final (fixtureKey, outcome) in [
+        ('unused', 'NO_ARRIVAL_REPORTED'),
+        ('arrived_unused', 'ARRIVAL_REPORTED_UNUSED'),
+      ]) {
+        final expired = (rows['data'] as List).singleWhere(
+          (row) => row['id'] == f[fixtureKey],
+        );
+        expect(expired['status'], 'expired_unused');
+        expect(expired['unused_outcome'], outcome);
+        expect(expired['physical_presence_verified'], false);
+      }
       await expectLater(
         api.request(
           'reservations/${f['unused']}/check-in',
