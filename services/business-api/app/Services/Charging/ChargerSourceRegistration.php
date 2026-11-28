@@ -187,6 +187,64 @@ final class ChargerSourceRegistration
         }
     }
 
+    private function connectionIdentity(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array
+    {
+        return DB::transaction(function () use ($request, $company, $charger, $registration) {
+            [$company, $charger, $station] = $this->scope($request, $company, $charger);
+            abort_if($company->owner_id === $request->user()->id && ! in_array($request->user()->role, ['vendor', 'admin'], true), 404);
+            $row = DB::table('charger_source_registrations')->where('id', $registration)->where('charger_id', $charger->id)
+                ->where('state', 'registered')->lockForUpdate()->first();
+            abort_unless($row && is_int($row->source_station_id) && $row->source_station_id >= 1 && $row->source_station_id <= 2147483647
+                && is_string($row->source_receipt_hash) && $row->verified_at !== null, 404);
+            $binding = $this->lineage($row, $charger, $station);
+
+            return ['company_id' => $company->id, 'charger_id' => $charger->id, 'registration_id' => $row->id,
+                'source_station_id' => $row->source_station_id, 'source_generation' => $row->source_generation,
+                'receipt' => $row->source_receipt_hash, 'identifier' => $binding->identifier, 'protocol' => $binding->protocol,
+                'manufacturer' => $charger->manufacturer, 'model' => $charger->model];
+        }, 3);
+    }
+
+    public function connectionHealth(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array
+    {
+        abort_unless($request->isSecure() || app()->environment(['local', 'testing']), 503, 'Private source health requires HTTPS.');
+        $identity = $this->connectionIdentity($request, $company, $charger, $registration);
+        $secret = config('csms.graphql_secret');
+        abort_unless(is_string($secret) && strlen($secret) >= 32, 503, 'A TLS authenticated source is required.');
+        $data = $this->graph(
+            'query($id:Int!,$name:String!){ChargingStations(where:{tenantId:{_eq:1},id:{_eq:$id},ocppConnectionName:{_eq:$name}},limit:2){id tenantId ocppConnectionName protocol isOnline chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}',
+            ['id' => $identity['source_station_id'], 'name' => $identity['identifier']], $identity['source_generation'], $secret,
+        );
+        $stations = $data['ChargingStations'] ?? null;
+        abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 && is_array($stations[0]), 409, 'One current registered source identity is required.');
+        $source = $stations[0];
+        abort_unless(($source['id'] ?? null) === $identity['source_station_id'] && ($source['tenantId'] ?? null) === 1
+            && ($source['ocppConnectionName'] ?? null) === $identity['identifier']
+            && ($source['protocol'] ?? null) === 'ocpp'.$identity['protocol']
+            && ($source['chargePointVendor'] ?? null) === $identity['manufacturer']
+            && ($source['chargePointModel'] ?? null) === $identity['model']
+            && is_bool($source['isOnline'] ?? null), 409, 'Registered source identity changed.');
+        $firmware = $source['firmwareVersion'] ?? null;
+        abort_unless($firmware === null || (is_string($firmware) && strlen($firmware) <= 80
+            && ! preg_match('/[\x00-\x1f\x7f]/', $firmware)), 409, 'Invalid source firmware observation.');
+        $at = isset($source['latestOcppMessageTimestamp']) ? SourceStatusTime::parse($source['latestOcppMessageTimestamp']) : null;
+        abort_unless($this->connectionIdentity($request, $company, $charger, $registration) === $identity, 409, 'Registration changed during source inspection.');
+        $this->attemptUrl($identity['source_generation'], $secret);
+        $checked = CarbonImmutable::now('UTC');
+        $state = match (true) {
+            ! $source['isOnline'] => 'offline',
+            $at === null => 'unknown',
+            $at->lt($checked->subMinutes(5)) => 'stale',
+            default => 'recent',
+        };
+
+        return array_intersect_key($identity, array_flip(['company_id', 'charger_id', 'registration_id', 'source_station_id', 'protocol']))
+            + ['connection_state' => $state, 'source_reported_online' => $source['isOnline'], 'source_last_message_at' => $at?->toISOString(),
+                'source_firmware_version' => $firmware, 'checked_at' => $checked->toISOString(), 'maximum_age_seconds' => 300,
+                'evidence' => 'AUTHENTICATED_REGISTERED_SOURCE', 'device_commands_sent' => 0,
+                'charging_capability_granted' => false, 'charger_hardware_verified' => false];
+    }
+
     public function register(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array
     {
         $this->source();

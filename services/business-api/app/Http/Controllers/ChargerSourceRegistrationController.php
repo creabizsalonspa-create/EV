@@ -16,8 +16,17 @@ class ChargerSourceRegistrationController extends Controller
             $registration->scope($request, $company, $charger);
             $row = DB::table('charger_source_registrations')->where('charger_id', $charger->id)->first();
 
-            return response()->json($registration->present($row) + ['current_inventory_matches_registration' => $row?->state === 'registered' && $registration->verified($company, $charger), 'can_prepare' => $request->user()->role === 'admin' && (bool) config('csms.upstream_registration_enabled'), 'can_register' => $request->user()->role === 'admin' && (bool) config('csms.upstream_registration_enabled') && $row?->state === 'prepared'])->header('Cache-Control', 'private, no-store');
+            $matches = $row?->state === 'registered' && $registration->verified($company, $charger);
+
+            return response()->json($registration->present($row) + ['current_inventory_matches_registration' => $matches,
+                'can_inspect_connection' => $matches && (bool) config('csms.upstream_registration_enabled'), 'can_prepare' => $request->user()->role === 'admin' && (bool) config('csms.upstream_registration_enabled'), 'can_register' => $request->user()->role === 'admin' && (bool) config('csms.upstream_registration_enabled') && $row?->state === 'prepared'])->header('Cache-Control', 'private, no-store');
         }, 3);
+    }
+
+    public function connectionHealth(Request $request, VendorCompany $company, VendorCharger $charger, int $registration, ChargerSourceRegistration $source)
+    {
+        return response()->json($source->connectionHealth($request, $company, $charger, $registration))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function prepare(Request $request, VendorCompany $company, VendorCharger $charger, ChargerSourceRegistration $registration)

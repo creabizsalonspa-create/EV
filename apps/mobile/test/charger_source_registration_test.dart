@@ -36,6 +36,7 @@ class RegistrationApi extends FixtureApi {
   Map<String, dynamic> value = snapshot();
   Completer<dynamic>? pending;
   Object? failure;
+  Map<String, dynamic> health = {};
   @override
   Future<dynamic> request(
     String path, {
@@ -48,6 +49,7 @@ class RegistrationApi extends FixtureApi {
     expect(body, isNull);
     expect(query, isEmpty);
     if (failure != null) throw failure!;
+    if (path.endsWith('/connection-health')) return health;
     return pending == null
         ? Map<String, dynamic>.from(value)
         : await pending!.future;
@@ -72,6 +74,43 @@ Widget view(
   ),
 );
 void main() {
+  testWidgets('loads scoped source connection only after inspection', (
+    tester,
+  ) async {
+    final api = RegistrationApi()
+      ..value = {...snapshot(), 'can_inspect_connection': true}
+      ..health = {
+        'company_id': 1,
+        'charger_id': 4,
+        'registration_id': 1,
+        'source_station_id': 401,
+        'connection_state': 'recent',
+        'evidence': 'AUTHENTICATED_REGISTERED_SOURCE',
+        'device_commands_sent': 0,
+        'charging_capability_granted': false,
+        'charger_hardware_verified': false,
+        'source_last_message_at': '2026-11-21T10:15:30.123456Z',
+        'source_firmware_version': 'fixture-firmware',
+      };
+    await tester.pumpWidget(view(api));
+    await tester.pumpAndSettle();
+    expect(api.calls, hasLength(1));
+    final inspect = find.byKey(const Key('source-connection-inspect'));
+    await tester.tap(inspect);
+    await tester.pumpAndSettle();
+    expect(
+      api.calls.last,
+      'GET vendor-ops/companies/1/chargers/4/source-registration/1/connection-health',
+    );
+    expect(find.textContaining('Recent source message'), findsOneWidget);
+
+    api.health = {...api.health, 'source_station_id': 405};
+    await tester.tap(inspect);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Recent source message'), findsNothing);
+    expect(find.textContaining('Status is unavailable'), findsOneWidget);
+  });
+
   test(
     'typed snapshots preserve historical registration without granting device authority',
     () {
