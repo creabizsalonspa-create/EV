@@ -107,6 +107,7 @@ class CampaignApi extends FixtureApi {
           'invoice_id': 11,
           'vendor_id': 1,
           'campaign_eligible': true,
+          'capacity': {'remaining_slots': 1, 'remaining_units': 3},
           'period_start': '2026-11-01',
           'period_end': '2026-12-01',
         },
@@ -134,6 +135,34 @@ class CampaignApi extends FixtureApi {
 }
 
 void main() {
+  test('paid package capacity is tenant-scoped, exact and bounded', () {
+    final row = {
+      'invoice_id': 11,
+      'vendor_id': 1,
+      'campaign_eligible': true,
+      'capacity': {'remaining_slots': 1, 'remaining_units': 3},
+    };
+    expect(campaignPackage(row, 1)['available_units'], 3);
+    expect(campaignPackage({
+      ...row, 'capacity': {'remaining_slots': 0, 'remaining_units': 3},
+    }, 1)['available_units'], 0);
+    expect(campaignPackage({
+      ...row, 'campaign_eligible': false, 'capacity': null,
+    }, 1)['available_units'], 0);
+    expect(() => campaignPackage(row, 2), throwsFormatException);
+    for (final invalid in [
+      null,
+      {'remaining_slots': 1, 'remaining_units': 1.5},
+      {'remaining_slots': -1, 'remaining_units': 2},
+      {'remaining_slots': 1, 'remaining_units': 1000001},
+    ]) {
+      expect(
+        () => campaignPackage({...row, 'capacity': invalid}, 1),
+        throwsFormatException,
+      );
+    }
+  });
+
   test('publisher receipt projection rejects foreign or invented source and excludes private publisher keys', () {
     final row=<String,dynamic>{'id':12,'campaign_id':7,'kind':'delivery',
       'parent_delivery_id':null,'occurred_at':'2026-11-15 10:00:00',
@@ -513,6 +542,26 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton,'Create draft')).onPressed,isNull);
       expect(api.requests.where((r)=>r['method']=='POST'),isEmpty);
+      final budget = find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == 'Whole delivery units',
+      );
+      await tester.ensureVisible(budget);
+      expect(find.text('Available delivery units: 3'), findsOneWidget);
+      await tester.enterText(budget, '٤');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('I reviewed this exact campaign intent.'));
+      await tester.tap(find.text('I reviewed this exact campaign intent.'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Create draft'));
+      await tester.tap(find.text('Create draft'));
+      await tester.pumpAndSettle();
+      expect(api.requests.where((r) => r['method'] == 'POST'), isEmpty);
+      expect(store.values, isEmpty);
+      await tester.ensureVisible(budget);
+      await tester.enterText(budget, '٣');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('I reviewed this exact campaign intent.'));
       await tester.tap(find.text('I reviewed this exact campaign intent.'));
       await tester.pump();
