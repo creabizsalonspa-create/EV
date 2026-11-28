@@ -653,6 +653,53 @@ window.EvPrivacyRequests = (() => {
                             prepare,
                         );
                     }
+                    if (record.kind === "erasure" && record.owner?.id &&
+                        record.owner.id !== user.id && ["pending", "reviewing", "blocked_external"].includes(record.status)) {
+                        const assessmentHost = el("div");
+                        const keys = {
+                            financial_records: "Financial records / السجلات المالية",
+                            charging_records: "Charging and reservation records / سجلات الشحن والحجز",
+                            business_relationships: "Business relationships / العلاقات التجارية",
+                            support_records: "Support records / سجلات الدعم",
+                            privacy_records: "Privacy request history / سجل طلبات الخصوصية",
+                            active_credentials: "Stored credentials or sessions / بيانات الاعتماد أو الجلسات المخزنة",
+                            external_and_legal_retention: "External and legal retention / الاحتفاظ الخارجي والقانوني",
+                        };
+                        const inspect = button("Assess erasure dependencies / تقييم متطلبات الحذف", async () => {
+                            if (!active(state, generation, controller) || inspect.disabled) return;
+                            inspect.disabled = true;
+                            assessmentHost.replaceChildren();
+                            try {
+                                const report = await state.request(
+                                    "admin/privacy-requests/" + caseId + "/erasure-assessment",
+                                    "GET", undefined, controller.signal,
+                                );
+                                if (!active(state, generation, controller)) return;
+                                if (report?.request_id !== caseId || report.owner_id !== record.owner.id ||
+                                    report.case_status !== record.status || report.scope !== "local_dependency_assessment" ||
+                                    report.manual_processing_required !== true || report.execution_authorized !== false ||
+                                    report.automated_erasure_performed !== false || report.legal_retention_verified !== false ||
+                                    !Array.isArray(report.dependencies) || report.dependencies.length !== Object.keys(keys).length ||
+                                    new Set(report.dependencies.map(d => d?.key)).size !== Object.keys(keys).length ||
+                                    !report.dependencies.every(d => d && Object.hasOwn(keys, d.key) &&
+                                        ["present", "not_observed", "unknown"].includes(d.state)) ||
+                                    !report.dependencies.some(d => d.key === "external_and_legal_retention" && d.state === "unknown"))
+                                    throw Error("Unverified erasure assessment");
+                                assessmentHost.append(el("p", "Dependency assessment only. No deletion is authorized. Not observed does not establish absence or legal eligibility. / تقييم المتطلبات فقط؛ لا يوجد تصريح بالحذف."));
+                                const list = el("ul");
+                                const labels = {present:"Present / موجود", not_observed:"Not observed / لم يُرصد", unknown:"Unknown / غير معروف"};
+                                for (const dependency of report.dependencies)
+                                    list.append(el("li", keys[dependency.key] + " · " + labels[dependency.state]));
+                                assessmentHost.append(list);
+                            } catch {
+                                if (active(state, generation, controller))
+                                    assessmentHost.replaceChildren(el("p", "Assessment unavailable; manual review required. / التقييم غير متاح؛ تلزم مراجعة يدوية."));
+                            } finally {
+                                inspect.disabled = false;
+                            }
+                        });
+                        card.append(inspect, assessmentHost);
+                    }
                     const historyHost = el("div");
                     const history = button(
                         "Private review history / سجل المراجعة",

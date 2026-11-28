@@ -992,3 +992,45 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   assert.equal(nodes(ui.mine,"pre").length,0);
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
+
+test("erasure assessment is explicit, scoped and non-authorizing", async () => {
+  const ui=fixture(),calls=[];
+  const report={request_id:22,owner_id:3,case_status:"pending",scope:"local_dependency_assessment",
+    manual_processing_required:true,execution_authorized:false,automated_erasure_performed:false,legal_retention_verified:false,
+    dependencies:["financial_records","charging_records","business_relationships","support_records","privacy_records","active_credentials","external_and_legal_retention"].map(key=>({key,state:key==="external_and_legal_retention"?"unknown":"present"}))};
+  ui.setAdminActor({id:9,role:"admin"},async(path,method="GET")=>{
+    calls.push({path,method});
+    if(path.endsWith("/erasure-assessment"))return report;
+    return page([{...record,details:"Manual erasure review",owner:{id:3,name:"Account"}}]);
+  });
+  await tick();
+  const inspect=nodes(ui.admin,"button").find(x=>x.textContent.startsWith("Assess erasure dependencies"));
+  assert.ok(inspect);
+  assert.equal(calls.length,1);
+  await inspect.onclick();
+  assert.equal(calls[1].path,"admin/privacy-requests/22/erasure-assessment");
+  assert.equal(calls[1].method,"GET");
+  assert.match(ui.admin.textContent,/No deletion is authorized/);
+  assert.match(ui.admin.textContent,/External and legal retention/);
+  report.execution_authorized=true;
+  await inspect.onclick();
+  assert.match(ui.admin.textContent,/Assessment unavailable/);
+  assert(!ui.admin.textContent.includes("External and legal retention"));
+});
+test("erasure assessment cannot return after a hidden-visible transition", async()=>{
+  const ui=fixture();let release;let reads=0;
+  ui.setAdminActor({id:9,role:"admin"},async path=>{
+    if(path.endsWith("/erasure-assessment")){reads++;return new Promise(resolve=>{release=resolve;});}
+    return page([{...record,details:"Manual erasure review",owner:{id:3,name:"Account"}}]);
+  });
+  await tick();
+  const inspect=nodes(ui.admin,"button").find(x=>x.textContent.startsWith("Assess erasure dependencies"));
+  const pending=inspect.onclick();
+  ui.hide();ui.show();
+  release({request_id:22,owner_id:3,case_status:"pending",scope:"local_dependency_assessment",
+    manual_processing_required:true,execution_authorized:false,automated_erasure_performed:false,legal_retention_verified:false,
+    dependencies:["financial_records","charging_records","business_relationships","support_records","privacy_records","active_credentials","external_and_legal_retention"].map(key=>({key,state:"unknown"}))});
+  await pending;
+  assert(!ui.admin.textContent.includes("External and legal retention"));
+  await inspect.onclick();assert.equal(reads,1);
+});
