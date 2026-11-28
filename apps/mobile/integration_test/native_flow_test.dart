@@ -19,6 +19,7 @@ import 'package:creabiz_ev/main.dart';
 import 'package:creabiz_ev/preferences.dart';
 import 'package:creabiz_ev/session_vault.dart';
 import '../test/fixtures/tls.dart';
+import '../test/vendor_revenue_cohorts_test.dart' show cohort, cohortDocument;
 
 List<int> syntheticKycPdf() {
   const stream = 'BT /F1 18 Tf 20 100 Td (Synthetic KYC fixture) Tj ET';
@@ -758,6 +759,42 @@ void main() {
           request.response.add(pdf);
           await request.response.close();
           return;
+        } else if (path == '/api/finance/report') {
+          expectSync(loggedIn && role == 'vendor', isTrue);
+          result = {
+            'real_money_movement': false,
+            'groups': [
+              {
+                'currency': 'AED',
+                'minor_units': 2,
+                'evidence': 'SIMULATED',
+                'invoiced_minor': 1099,
+                'paid_minor': 1099,
+                'refunded_minor': 200,
+                'outstanding_minor': 0,
+                'net_vendor_allocated_minor': 799,
+                'net_commission_allocated_minor': 100,
+              },
+            ],
+          };
+        } else if (path == '/api/commercial/vendors/2/revenue-cohorts' ||
+            path == '/api/commercial/vendors/2/revenue-cohorts/export') {
+          expectSync(loggedIn && role == 'vendor', isTrue);
+          expectSync(request.method, 'GET');
+          final query = request.uri.queryParameters;
+          expectSync(query['currency'], 'AED');
+          final source = cohort(
+            from: query['from']!,
+            to: query['to']!,
+            vendor: 2,
+          );
+          if (path.endsWith('/export')) {
+            request.response.headers.contentType = ContentType('text', 'csv');
+            request.response.add(cohortDocument(source).bytes);
+            await request.response.close();
+            return;
+          }
+          result = source;
         } else if (path == '/api/finance/stations') {
           result = {
             'data': [
@@ -1704,6 +1741,53 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: exact Arabic vendor pricing verified');
+      await tester.tap(find.byTooltip('الحساب'));
+      await settle();
+      await tester.tap(find.text('مالية المورد'));
+      await settle();
+      final revenueAction = find.byKey(const Key('vendor-revenue-AED'));
+      await tester.scrollUntilVisible(
+        revenueAction,
+        110,
+        scrollable: find.descendant(
+          of: find.byType(ListView).last,
+          matching: find.byType(Scrollable),
+        ).first,
+      );
+      await tester.tap(revenueAction);
+      await settle();
+      expect(find.text('الإيرادات حسب تاريخ الفاتورة'), findsOneWidget);
+      final revenueScroll = find.descendant(
+        of: find.byType(ListView).last,
+        matching: find.byType(Scrollable),
+      ).first;
+      final issued = find.byKey(const Key('revenue-cohort-total-issued'));
+      await tester.scrollUntilVisible(issued, 110, scrollable: revenueScroll);
+      expect(tester.widget<Text>(issued).data, 'صادرة: AED 10.99');
+      final export = find.byKey(const Key('revenue-cohort-export'));
+      await tester.scrollUntilVisible(export, 110, scrollable: revenueScroll);
+      await tester.tap(export);
+      await settle();
+      final csv = find.byKey(const Key('revenue-cohort-csv'));
+      await tester.scrollUntilVisible(csv, 110, scrollable: revenueScroll);
+      expect(
+        tester.widget<SelectableText>(csv).data,
+        contains('date_utc,invoice_count'),
+      );
+      final revenueFrom = find.byKey(const Key('revenue-cohort-from'));
+      await tester.scrollUntilVisible(revenueFrom, -110, scrollable: revenueScroll);
+      await tester.enterText(revenueFrom, '2026-02-30');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await settle();
+      expect(csv, findsNothing);
+      expect(issued, findsNothing);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: scoped Arabic vendor revenue dashboard and private CSV verified; synthetic TLS fixture',
+      );
       await tester.tap(find.byTooltip('الحساب'));
       await settle();
       await tester.tap(find.text('مخزون الشركة'));
