@@ -14,6 +14,11 @@ final class ChargingActorConsent
             && (int) $current->auth_epoch === (int) $actor->auth_epoch
             && hash_equals((string) $current->password, (string) $actor->password), 409, 'Account authorization changed. Sign in and confirm a new charging request.');
 
+        // Individual bearer logout or expiry need not change the account epoch.
+        // Check the captured token, never a replacement login, under the same
+        // transaction before admitting a command or private source receipt.
+        app(MaintenanceActor::class)->checkBearer($actor);
+
         return $current;
     }
 
