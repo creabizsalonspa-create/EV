@@ -66,7 +66,9 @@ final class OperationalIncidents
             $snapshot = $health->report();
             $conditions = $this->conditions($snapshot);
             $result = ['skipped' => false, 'opened' => 0, 'resolved' => 0, 'uncertain' => 0, 'external_actions' => false];
-            $now = now('UTC');
+            // Bind an explicit offset. The query grammar drops it when binding
+            // a DateTime, so a non-UTC PostgreSQL session shifts the observation.
+            $now = now('UTC')->toISOString();
 
             foreach (self::KEYS as $key) {
                 $present = $conditions[$key];
@@ -129,7 +131,7 @@ final class OperationalIncidents
         $record = DB::table('operational_incident_acknowledgements')->where($identity)->first();
         if (! $record) {
             $at = now('UTC');
-            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at]);
+            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at->toISOString()]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id, 'action' => 'operations.incident_acknowledged',
                 'subject' => $key.':'.$revision, 'created_at' => $at,

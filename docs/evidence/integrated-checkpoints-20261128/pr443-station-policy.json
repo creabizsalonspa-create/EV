@@ -1,0 +1,70 @@
+{
+  "pr": 443,
+  "source_sha": "e0fae85967db73922269cf5db579a898c254df25",
+  "integrated_sha": "a3eb37c1595bd37d05a7607fdb8a2961921a8633",
+  "atom_ids": [
+    "3.4.6"
+  ],
+  "required_checks": [
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140829219871"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140770856293"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140770856270"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140770856256"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140770856217"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216952/job/140770856185"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216960/job/140770855947"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/46078216952/job/140770855892"
+    }
+  ],
+  "production_accepted": false,
+  "scope": "Vendor availability blocks and standalone bilingual operational notices on web and Flutter.",
+  "verification": {
+    "audited_canonical": "a89f5f460c6ead4c3913b5e16151ff27ce9eb2ec",
+    "tested_paths_preserved": 5,
+    "related_prs": [
+      270
+    ],
+    "laravel": "Full feature suite passed. StationInformationTest exercises active notice with a successful reservation, expiry, owner clear, and revoked bearer rejection. No device commands were dispatched.",
+    "browser": "Hosted Chromium vendor station-policy test publishes and cancels a block, publishes a bilingual notice, verifies both languages in anonymous catalog, clears it and verifies removal.",
+    "native": "Both hosted Native jobs passed. Flutter station availability and station information suites exercise the vendor editor and customer presentation."
+  }
+}

@@ -129,10 +129,19 @@ class OperationalIncidentsTest extends TestCase
     {
         $health = app(OperationalHealth::class);
         $scanner = app(OperationalIncidents::class);
-        for ($i = 0; $i < 25; $i++) {
+        config(['queue.connections.database.retry_after' => 90]);
+        for ($i = 0; $i < 24; $i++) {
             DB::table('jobs')->insert(['queue' => 'default', 'payload' => 'SECRET-QUEUE-JOB', 'attempts' => 0,
                 'reserved_at' => null, 'available_at' => now()->timestamp - 500, 'created_at' => now()->timestamp - 500]);
         }
+        $expired = DB::table('jobs')->insertGetId(['queue' => 'default', 'payload' => 'SECRET-EXPIRED-JOB', 'attempts' => 1,
+            'reserved_at' => now()->timestamp - 89, 'available_at' => now()->timestamp + 300, 'created_at' => now()->timestamp - 600]);
+        $this->assertSame(24, $health->report()['queue']['ready']);
+        $this->assertSame(1, $health->report()['queue']['reserved']);
+        $this->travel(1)->seconds();
+        $this->assertSame(25, $health->report()['queue']['ready']);
+        $this->assertSame(0, $health->report()['queue']['reserved']);
+        $this->assertSame(601, $health->report()['queue']['oldest_ready_age_seconds']);
         DB::table('failed_jobs')->insert(['uuid' => (string) Str::uuid(), 'connection' => 'database',
             'queue' => 'default', 'payload' => 'PRIVATE-FAILED-PAYLOAD', 'exception' => 'SECRET-SMTP-KEY',
             'failed_at' => now()]);
@@ -147,6 +156,7 @@ class OperationalIncidentsTest extends TestCase
         $this->assertStringNotContainsString('PRIVATE-FAILED', $response->getContent());
         $this->assertCount(2, $response->json('incidents.open'));
         $this->assertDatabaseCount('jobs', 25);
+        $this->assertDatabaseHas('jobs', ['id' => $expired, 'attempts' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
         DB::table('jobs')->where('queue', 'default')->delete();
         DB::table('failed_jobs')->where('queue', 'default')->delete();
