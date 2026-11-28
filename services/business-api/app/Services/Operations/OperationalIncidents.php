@@ -22,6 +22,24 @@ final class OperationalIncidents
 
     private const SCANNER_MAX_AGE_SECONDS = 150;
 
+    private function backlogThresholds(): array
+    {
+        return [
+            'ready_count' => $this->validatedThreshold('queue_backlog_ready_count', 1, 10000, 25),
+            'age_seconds' => $this->validatedThreshold('queue_backlog_age_seconds', 60, 3600, 300),
+        ];
+    }
+
+    private function validatedThreshold(string $key, int $minimum, int $maximum, int $fallback): int
+    {
+        $value = config('operational_health.'.$key);
+        if (is_string($value) && preg_match('/^[1-9][0-9]{0,4}$/D', $value)) {
+            $value = (int) $value;
+        }
+
+        return is_int($value) && $value >= $minimum && $value <= $maximum ? $value : $fallback;
+    }
+
     private function conditions(array $health): array
     {
         $components = collect($health['components'] ?? [])->keyBy('component');
@@ -37,13 +55,14 @@ final class OperationalIncidents
         $unknown = $email['outcome_unknown'] ?? null;
         $stale = $email['stale_claimed'] ?? null;
         $overdue = $email['overdue_queued'] ?? null;
+        $thresholds = $this->backlogThresholds();
 
         return [
             'queue_worker_stale' => in_array($worker, ['recent', 'stale'], true) ? $worker === 'stale' : null,
             'scheduler_stale' => in_array($scheduler, ['recent', 'stale'], true) ? $scheduler === 'stale' : null,
             // A positive queue age without a matching, known ready count is not proof of a backlog.
             'queue_backlog' => is_int($ready) && ($ready === 0 || is_int($age))
-                ? $ready >= 25 && $age >= 300 : null,
+                ? $ready >= $thresholds['ready_count'] && $age >= $thresholds['age_seconds'] : null,
             'queue_failed_jobs' => is_int($failed) ? $failed > 0 : null,
             'email_handoff_uncertain' => $emailReadable && is_int($unknown) && is_int($stale)
                 ? $unknown > 0 || $stale > 0 : null,
@@ -66,8 +85,17 @@ final class OperationalIncidents
             // an earlier snapshot to reverse a fresher transition.
             $snapshot = $health->report();
             $conditions = $this->conditions($snapshot);
+            $present = array_keys(array_filter($conditions, static fn (?bool $condition): bool => $condition === true));
+            $willOpen = $present && DB::table('operational_incident_states')->whereIn('condition_key', $present)
+                ->where('state', 'open')->count() < count($present);
+            // Admin review and preference updates lock the current account first.
+            // Take recipient locks before any incident row so scan and review
+            // never form an account/incident lock cycle.
+            $recipients = $willOpen ? $this->lockSubscribers() : [];
             $result = ['skipped' => false, 'opened' => 0, 'resolved' => 0, 'uncertain' => 0, 'external_actions' => false];
-            $now = now('UTC');
+            // Bind an explicit offset. The query grammar drops it when binding
+            // a DateTime, so a non-UTC PostgreSQL session shifts the observation.
+            $now = now('UTC')->toISOString();
 
             foreach (self::KEYS as $key) {
                 $present = $conditions[$key];
@@ -103,7 +131,7 @@ final class OperationalIncidents
                     'observed_at' => $now,
                 ]);
                 if ($present) {
-                    $this->notifySubscribers($key, $state ? (int) $state->transitions + 1 : 1);
+                    $this->notifySubscribers($recipients, $key, $state ? (int) $state->transitions + 1 : 1);
                 }
                 $result[$present ? 'opened' : 'resolved']++;
             }
@@ -147,22 +175,31 @@ final class OperationalIncidents
         return $enabled;
     }
 
-    private function notifySubscribers(string $key, int $revision): void
+    private function lockSubscribers(): array
     {
-        // The scanner already holds the global scan lock, so each committed
-        // opening, its timeline event and each recipient's inbox row are atomic.
-        DB::table('operational_incident_subscriptions')->select('user_id')->chunkById(100, function ($subscriptions) use ($key, $revision) {
+        $recipients = [];
+        DB::table('operational_incident_subscriptions')->select('user_id')->chunkById(100, function ($subscriptions) use (&$recipients) {
             foreach ($subscriptions as $subscription) {
                 $user = User::whereKey($subscription->user_id)->lockForUpdate()->first();
                 if ($user && $user->role === 'admin' && $user->account_status === 'active' && $this->subscribed($user)) {
-                    InboxNotification::create([
-                        'user_id' => $user->id,
-                        'kind' => InboxNotification::OPERATIONAL_INCIDENT_OPENED,
-                        'metadata' => ['condition_key' => $key, 'transition_revision' => $revision],
-                    ]);
+                    $recipients[] = $user->id;
                 }
             }
         }, 'user_id');
+
+        return $recipients;
+    }
+
+    private function notifySubscribers(array $recipients, string $key, int $revision): void
+    {
+        // Each opening, timeline event and alert commit under the same scan lock.
+        foreach ($recipients as $recipient) {
+            InboxNotification::create([
+                'user_id' => $recipient,
+                'kind' => InboxNotification::OPERATIONAL_INCIDENT_OPENED,
+                'metadata' => ['condition_key' => $key, 'transition_revision' => $revision],
+            ]);
+        }
     }
 
     /**
@@ -181,7 +218,7 @@ final class OperationalIncidents
         $record = DB::table('operational_incident_acknowledgements')->where($identity)->first();
         if (! $record) {
             $at = now('UTC');
-            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at]);
+            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at->toISOString()]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id, 'action' => 'operations.incident_acknowledged',
                 'subject' => $key.':'.$revision, 'created_at' => $at,
@@ -191,6 +228,55 @@ final class OperationalIncidents
 
         return $identity + ['acknowledged_at' => $record->acknowledged_at,
             'incident_state' => 'open', 'external_actions' => false];
+    }
+
+    /** Deployment-configured local review target; invalid configuration is unknown. */
+    private function reviewTarget(): ?int
+    {
+        $value = config('operational_health.review_due_minutes', '15');
+        if ((! is_int($value) && ! is_string($value))
+            || ! preg_match('/\A[1-9][0-9]{0,2}\z/', (string) $value)) {
+            return null;
+        }
+        $minutes = (int) $value;
+
+        return $minutes >= 5 && $minutes <= 120 ? $minutes : null;
+    }
+
+    private function reviewProjection(object $state, CarbonImmutable $now, ?int $target): array
+    {
+        $unknown = ['state' => 'unknown', 'age_seconds' => null];
+        if ($target === null || ! config('operational_health.enabled')) {
+            return $unknown;
+        }
+        try {
+            // Database timestamps may include a timezone or fractional seconds.
+            // Reject relative expressions and malformed or future chronology.
+            $parse = static function ($value): ?CarbonImmutable {
+                if (! is_string($value) || ! preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?\z/', $value)) {
+                    return null;
+                }
+
+                return CarbonImmutable::parse($value, 'UTC');
+            };
+            $opened = $parse($state->opened_at);
+            if (! $opened || $opened->gt($now)) {
+                return $unknown;
+            }
+            $age = $now->getTimestamp() - $opened->getTimestamp();
+            if ($state->acknowledged_at !== null) {
+                $reviewed = $parse($state->acknowledged_at);
+                if (! $reviewed || $reviewed->lt($opened) || $reviewed->gt($now)) {
+                    return $unknown;
+                }
+
+                return ['state' => 'acknowledged', 'age_seconds' => $age];
+            }
+
+            return ['state' => $age >= $target * 60 ? 'overdue' : 'pending', 'age_seconds' => $age];
+        } catch (Throwable) {
+            return $unknown;
+        }
     }
 
     /** Read-only, bounded and deliberately free of queue payloads or recipient data. */
@@ -217,6 +303,18 @@ final class OperationalIncidents
                         return $state;
                     });
 
+                $target = $this->reviewTarget();
+                $observedAt = CarbonImmutable::now('UTC');
+                $open = $states->where('state', 'open')->values()->map(function ($state) use ($target, $observedAt) {
+                    $state->review_escalation = $this->reviewProjection($state, $observedAt, $target);
+
+                    return $state;
+                });
+                // Overdue unreviewed occurrences are shown first. Unknown
+                // evidence never becomes an apparently healthy pending state.
+                $priority = ['overdue' => 0, 'unknown' => 1, 'pending' => 2, 'acknowledged' => 3];
+                $open = $open->sortBy(fn ($state) => $priority[$state->review_escalation['state']])->values();
+
                 return [
                     'store_readable' => true,
                     'monitoring_enabled' => (bool) config('operational_health.enabled'),
@@ -224,7 +322,10 @@ final class OperationalIncidents
                     'external_alert_delivery' => false,
                     'production_recovery_verified' => false,
                     'scanner' => $this->scannerSnapshot(),
-                    'open' => $states->where('state', 'open')->values()->all(),
+                    'review_policy' => ['target_minutes' => $target, 'scope' => 'local_operator_review_only',
+                        'observed_at' => $observedAt->toISOString(), 'external_actions' => false],
+                    'open' => $open->all(),
+                    'queue_backlog_thresholds' => $this->backlogThresholds(),
                     'resolved' => $states->where('state', 'resolved')->whereNotNull('resolved_at')->values()->all(),
                     'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
                         ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
@@ -234,6 +335,8 @@ final class OperationalIncidents
             return ['store_readable' => false, 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false, 'external_alert_delivery' => false,
                 'production_recovery_verified' => false, 'scanner' => $this->unknownScanner(),
+                'review_policy' => ['target_minutes' => null, 'scope' => 'local_operator_review_only',
+                    'observed_at' => null, 'external_actions' => false],
                 'open' => [], 'resolved' => [], 'recent_events' => []];
         }
     }

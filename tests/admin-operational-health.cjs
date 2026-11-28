@@ -134,6 +134,22 @@ test('operator review rejects forged receipts and late callbacks after account c
     await late;await flush();assert.equal(f.root.children.length,0);assert.equal(calls.length,4);
 });
 
+
+test('local review escalation shows overdue and unknown without external delivery in both languages',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report(),item={condition_key:'scheduler_stale',state:'open',opened_at:'2026-11-14T00:00:00Z',transition_revision:1,acknowledged_at:null,review_escalation:{state:'overdue',age_seconds:300}};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,production_recovery_verified:false,open:[item],recent_events:[],review_policy:{target_minutes:5,scope:'local_operator_review_only',observed_at:'2026-11-14T00:05:00Z',external_actions:false}};
+        f.setActor({role:'admin'},async()=>d);
+        click(f);await flush();assert(f.root.textContent.includes(ar?'مراجعة المشغل متأخرة':'operator review overdue'));
+        item.review_escalation.age_seconds=299;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+        item.review_escalation={state:'unknown',age_seconds:null};d.incidents.review_policy.target_minutes=null;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'أولوية المراجعة غير معروفة':'Review urgency unknown'));
+        d.incidents.review_policy.external_actions=true;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+    }
+});
+
 test('Admin can opt in for new inbox alerts explicitly and refreshes saved state', async () => {
     const local = fixture(), calls = [], data = report();
     data.incidents = {
@@ -160,4 +176,22 @@ test('Admin can opt in for new inbox alerts explicitly and refreshes saved state
         ['admin/operational-health', 'GET'],
     ]);
     assert(local.root.textContent.includes('Turn off incident inbox alerts'));
+});
+
+
+test('effective queue backlog thresholds are localized and invalid policy is rejected', async () => {
+    for (const ar of [false, true]) {
+        const f = fixture(ar), data = report();
+        data.incidents = {store_readable: true, monitoring_enabled: true, automatic_retry: false,
+            external_alert_delivery: false, production_recovery_verified: false, open: [], recent_events: [],
+            queue_backlog_thresholds: {ready_count: 2, age_seconds: 60}};
+        f.setActor({role: 'admin'}, async () => data);
+        click(f);
+        await flush();
+        assert(f.root.textContent.includes(ar ? 'حد تنبيه تراكم قائمة الانتظار' : 'Queue backlog alert threshold'));
+        data.incidents.queue_backlog_thresholds.age_seconds = 59;
+        click(f);
+        await flush();
+        assert(f.root.textContent.includes(ar ? 'تعذر تحميل' : 'could not load'));
+    }
 });

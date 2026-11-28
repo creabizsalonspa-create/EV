@@ -26,6 +26,48 @@ class OperationalIncidentsTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-15T12:00:00Z'));
     }
 
+    public function test_local_review_escalation_tracks_exact_target_acknowledgement_and_recurrence(): void
+    {
+        config(['operational_health.review_due_minutes' => '5']);
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->travel(299)->seconds();
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->travel(1)->seconds();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson('/api/admin/operational-health')
+            ->assertOk()->assertJsonPath('incidents.review_policy.target_minutes', 5)
+            ->assertJsonPath('incidents.review_policy.external_actions', false)
+            ->assertJsonPath('incidents.open.0.review_escalation.state', 'overdue')
+            ->assertJsonPath('incidents.open.0.review_escalation.age_seconds', 300);
+        $this->postJson('/api/admin/operational-health/acknowledge', [
+            'condition_key' => 'scheduler_stale', 'transition_revision' => 1,
+        ])->assertOk();
+        $this->assertSame('acknowledged', $scanner->summary()['open'][0]->review_escalation['state']);
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        foreach (['0', '121', '5.0', '05', true, ['5']] as $invalid) {
+            config(['operational_health.review_due_minutes' => $invalid]);
+            $report = $scanner->summary();
+            $this->assertNull($report['review_policy']['target_minutes']);
+            $this->assertSame(['state' => 'unknown', 'age_seconds' => null], $report['open'][0]->review_escalation);
+        }
+        config(['operational_health.review_due_minutes' => '5', 'operational_health.enabled' => false]);
+        $this->assertSame('unknown', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->assertDatabaseCount('operational_incident_events', 3);
+        $this->assertDatabaseCount('operational_incident_acknowledgements', 1);
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_operator_review_is_occurrence_bound_idempotent_and_never_resolves_incidents(): void
     {
         $health = app(OperationalHealth::class);
@@ -182,14 +224,52 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('operational_incident_events', 6);
     }
 
+    public function test_queue_backlog_uses_configured_count_and_age_boundaries_and_exposes_effective_thresholds(): void
+    {
+        config(['operational_health.queue_backlog_ready_count' => '2',
+            'operational_health.queue_backlog_age_seconds' => 60]);
+        $scanner = app(OperationalIncidents::class);
+        $health = app(OperationalHealth::class);
+        $enqueue = static fn () => DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => 'PRIVATE-QUEUE-PAYLOAD', 'attempts' => 0,
+            'reserved_at' => null, 'available_at' => now()->timestamp - 59, 'created_at' => now()->timestamp - 59,
+        ]);
+
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->travel(1)->second();
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertDatabaseHas('operational_incident_states', ['condition_key' => 'queue_backlog', 'state' => 'open']);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/admin/operational-health')
+            ->assertOk()->assertJsonPath('incidents.queue_backlog_thresholds', ['ready_count' => 2, 'age_seconds' => 60])
+            ->assertDontSee('PRIVATE-QUEUE-PAYLOAD');
+
+        config(['operational_health.queue_backlog_ready_count' => '1e2',
+            'operational_health.queue_backlog_age_seconds' => 3601]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame(['ready_count' => 25, 'age_seconds' => 300], $scanner->summary()['queue_backlog_thresholds']);
+    }
+
     public function test_private_payloads_are_never_duplicated_into_incidents_and_no_work_is_retried(): void
     {
         $health = app(OperationalHealth::class);
         $scanner = app(OperationalIncidents::class);
-        for ($i = 0; $i < 25; $i++) {
+        config(['queue.connections.database.retry_after' => 90]);
+        for ($i = 0; $i < 24; $i++) {
             DB::table('jobs')->insert(['queue' => 'default', 'payload' => 'SECRET-QUEUE-JOB', 'attempts' => 0,
                 'reserved_at' => null, 'available_at' => now()->timestamp - 500, 'created_at' => now()->timestamp - 500]);
         }
+        $expired = DB::table('jobs')->insertGetId(['queue' => 'default', 'payload' => 'SECRET-EXPIRED-JOB', 'attempts' => 1,
+            'reserved_at' => now()->timestamp - 89, 'available_at' => now()->timestamp + 300, 'created_at' => now()->timestamp - 600]);
+        $this->assertSame(24, $health->report()['queue']['ready']);
+        $this->assertSame(1, $health->report()['queue']['reserved']);
+        $this->travel(1)->seconds();
+        $this->assertSame(25, $health->report()['queue']['ready']);
+        $this->assertSame(0, $health->report()['queue']['reserved']);
+        $this->assertSame(601, $health->report()['queue']['oldest_ready_age_seconds']);
         DB::table('failed_jobs')->insert(['uuid' => (string) Str::uuid(), 'connection' => 'database',
             'queue' => 'default', 'payload' => 'PRIVATE-FAILED-PAYLOAD', 'exception' => 'SECRET-SMTP-KEY',
             'failed_at' => now()]);
@@ -204,6 +284,7 @@ class OperationalIncidentsTest extends TestCase
         $this->assertStringNotContainsString('PRIVATE-FAILED', $response->getContent());
         $this->assertCount(2, $response->json('incidents.open'));
         $this->assertDatabaseCount('jobs', 25);
+        $this->assertDatabaseHas('jobs', ['id' => $expired, 'attempts' => 1]);
         $this->assertDatabaseCount('failed_jobs', 1);
         DB::table('jobs')->where('queue', 'default')->delete();
         DB::table('failed_jobs')->where('queue', 'default')->delete();
