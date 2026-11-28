@@ -199,7 +199,7 @@ class ContinuousFaultObserver
                 (count($events) > 100 || ($newest && $newest[0]['id'] > $lastRead) ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId, $url, $key) {
+            return $this->commit($b, $companyId, $ownerId, $cursor, function ($current, $previous) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId, $url, $key) {
                 $this->requireSource($url, $key);
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
@@ -212,9 +212,8 @@ class ContinuousFaultObserver
                 );
                 // A previous monitor review state has cleared only when an
                 // authenticated source page catches up, never on a mere poll.
-                $previous = DB::table('charging_fault_cursors')
-                    ->where('source_generation', $generation)->lockForUpdate()->first();
-                if ($previous && $previous->state === 'requires_review' && $state === 'caught_up') {
+                $pending = FaultCursorRevision::reviewPending($previous);
+                if ($pending && $state === 'caught_up') {
                     InboxNotification::create([
                         'user_id' => $ownerId,
                         'kind' => 'charging.monitor.resumed.simulated',
@@ -229,16 +228,16 @@ class ContinuousFaultObserver
                     ]);
                 }
                 $last = $events ? end($events)['id'] : $after;
-                DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state, 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+                $this->persistCursor($generation, $previous, ['binding_id' => $current->id,
+                    'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state,
+                    'review_pending' => $pending && $state !== 'caught_up']);
 
                 return ['binding_id' => $current->id, 'events' => count($events), 'alerts_created' => $created, 'state' => $state, 'commands_sent' => false, 'capacity_changed' => false];
             });
         } catch (Throwable $e) {
             // Current ownership and unchanged cursor are required even to record a failure.
-            $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $after, $cursor, $ownerId, $companyId) {
-                $previous = DB::table('charging_fault_cursors')
-                    ->where('source_generation', $generation)->lockForUpdate()->first();
-                if (! $previous || $previous->state !== 'requires_review') {
+            $this->commit($b, $companyId, $ownerId, $cursor, function ($current, $previous) use ($generation, $after, $ownerId, $companyId) {
+                if (! FaultCursorRevision::reviewPending($previous)) {
                     InboxNotification::create([
                         'user_id' => $ownerId,
                         'kind' => 'charging.monitor.requires_review.simulated',
@@ -254,18 +253,13 @@ class ContinuousFaultObserver
                         ],
                     ]);
                 }
-                DB::table('charging_fault_cursors')->updateOrInsert(
-                    ['source_generation' => $generation],
-                    [
-                        'binding_id' => $current->id,
-                        'source_station_id' => $cursor->source_station_id ?? null,
-                        'last_event_id' => $after,
-                        'state' => 'requires_review',
-                        'checked_at' => now(),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]
-                );
+                $this->persistCursor($generation, $previous, [
+                    'binding_id' => $current->id,
+                    'source_station_id' => $previous->source_station_id ?? null,
+                    'last_event_id' => $after,
+                    'state' => 'requires_review',
+                    'review_pending' => true,
+                ]);
 
                 return [];
             });
@@ -273,17 +267,27 @@ class ContinuousFaultObserver
         }
     }
 
-    private function commit(object $original, int $companyId, int $ownerId, int $after, callable $callback): array
+    private function persistCursor(string $generation, ?object $previous, array $values): void
     {
-        return DB::transaction(function () use ($original, $companyId, $ownerId, $after, $callback) {
+        $values += ['revision' => ($previous->revision ?? 0) + 1, 'checked_at' => now(), 'updated_at' => now()];
+        if ($previous === null) {
+            DB::table('charging_fault_cursors')->insert($values + ['source_generation' => $generation, 'created_at' => now()]);
+        } else {
+            DB::table('charging_fault_cursors')->where('id', $previous->id)->update($values);
+        }
+    }
+
+    private function commit(object $original, int $companyId, int $ownerId, ?object $expected, callable $callback): array
+    {
+        return DB::transaction(function () use ($original, $companyId, $ownerId, $expected, $callback) {
             VendorCompany::whereKey($companyId)->lockForUpdate()->firstOrFail();
             DB::table('csms_bindings')->where('id', $original->id)->lockForUpdate()->firstOrFail();
             [$current, $company, $owner] = $this->scope($original->id);
             abort_unless($company === $companyId && $owner === $ownerId && hash_equals(FaultMonitor::generation($original), FaultMonitor::generation($current)), 409);
             $cursor = DB::table('charging_fault_cursors')->where('source_generation', FaultMonitor::generation($current))->lockForUpdate()->first();
-            abort_unless((int) ($cursor->last_event_id ?? 0) === $after, 409);
+            abort_unless(FaultCursorRevision::matches($expected, $cursor), 409, 'Another observation changed the durable cursor; poll again.');
 
-            return $callback($current);
+            return $callback($current, $cursor);
         }, 3);
     }
 }
