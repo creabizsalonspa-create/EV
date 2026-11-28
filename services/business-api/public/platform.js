@@ -3088,8 +3088,8 @@ async function refreshInbox() {
         view.append(pages);
     }
 }
-async function ticketDetail(id, page = 1, showNewest = false) {
-    if (!user || !Number.isSafeInteger(id) || id < 1 ||
+async function ticketDetail(id, page = 1, showNewest = false, requesterView = false) {
+    if (!user || (requesterView && user.role !== "admin") || !Number.isSafeInteger(id) || id < 1 ||
         !Number.isSafeInteger(page) || page < 1) return;
     ticketDetailRequest?.abort();
     const controller = new AbortController();
@@ -3104,10 +3104,12 @@ async function ticketDetail(id, page = 1, showNewest = false) {
     d.setAttribute("aria-busy", "true");
     d.replaceChildren(batteryNode("p", "Loading ticket messages…", "جارٍ تحميل رسائل الدعم…"));
     try {
-    const j = await api("support/" + id + "?page=" + page, "GET", undefined, controller.signal);
+    const target = "support/" + id + "?page=" + page + (requesterView ? "&view=requester" : "");
+    const j = await api(target, "GET", undefined, controller.signal);
     if (!active()) return;
     const messages = j?.messages;
-    if (j?.ticket?.id !== id || !Array.isArray(messages?.data) ||
+    if ((requesterView ? j?.view !== "requester" : j?.view !== undefined) ||
+        j?.ticket?.id !== id || !Array.isArray(messages?.data) ||
         !Number.isSafeInteger(messages.current_page) ||
         !Number.isSafeInteger(messages.last_page) ||
         !Number.isSafeInteger(messages.total) ||
@@ -3115,7 +3117,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         messages.total < 0)
         throw new Error("Unrecognized support conversation response.");
     if (page > messages.last_page || (showNewest && page < messages.last_page)) {
-        await ticketDetail(id, messages.last_page);
+        await ticketDetail(id, messages.last_page, false, requesterView);
         return;
     }
     d.replaceChildren(
@@ -3124,6 +3126,19 @@ async function ticketDetail(id, page = 1, showNewest = false) {
             status: { translate: j.ticket.status },
         }),
     );
+    if (role === "admin") {
+        if (requesterView) {
+            d.append(batteryNode("p", "Requester view · read only", "عرض مقدم الطلب · للقراءة فقط"));
+        }
+        const toggle = requesterView
+            ? batteryNode("button", "Back to staff view", "العودة إلى عرض الموظفين")
+            : batteryNode("button", "Preview requester view", "معاينة عرض مقدم الطلب");
+        toggle.type = "button";
+        toggle.onclick = () => {
+            if (active() && !actionPending && !pendingKind) void ticketDetail(id, 1, false, !requesterView);
+        };
+        d.append(toggle);
+    }
     // Support clocks are server UTC, not the browser timezone or station
     // wall clock. Keep an unavailable clock separate from the message body.
     // Non-admin clients never display an internal or unknown visibility row,
@@ -3132,7 +3147,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         m.body.length <= 5000 &&
         (m.support_ticket_id == null || m.support_ticket_id === id) &&
         ([false, 0, "0"].includes(m.internal) ||
-            (user.role === "admin" && [true, 1, "1"].includes(m.internal))));
+            (role === "admin" && !requesterView && [true, 1, "1"].includes(m.internal))));
     if (!visible.length) d.append(batteryNode("p",
         "No visible messages on this page.", "لا توجد رسائل ظاهرة في هذه الصفحة."));
     for (const m of visible) {
@@ -3166,10 +3181,11 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         b.type = "button";
         b.disabled = disabled;
         b.dataset.supportMessagePageAction = key;
-        b.onclick = () => { if (active() && !actionPending && !pendingKind && !b.disabled && pager.contains(b)) void ticketDetail(id, target); };
+        b.onclick = () => { if (active() && !actionPending && !pendingKind && !b.disabled && pager.contains(b)) void ticketDetail(id, target, false, requesterView); };
         pager.append(b);
     }
     d.append(pager);
+    if (requesterView) return;
     if (j.ticket.status !== "closed") {
         const f = document.createElement("form"),
             body = document.createElement("textarea");
@@ -3304,7 +3320,7 @@ async function ticketDetail(id, page = 1, showNewest = false) {
         const retry = batteryNode("button", "Retry support messages", "إعادة تحميل رسائل الدعم");
         retry.type = "button";
         retry.dataset.supportMessageRetry = "true";
-        retry.onclick = () => { if (active()) void ticketDetail(id, page, showNewest); };
+        retry.onclick = () => { if (active()) void ticketDetail(id, page, showNewest, requesterView); };
         d.append(retry);
     } finally {
         if (active()) d.removeAttribute("aria-busy");
