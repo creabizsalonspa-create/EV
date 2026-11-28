@@ -77,6 +77,38 @@ class SubscriptionTest extends TestCase
         $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
     }
 
+    public function test_admin_cannot_preview_or_schedule_for_suspended_subscription_owner(): void
+    {
+        $basic = $this->plan();
+        $pro = $this->plan(['code' => 'vendor-advanced', 'price_minor' => 2999]);
+        $f = $this->subscribe($basic);
+        $this->pay($f);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $service = app(SubscriptionService::class);
+        $id = $f[1]['subscription']['id'];
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $events = DB::table('commercial_subscription_events')->count();
+        DB::table('users')->where('id', $f[0]->id)->update(['account_status' => 'suspended']);
+        foreach ([
+            fn () => $service->previewChange($admin, $id, $pro['id']),
+            fn () => $service->change($admin, $id, 'change_plan', $pro['id'], 'suspended-owner'),
+        ] as $operation) {
+            try {
+                $operation();
+                $this->fail('Suspended subscription owner was eligible.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertNull(DB::table('commercial_subscriptions')->where('id', $id)->value('next_plan_id'));
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        DB::table('users')->where('id', $f[0]->id)->update(['account_status' => 'active']);
+        $this->assertSame($pro['id'], $service->previewChange($admin, $id, $pro['id'])['proposed_plan_id']);
+    }
+
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
     {
         $p = $this->plan();

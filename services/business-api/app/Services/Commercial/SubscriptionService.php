@@ -85,7 +85,7 @@ class SubscriptionService
         $availability = DB::table('commercial_plan_availability')->where('plan_id', $id)
             ->when($lock, fn ($q) => $q->lockForUpdate())->first();
         abort_unless($availability && $availability->available, 409, 'Plan is not open for enrollment.');
-        abort_unless($p->audience === $user->role && in_array($user->role, ['customer', 'vendor'], true), 409, 'Plan audience does not match this account.');
+        abort_unless($user->account_status === 'active' && $p->audience === $user->role && in_array($user->role, ['customer', 'vendor'], true), 409, 'Plan audience or account eligibility does not match this account.');
 
         return $p;
     }
