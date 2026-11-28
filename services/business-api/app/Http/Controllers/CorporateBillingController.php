@@ -170,10 +170,15 @@ class CorporateBillingController extends Controller
 
             return response()->json(DB::table('corporate_statements')
                 ->where('agreement_id', $agreement)->orderByDesc('id')->paginate(25, ['*'], 'page', (int) ($page['page'] ?? 1))
-                ->through(fn ($row) => $this->safe($row) + [
-                    'receipt' => $this->safe(DB::table('corporate_receipts')
-                        ->where('statement_id', $row->id)->first()),
-                ]))->header('Cache-Control', 'private, no-store');
+                ->through(function ($row) use ($s) {
+                    $receipt = DB::table('corporate_receipts')
+                        ->where('statement_id', $row->id)->first();
+                    if ($receipt) {
+                        $s->verifiedReceipt($row, $receipt);
+                    }
+
+                    return $this->safe($row) + ['receipt' => $this->safe($receipt)];
+                }))->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
