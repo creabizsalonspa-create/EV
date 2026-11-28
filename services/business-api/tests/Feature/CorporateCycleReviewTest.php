@@ -67,11 +67,19 @@ class CorporateCycleReviewTest extends TestCase
         $this->actingAs(User::factory()->create())->getJson($this->url($f))->assertNotFound();
         $this->actingAs($f['admin'])->getJson($this->url($f))->assertOk()->assertJsonPath('state', 'ready_for_review');
         app(FinanceService::class)->pay($f['invoices'][0], $f['driver']->id, 100, 'cycle-review-partial');
+        DB::enableQueryLog();
         $this->actingAs($f['owner'])->getJson($this->url($f))->assertOk()
             ->assertJsonPath('state', 'source_hold')
             ->assertJsonPath('blocked_count', 1)
             ->assertJsonPath('claims.0.held', true)
             ->assertJsonPath('claims.1.held', false);
+        $queries = array_column(DB::getQueryLog(), 'query');
+        DB::disableQueryLog();
+        DB::flushQueryLog();
+        $holdQueries = array_values(array_filter($queries, fn ($query) => str_contains($query, 'finance_payments')
+            || str_contains($query, 'finance_refund_requests') || str_contains($query, 'corporate_hosted_lines')));
+        $this->assertCount(1, $holdQueries, 'Claim holds must be read in one statement.');
+        $this->assertStringContainsString('source_held', $holdQueries[0]);
         $this->assertDatabaseCount('corporate_statements', 0);
         $this->assertDatabaseCount('finance_payments', 1);
     }

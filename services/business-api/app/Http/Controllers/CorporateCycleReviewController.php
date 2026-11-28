@@ -68,10 +68,24 @@ final class CorporateCycleReviewController extends Controller
             ->where('c.agreement_id', $a->id)->where('d.decision', 'approved')
             ->where('i.created_at', '>=', $start)->where('i.created_at', '<', $end)
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('corporate_statement_lines as l')->whereColumn('l.claim_id', 'c.id'))
-            ->orderBy('c.id')->limit(101)
-            ->get(['c.id', 'c.invoice_id', 'c.driver_id', 'c.currency', 'c.minor_units', 'c.amount_minor',
+            ->select(['c.id', 'c.invoice_id', 'c.driver_id', 'c.currency', 'c.minor_units', 'c.amount_minor',
                 'i.user_id', 'i.currency as invoice_currency', 'i.minor_units as invoice_precision',
-                'i.subtotal_minor', 'i.tax_minor', 'i.total_minor']);
+                'i.subtotal_minor', 'i.tax_minor', 'i.total_minor'])
+            ->selectRaw(<<<'SQL'
+                (
+                    EXISTS (SELECT 1 FROM finance_payments AS p WHERE p.invoice_id = i.id)
+                    OR EXISTS (SELECT 1 FROM finance_unpaid_credits AS c WHERE c.invoice_id = i.id)
+                    OR EXISTS (SELECT 1 FROM gateway_checkouts AS g WHERE g.invoice_id = i.id)
+                    OR EXISTS (SELECT 1 FROM finance_refund_requests AS r WHERE r.invoice_id = i.id AND r.status = 'pending')
+                    OR EXISTS (SELECT 1 FROM gateway_cases AS d WHERE d.invoice_id = i.id AND d.status = 'open')
+                    OR EXISTS (
+                        SELECT 1 FROM corporate_hosted_lines AS l
+                        JOIN corporate_hosted_checkouts AS h ON h.id = l.checkout_id
+                        WHERE l.invoice_id = i.id AND h.status NOT IN ('cancelled', 'expired')
+                    )
+                ) AS source_held
+                SQL)
+            ->orderBy('c.id')->limit(101)->get();
 
         $tooMany = $rows->count() > 100;
         $items = [];
@@ -89,13 +103,7 @@ final class CorporateCycleReviewController extends Controller
                     && (int) $row->driver_id === (int) $row->user_id, 409, 'Corporate claim does not match original invoice.');
 
                 $id = (int) $row->invoice_id;
-                $held = DB::table('finance_payments')->where('invoice_id', $id)->exists()
-                    || DB::table('finance_unpaid_credits')->where('invoice_id', $id)->exists()
-                    || DB::table('gateway_checkouts')->where('invoice_id', $id)->exists()
-                    || DB::table('finance_refund_requests')->where('invoice_id', $id)->where('status', 'pending')->exists()
-                    || DB::table('gateway_cases')->where('invoice_id', $id)->where('status', 'open')->exists()
-                    || DB::table('corporate_hosted_lines as l')->join('corporate_hosted_checkouts as h', 'h.id', '=', 'l.checkout_id')
-                        ->where('l.invoice_id', $id)->whereNotIn('h.status', ['cancelled', 'expired'])->exists();
+                $held = (bool) $row->source_held;
                 $total = $this->add($total, $amount);
                 $blocked += $held ? 1 : 0;
                 $items[] = [
