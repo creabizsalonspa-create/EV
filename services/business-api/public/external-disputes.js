@@ -147,7 +147,7 @@ window.mountExternalDisputes = ({ container, api, ui, actor }) => {
     function verifyReceipt(row, scope = {}) {
         if (!row || !positiveId(row.id) || !positiveId(row.invoice_id) ||
             !positiveId(row.amount_minor) || !Number.isInteger(row.minor_units) ||
-            row.minor_units < 0 || row.minor_units > 3 || !/^[A-Z]{3}$/.test(row.currency) ||
+            row.minor_units < 0 || row.minor_units > 3 || typeof row.currency !== "string" || !/^[A-Z]{3}$/.test(row.currency) ||
             !providerStates.includes(row.status) ||
             row.evidence !== "STRIPE_TEST_CONTRACT" || row.real_money_moved !== false ||
             ["settlement_hold", "deadline_passed", "requires_financial_resolution"].some(
