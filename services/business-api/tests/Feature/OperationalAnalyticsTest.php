@@ -41,13 +41,13 @@ class OperationalAnalyticsTest extends TestCase
         return [$owner, $company, $charger, '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$charger->id.'/source-diagnostics'];
     }
 
-    private function setupReport(): array
+    private function setupReport(string $protocol = '1.6'): array
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-06T12:00:00Z'));
-        [$owner,$company,$charger] = $this->fixture();
+        [$owner,$company,$charger] = $this->fixture($protocol);
         $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->first();
         $connector = VendorConnector::create(['charger_id' => $charger->id, 'connector_number' => 1, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
-        $evse = DB::table('charging_evses')->insertGetId(['charger_id' => $charger->id, 'number' => 1, 'mode' => 'exclusive', 'binding_id' => $binding->id, 'source_evse_number' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        $evse = DB::table('charging_evses')->insertGetId(['charger_id' => $charger->id, 'number' => 1, 'mode' => 'exclusive', 'binding_id' => $binding->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1, 'created_at' => now(), 'updated_at' => now()]);
         $map = DB::table('charging_connector_mappings')->insertGetId(['station_id' => $binding->station_id, 'evse_id' => $evse, 'connector_id' => $connector->id, 'source_connector_number' => 1, 'source_target_key' => hash('sha256', 'test-'.$binding->id), 'created_at' => now(), 'updated_at' => now()]);
 
         return [$owner, $company, $charger, $binding, $map, $evse, '/api/vendor-ops/companies/'.$company->id.'/operational-analytics'];
@@ -107,6 +107,68 @@ class OperationalAnalyticsTest extends TestCase
             ->assertJsonPath('physical_uptime_verified', false);
         $this->get($url.'/export'.$query)->assertOk()->assertSee('reported_non_fault_unavailable_seconds')->assertSee('reported_downtime_seconds')->assertSee('other_known_status_seconds');
         $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_protocol_invalid_status_and_missing_ocpp_16_fault_clearance_remain_unknown(): void
+    {
+        [$owner, , , $binding, , , $url] = $this->setupReport();
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [
+                ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
+                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'timestamp' => '2026-11-06T10:01:00Z'],
+                ['id' => 3, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Occupied', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:02:00Z'],
+                ['id' => 4, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:03:00Z'],
+            ],
+        ]);
+        $query = '?from=2026-11-06&to=2026-11-06';
+        $this->actingAs($owner)->getJson($url.$query)->assertOk()
+            ->assertJsonPath('sites.0.status_known_seconds', 360)
+            ->assertJsonPath('sites.0.status_unknown_seconds', 42840)
+            ->assertJsonPath('sites.0.reported_downtime_seconds', 60)
+            ->assertJsonPath('sites.0.other_known_status_seconds', 300)
+            ->assertJsonPath('physical_uptime_verified', false);
+        $this->get($url.'/export'.$query)->assertOk()->assertSee('360,42840,60');
+        $this->get($url.'/pdf'.$query.'&locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_ocpp_201_occupied_and_available_without_an_error_code_are_observed(): void
+    {
+        [$owner, , , $binding, , , $url] = $this->setupReport('2.0.1');
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [
+                ['id' => 1, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Occupied', 'timestamp' => '2026-11-06T10:00:00Z'],
+                ['id' => 2, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Charging', 'timestamp' => '2026-11-06T10:01:00Z'],
+                ['id' => 3, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'timestamp' => '2026-11-06T10:02:00Z'],
+            ],
+        ]);
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()
+            ->assertJsonPath('sites.0.status_known_seconds', 360)
+            ->assertJsonPath('sites.0.status_unknown_seconds', 42840)
+            ->assertJsonPath('sites.0.reported_downtime_seconds', 0)
+            ->assertJsonPath('sites.0.other_known_status_seconds', 360)
+            ->assertJsonPath('physical_uptime_verified', false);
+    }
+
+    public function test_conflicting_source_status_order_keeps_exposure_unknown_without_changing_meter_evidence(): void
+    {
+        [$owner, , , $binding, $map, $evse, $url] = $this->setupReport();
+        $this->sourceSession($binding, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [
+                ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:02:00Z'],
+                ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
+            ],
+        ]);
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()
+            ->assertJsonPath('sites.0.status_known_seconds', 0)
+            ->assertJsonPath('sites.0.status_unknown_seconds', 43200)
+            ->assertJsonPath('sites.0.reported_downtime_seconds', 0)
+            ->assertJsonPath('sites.0.completed_energy_wh', 1000)
+            ->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)
+            ->assertJsonPath('physical_uptime_verified', false);
     }
 
     public function test_demand_does_not_bridge_missing_accepted_meter_sequence(): void
