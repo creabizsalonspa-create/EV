@@ -7,6 +7,7 @@ use App\Models\InboxNotification;
 use App\Models\User;
 use App\Services\Notifications\EmailNotices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -36,7 +37,7 @@ class NotificationEmailTest extends TestCase
 
     public function test_interrupted_claim_recovery_is_bounded_terminal_and_never_sends(): void
     {
-        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-28T06:00:00Z'));
+        $this->travelTo(Carbon::parse('2026-11-28T06:00:00Z'));
         $service = app(EmailNotices::class);
         $receipts = [];
         foreach (['oldest', 'boundary', 'missing_claim_clock', 'fresh', 'queued', 'terminal'] as $kind) {
