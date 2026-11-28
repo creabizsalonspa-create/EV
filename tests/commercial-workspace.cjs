@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 (async () => {
+  await require('./payment-recovery-scope.cjs')();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
