@@ -2485,6 +2485,14 @@ window.EV_MESSAGES = {
         en: "Reservation window ended without a linked charging session",
         ar: "انتهى موعد الحجز دون جلسة شحن مرتبطة",
     },
+    "No arrival was reported for this reservation": {
+        en: "No arrival was reported for this reservation",
+        ar: "لم يُبلّغ عن الوصول لهذا الحجز",
+    },
+    "Arrival was reported but the reservation went unused": {
+        en: "Arrival was reported but the reservation went unused",
+        ar: "أُبلغ عن الوصول لكن الحجز لم يُستخدم",
+    },
     source_observed: {
         en: "Source outcome observed",
         ar: "رُصدت النتيجة في المصدر",

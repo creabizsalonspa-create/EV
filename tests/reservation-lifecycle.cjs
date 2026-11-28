@@ -20,6 +20,14 @@ const assert = require("node:assert/strict");
     ),
   );
   assert.equal(expiry.expired, 1);
+  const arrivedExpiry = JSON.parse(
+    execFileSync(
+      "./scripts/php",
+      ["artisan", "reservations:expire-unused", `--reservation=${f.arrived_unused}`],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.equal(arrivedExpiry.expired, 1);
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
@@ -51,6 +59,15 @@ const assert = require("node:assert/strict");
       .locator("#reservation-list")
       .getByRole("button", { name: "Check in", exact: true });
     await button.waitFor();
+    const reservations = page.locator("#reservation-list");
+    await reservations.getByText("No arrival was reported for this reservation", {exact: true}).waitFor();
+    await reservations.getByText("Arrival was reported but the reservation went unused", {exact: true}).waitFor();
+    await page.locator("#language").click();
+    await reservations.getByText("لم يُبلّغ عن الوصول لهذا الحجز", {exact: true}).waitFor();
+    await reservations.getByText("أُبلغ عن الوصول لكن الحجز لم يُستخدم", {exact: true}).waitFor();
+    assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
+    await page.locator("#language").click();
+    await page.waitForFunction(() => document.documentElement.lang === "en");
     page.once("dialog", async (dialog) => {
       assert.match(dialog.message(), /self-reported/);
       await dialog.dismiss();
@@ -66,8 +83,7 @@ const assert = require("node:assert/strict");
     assert.equal(reply.status(), 201);
     const data = await reply.json();
     assert.equal(data.physical_presence_verified, false);
-    await page
-      .locator("#reservation-list")
+    await reservations.locator("article").filter({hasText: `#${f.current} ·`})
       .getByText(/Self-reported arrival/)
       .waitFor();
     assert.equal(
@@ -91,7 +107,7 @@ const assert = require("node:assert/strict");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: real-Laravel unused expiry, explicit self-reported arrival, authoritative refresh, 390px customer booking lifecycle; no device or financial action",
+      "PASS: real-Laravel unused expiry, distinct EN/AR arrival outcomes, explicit self-reported check-in and authoritative refresh at 390px",
     );
   } finally {
     await browser.close();

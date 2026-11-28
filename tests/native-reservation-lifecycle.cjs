@@ -14,11 +14,13 @@ try {
       { encoding: "utf8" },
     ),
   );
-  execFileSync("./scripts/php", [
-    "artisan",
-    "reservations:expire-unused",
-    `--reservation=${fixture.unused}`,
-  ]);
+  for (const id of [fixture.unused, fixture.arrived_unused]) {
+    execFileSync("./scripts/php", [
+      "artisan",
+      "reservations:expire-unused",
+      `--reservation=${id}`,
+    ]);
+  }
   const input = join(directory, "fixture.json");
   writeFileSync(
     input,

@@ -231,7 +231,13 @@ class PlatformController extends Controller
                 }
             }
 
+            // Only the persisted expiry transition establishes that no session was linked.
+            $unusedOutcome = $reservation->status === 'expired_unused'
+                ? ($reservation->checked_in_at === null ? 'NO_ARRIVAL_REPORTED' : 'ARRIVAL_REPORTED_UNUSED')
+                : null;
+
             return $data + ['station_timezone' => $timezone, 'station_times' => $localTimes,
+                'unused_outcome' => $unusedOutcome,
                 'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
         }))->header('Cache-Control', 'private, no-store');
     }

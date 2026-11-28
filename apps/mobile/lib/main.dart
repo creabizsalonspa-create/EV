@@ -871,6 +871,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               ),
             if (tab == 1 && row['reservation_terms_snapshot'] is Map)
               ReservationPolicyPanel(terms: Map<String,dynamic>.from(row['reservation_terms_snapshot'] as Map)),
+            if (tab == 1 && row['status'] == 'expired_unused')
+              ...switch (row['unused_outcome']) {
+                'NO_ARRIVAL_REPORTED' => [Text(s.t('reservationNoArrival'))],
+                'ARRIVAL_REPORTED_UNUSED' => [Text(s.t('reservationArrivalUnused'))],
+                _ => const <Widget>[],
+              },
             if (tab == 1 && row['checked_in_at'] != null)
               Text(
                 '${arrivalText(context, 'reported')} · ${reservationTime(context, row, 'checked_in_at')}',

@@ -71,11 +71,18 @@ class ReservationLifecycleTest extends TestCase
         $service = app(ReservationLifecycle::class);
         $this->travelTo($end->subSecond());
         $this->assertSame(0, $service->expire()['expired']);
+        $this->getJson('/api/reservations')->assertOk()
+            ->assertJsonPath('data.0.status', 'confirmed')
+            ->assertJsonPath('data.0.unused_outcome', null);
         $this->travelTo($end);
         $this->assertSame(1, $service->expire()['expired']);
         $this->assertSame(0, $service->expire()['expired']);
         $this->assertSame('expired_unused', $r->fresh()->status);
         $this->assertSame($arrived, $r->fresh()->checked_in_at !== null);
+        $this->getJson('/api/reservations')->assertOk()
+            ->assertJsonPath('data.0.id', $r->id)
+            ->assertJsonPath('data.0.unused_outcome', $arrived ? 'ARRIVAL_REPORTED_UNUSED' : 'NO_ARRIVAL_REPORTED')
+            ->assertJsonPath('data.0.physical_presence_verified', false);
         $event = DB::table('reservation_lifecycle_events')->where('event_type', 'expired_unused')->sole();
         $this->assertNull($event->actor_id);
         $e = json_decode($event->evidence, true);

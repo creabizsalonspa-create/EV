@@ -1053,6 +1053,10 @@ async function bookings(page = reservationPage) {
             a.append(batteryNode("p", "Station local · " + stationTimeEn,
                 "توقيت المحطة · " + window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "ar")));
         window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot);
+        if (r.status === "expired_unused" && r.unused_outcome === "NO_ARRIVAL_REPORTED")
+            a.append(ui("p", "No arrival was reported for this reservation"));
+        if (r.status === "expired_unused" && r.unused_outcome === "ARRIVAL_REPORTED_UNUSED")
+            a.append(ui("p", "Arrival was reported but the reservation went unused"));
         if (r.vehicle_connector_type) a.append(r.vehicle_label
             ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
             : batteryNode("p", "Vehicle connector · " + r.vehicle_connector_type, "موصل المركبة · " + r.vehicle_connector_type));
