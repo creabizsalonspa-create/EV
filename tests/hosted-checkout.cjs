@@ -357,6 +357,17 @@ const { chromium } = require("playwright"),
     const vh = (await (await vendorCreation).json()).checkout;
     assert.equal(vh.scope, "subscription");
     assert.equal(vh.subscription_id, f.vendor_subscription);
+    // Actual provider expiry is rendered from the canonical source, in both
+    // languages, rather than exposing the raw timestamp or device timezone.
+    const expiry = vendorPanel.locator("[data-hosted-expiry]");
+    await expiry.waitFor();
+    const expectedExpiry = await vendor.evaluate(value =>
+      "Provider session expiry: " + window.EvStationTime.serverEventTime(value, "en"), vh.expires_at);
+    assert.equal(await expiry.textContent(), expectedExpiry);
+    await vendor.locator("#language").click();
+    assert.equal(await expiry.textContent(), await vendor.evaluate(value =>
+      "انتهاء جلسة المزود: " + window.EvStationTime.serverEventTime(value, "ar"), vh.expires_at));
+    await vendor.locator("#language").click();
     // Creating a checkout refreshes the history list. That independent read
     // must not retire the current detail or require a second selection.
     await vendor.waitForFunction(() => {

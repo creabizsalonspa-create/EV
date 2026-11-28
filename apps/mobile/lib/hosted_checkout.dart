@@ -10,6 +10,7 @@ import 'subscriptions.dart';
 import 'corporate_billing.dart';
 import 'financial_operation_store.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
+import 'reservation_times.dart' show serverEventInstant, serverEventTime;
 
 const hostedEn = {
   'title': 'Hosted checkout',
@@ -256,9 +257,7 @@ class HostedCheckoutRecord {
         source['currency'] is! String ||
         !RegExp(r'^[A-Z]{3}$').hasMatch(source['currency']))
       throw const FormatException('Invalid server amount.');
-    if (source['expires_at'] != null &&
-        (source['expires_at'] is! String ||
-            DateTime.tryParse(source['expires_at']) == null))
+    if (source['expires_at'] != null && expiry == null)
       throw const FormatException('Invalid checkout expiry.');
     if (source['allowed_actions'] is! List ||
         (source['allowed_actions'] as List).any(
@@ -299,6 +298,7 @@ class HostedCheckoutRecord {
       : action == 'retry'
       ? source['can_retry'] == true && ['expired', 'cancelled'].contains(status)
       : (source['allowed_actions'] as List).contains(action);
+  DateTime? get expiry => serverEventInstant(source['expires_at']);
   Uri? get hosted =>
       source['hosted_url'] == null ? null : Uri.parse(source['hosted_url']);
 }
@@ -809,7 +809,7 @@ class _HostedState extends State<HostedCheckoutView>
         u == null ||
         !approvedHostedPaymentUrl(u))
       return;
-    final expiry = DateTime.tryParse('${before.source['expires_at']}');
+    final expiry = before.expiry;
     if (before.status != 'open' ||
         expiry == null ||
         !expiry.isAfter(DateTime.now().toUtc())) {
@@ -986,7 +986,7 @@ class _HostedState extends State<HostedCheckoutView>
                             },
                       child: Text(t('sourceDetails')),
                     ),
-                    Text('${t('expires')}: ${r.source['expires_at'] ?? '—'}'),
+                    Text('${t('expires')}: ${serverEventTime(c, r.source['expires_at'])}'),
                     OutlinedButton(
                       onPressed: busy
                           ? null
