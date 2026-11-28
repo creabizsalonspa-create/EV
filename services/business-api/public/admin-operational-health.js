@@ -10,7 +10,7 @@ window.EvAdminOperationalHealth = (() => {
     const incidentNames = {queue_worker_stale:['Queue worker observation expired','انتهت صلاحية ملاحظة عامل قائمة الانتظار'],scheduler_stale:['Scheduler observation expired','انتهت صلاحية ملاحظة المجدول'],queue_backlog:['Ready queue is backed up','تراكم المهام الجاهزة'],queue_failed_jobs:['Recorded queue failures','إخفاقات مسجلة في قائمة الانتظار'],email_handoff_uncertain:['Uncertain email handoff needs operator review','تسليم البريد الإلكتروني غير المؤكد يحتاج إلى مراجعة المشغل'],email_queue_backlog:['Email notices still queued past review threshold','تنبيهات البريد ما زالت قيد الانتظار بعد مهلة المراجعة']};
     function erase() {sequence++;request?.abort();request=null;output?.replaceChildren();if(refresh)refresh.disabled=false;}
     function clear() {revision++;erase();api=null;root.replaceChildren();}
-    function valid(d) {
+    function valid(d, beforeEventId) {
         if (d?.scope!=='default_queue_and_scheduler_observations' || typeof d.enabled!=='boolean' || typeof d.heartbeat_store_readable!=='boolean' || typeof d.as_of!=='string' || d.max_age_seconds!==150 ||
             d.all_workers_verified!==false || d.job_success_verified!==false || d.charger_connectivity_verified!==false || d.production_readiness_verified!==false || !Array.isArray(d.components) || d.components.length!==2) return false;
         if(new Set(d.components.map(c=>c.component)).size!==2 || !d.components.every(c=>['queue_worker','scheduler'].includes(c.component)&&Object.hasOwn(states,c.state)&&(c.observed_at===null||typeof c.observed_at==='string')))return false;
@@ -32,10 +32,20 @@ window.EvAdminOperationalHealth = (() => {
                 !resolved.every(v => v && Object.hasOwn(incidentNames, v.condition_key) && v.state === 'resolved' && typeof v.opened_at === 'string' && typeof v.resolved_at === 'string') ||
                 new Set([...i.open, ...resolved].map(v => v.condition_key)).size !== i.open.length + resolved.length) return false;
             if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
+            const next = i.next_before_event_id;
+            if (next !== undefined && next !== null &&
+                (!exact(next) || next < 1 || !i.store_readable || i.recent_events.length !== 20 ||
+                    i.recent_events[19].id !== next)) return false;
+            let previousId = beforeEventId ?? Infinity;
+            for (const event of i.recent_events) {
+                if (event.id < 1 || event.id >= previousId) return false;
+                previousId = event.id;
+            }
             if(i.scanner!==undefined && (!i.scanner || !['recent','stale','unknown'].includes(i.scanner.state) || i.scanner.max_age_seconds!==150 ||
                 (i.scanner.state==='unknown')!==(i.scanner.last_completed_at===null) ||
                 (i.scanner.last_completed_at!==null&&typeof i.scanner.last_completed_at!=='string')))return false;
         }
+        if (beforeEventId !== null && (!i || i.next_before_event_id === undefined)) return false;
         const e=d.email_handoff;
         if(e!==undefined && (!e || !['available','unavailable'].includes(e.state) || e.age_threshold_seconds!==900 ||
             e.delivery_confirmed!==false || e.automatic_retry!==false || (e.state==='available' ?
@@ -61,13 +71,15 @@ window.EvAdminOperationalHealth = (() => {
             }
         } finally {if(own===revision&&attempt===sequence)refresh.disabled=false;}
     }
-    async function load() {
+    async function load(beforeEventId = null) {
         if(!api||document.hidden)return;erase();const own=revision, run=sequence, controller=new AbortController();request=controller;refresh.disabled=true;
         status.replaceChildren(n('span','Reading private process observations…','جارٍ قراءة ملاحظات العمليات الخاصة…'));
         try {
-            const d=await api('admin/operational-health','GET',undefined,controller.signal);
+            const path = beforeEventId === null ? 'admin/operational-health' :
+                'admin/operational-health?before_event_id=' + beforeEventId;
+            const d = await api(path, 'GET', undefined, controller.signal);
             if(own!==revision||run!==sequence||controller.signal.aborted||document.hidden)return;
-            if(!valid(d))throw Error('Unexpected health contract');
+            if(!valid(d, beforeEventId))throw Error('Unexpected health contract');
             status.replaceChildren(n('span','Snapshot loaded. Refresh for current observations.','تم تحميل اللقطة. حدّث لقراءة الملاحظات الحالية.'));
             output.append(plain('p',d.as_of),n('p',d.enabled?'Monitoring enabled':'Monitoring disabled by deployment configuration',d.enabled?'المراقبة مفعلة':'المراقبة متوقفة حسب إعداد النشر'));
             if(d.enabled&&!d.heartbeat_store_readable)output.append(n('p','Heartbeat storage is unavailable; observations remain unknown.','تخزين نبضات العمليات غير متاح؛ تبقى الملاحظات مجهولة.'));
@@ -114,8 +126,21 @@ window.EvAdminOperationalHealth = (() => {
                             output.append(row);
                         }
                     }
-                    output.append(n('h5','Recent incident transitions','التغييرات الأخيرة في الحوادث'));
+                    output.append(beforeEventId === null
+                        ? n('h5', 'Recent incident transitions', 'التغييرات الأخيرة في الحوادث')
+                        : n('h5', 'Earlier incident transitions', 'التغييرات السابقة في الحوادث'));
+                    if (beforeEventId !== null && !i.recent_events.length) {
+                        output.append(n('p', 'No earlier transitions recorded.', 'لا توجد تغييرات سابقة مسجلة.'));
+                    }
                     for(const event of i.recent_events){const a=document.createElement('article');a.append(n('p',...incidentNames[event.condition_key]),n('p',event.transition==='opened'?'Opened':'Resolved',event.transition==='opened'?'فُتحت':'تم حلها'),plain('p',event.observed_at));output.append(a);}
+                    if (i.next_before_event_id != null) {
+                        const older = n('button', 'View earlier transitions', 'عرض التغييرات السابقة');
+                        older.type = 'button';
+                        older.onclick = () => {
+                            if (own === revision && run === sequence) load(i.next_before_event_id);
+                        };
+                        output.append(older);
+                    }
                 }
             }
         } catch(error) {
@@ -126,7 +151,7 @@ window.EvAdminOperationalHealth = (() => {
         clear();if(actor?.role!=='admin')return;api=requestApi;
         root.append(n('p','Read-only snapshots of the configured default queue and scheduler. A recent process heartbeat does not prove successful jobs, all workers, charger connectivity or production readiness. No job contents are displayed and no retries are dispatched.',
             'لقطات للقراءة فقط لقائمة الانتظار الافتراضية والجدولة. لا تثبت نبضة حديثة نجاح المهام أو جميع العاملين أو اتصال الشواحن أو جاهزية الإنتاج. لا تُعرض محتويات المهام ولا تُرسل إعادة محاولات.'));
-        refresh=n('button','Refresh process observations','تحديث ملاحظات العمليات');refresh.type='button';refresh.onclick=load;
+        refresh=n('button','Refresh process observations','تحديث ملاحظات العمليات');refresh.type='button';refresh.onclick=()=>load();
         status=document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');output=document.createElement('div');root.append(refresh,status,output);
     }
     document.addEventListener('visibilitychange',()=>{if(document.hidden&&api){erase();status.replaceChildren(n('span','Private snapshot cleared. Refresh when ready.','تم مسح اللقطة الخاصة. حدّث عندما تكون مستعداً.'));}});
