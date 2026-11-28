@@ -63,6 +63,20 @@ class ChargerDiagnosticsTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[DataProvider('invalidStatusTimes')]
+    public function test_invalid_source_last_message_cannot_report_freshness(string $time): void
+    {
+        [$owner, , , $url] = $this->fixture();
+        Http::fakeSequence()->push(['data' => ['ChargingStations' => [
+            ['id' => 42, 'protocol' => '1.6', 'isOnline' => true, 'latestOcppMessageTimestamp' => $time],
+        ]]])->push(['data' => ['StatusNotifications' => []]]);
+
+        $this->actingAs($owner)->getJson($url)->assertServiceUnavailable()
+            ->assertJsonMissingPath('source_online')
+            ->assertJsonMissingPath('recent_message_observed');
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     private function fixture(string $protocol = '1.6'): array
     {
         Http::preventStrayRequests();

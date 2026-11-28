@@ -12,7 +12,6 @@ use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusDurations;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -72,15 +71,10 @@ class ChargerDiagnosticsController extends Controller
         // No lock spans network calls. Fence permission/ownership/mapping changes before disclosure.
         $current = $this->binding($r, VendorCompany::findOrFail($company->id), VendorCharger::findOrFail($charger->id));
         abort_unless($current->id === $binding->id && $current->identifier === $binding->identifier && $current->protocol === $binding->protocol && $current->station_id === $binding->station_id, 409, 'Source mapping changed; refresh before inspection.');
-        $last = null;
-        if ($source && ($source['latestOcppMessageTimestamp'] ?? null)) {
-            try {
-                $last = CarbonImmutable::parse($source['latestOcppMessageTimestamp']);
-            } catch (Throwable) {
-                abort(503, 'Source timestamp is invalid.');
-            }
-        }
-        $recent = $last !== null && $last->lessThanOrEqualTo(now()) && $last->greaterThanOrEqualTo(now()->subMinutes(5));
+        $messageTime = $source['latestOcppMessageTimestamp'] ?? null;
+        $last = $messageTime === null ? null : SourceStatusTime::parse($messageTime);
+        $observedAt = now();
+        $recent = $last !== null && $last->greaterThanOrEqualTo($observedAt->copy()->subMinutes(5));
         $more = count($events) > 25;
         $previous = (int) ($v['before'] ?? 2147483647);
         foreach ($events as $event) {
@@ -96,7 +90,7 @@ class ChargerDiagnosticsController extends Controller
             'automatic_monitor' => DB::table('charging_fault_cursors')->where('source_generation', FaultMonitor::generation($binding))->first(['state', 'checked_at']),
             'can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'],
             'evidence' => 'SIMULATED_SOURCE', 'protocol' => $binding->protocol,
-            'observed_at' => now()->toISOString(), 'source_registered' => $source !== null,
+            'observed_at' => $observedAt->toISOString(), 'source_registered' => $source !== null,
             'source_online' => $source['isOnline'] ?? null, 'last_message_at' => $last?->toISOString(),
             'recent_message_observed' => $recent, 'freshness_seconds' => 300,
             'firmware_version' => isset($source['firmwareVersion']) ? mb_substr((string) $source['firmwareVersion'], 0, 100) : null,
