@@ -60,6 +60,7 @@ function page(data = [grant], url = '') {
   return {
     current_page:Number(params.get('page') || 1), last_page:2, total:30, data,
     filters:{company_id:params.has('company_id') ? Number(params.get('company_id')) : null,
+      user_id:params.has('user_id') ? Number(params.get('user_id')) : null,
       status:params.get('status'), hold:params.get('hold')},
   };
 }
@@ -159,17 +160,20 @@ test('filter scoping and pagination preserve bounded review arguments', async ()
   nodes(filters,'select')[0].value='active';
   nodes(filters,'select')[1].value='unheld';
   nodes(filters,'input')[0].value='2';
+  nodes(filters,'input')[1].value='3';
   filters.oninput();
   assert.equal(nodes(ui.root,'article').length,0);
   filters.onsubmit({preventDefault(){}});
   await tick();
   assert.match(paths[1],/status=active/);
   assert.match(paths[1],/company_id=2/);
+  assert.match(paths[1],/user_id=3/);
   assert.match(paths[1],/hold=unheld/);
   const next=nodes(ui.root,'button').find(n=>n.textContent.includes('Next'));
   next.onclick();
   await tick();
   assert.match(paths[2],/page=2/);
+  assert.match(paths[2],/user_id=3/);
 });
 
 test('stale revoke reply cannot repopulate private controls after identity changes', async () => {
@@ -226,7 +230,7 @@ test('Admin security hold cannot be lifted with one click and does not silently 
   assert.equal(calls.filter(x=>x.p.endsWith('/release')).length,1);
   assert.match(ui.root.textContent,/Permission status: revoked/);
   assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Release Admin hold')).length,0);
-  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Emergency revoke')).length,1);
+  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Place Admin hold')).length,1);
 });
 
 test('Admin hold history distinguishes release from revoke without HTML rendering', async () => {
@@ -302,4 +306,36 @@ test('mismatched hold scope cannot expose rows or offer a grant mutation', async
   await tick();
   assert.match(ui.root.textContent,/Staff permission records unavailable/);
   assert.doesNotMatch(ui.root.textContent,/private-staff@example.test|Emergency revoke/);
+});
+
+test('staff account scope rejects foreign rows and unsafe identifiers before private controls appear', async () => {
+  const ui=fixture(), paths=[];
+  ui.setActor({role:'admin'},async url=>{paths.push(url);return page([grant],url);});
+  await tick();
+  const form=nodes(ui.root,'form')[0], input=nodes(form,'input')[1];
+  input.value='4';form.oninput();form.onsubmit({preventDefault(){}});await tick();
+  assert.match(paths.at(-1),/user_id=4/);
+  assert.doesNotMatch(ui.root.textContent,/private-staff@example.test|Emergency revoke/);
+  input.value='9007199254740992';form.oninput();form.onsubmit({preventDefault(){}});await tick();
+  assert.equal(paths.length,2);
+  assert.match(ui.root.textContent,/valid staff account ID/);
+});
+test('owner-revoked grant uses explicit hold action and preserves exact review version', async () => {
+  const ui=fixture(), calls=[];
+  let held=false;
+  ui.setActor({role:'admin'},async (url,method='GET',body)=>{
+    calls.push({url,method,body});
+    if (method==='POST') {held=true;return {id:17,status:'revoked',invitation_version:5,admin_emergency_hold:true};}
+    return page([{...grant,status:'revoked',admin_emergency_hold:held,invitation_version:held?5:4}],url);
+  });
+  await tick();
+  const trigger=nodes(ui.root,'button').find(n=>n.textContent.includes('Place Admin hold'));
+  assert.ok(trigger);trigger.onclick();
+  const form=nodes(ui.root,'form').find(x=>nodes(x,'textarea').length);
+  nodes(form,'textarea')[0].value='Prevent re-invitation pending independent investigation';
+  await form.onsubmit({preventDefault(){}});await tick();
+  assert.equal(calls[1].url,'admin/permission-grants/17/revoke');
+  assert.equal(calls[1].body.expected_version,4);
+  assert.match(ui.root.textContent,/Admin hold placed/);
+  assert.ok(nodes(ui.root,'button').some(n=>n.textContent.includes('Release Admin hold')));
 });

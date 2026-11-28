@@ -8,6 +8,7 @@ window.EvAdminStaffPermissions = (() => {
     let request = null;
     let status = null;
     let company = null;
+    let staff = null;
     let hold = null;
     let message = null;
     let results = null;
@@ -81,6 +82,7 @@ window.EvAdminStaffPermissions = (() => {
             && (grant.company === null || grant.company?.id === grant.company_id)
             && (grant.user === null || grant.user?.id === grant.user_id)
             && (scope.company_id === null || scope.company_id === grant.company_id)
+            && (scope.user_id === null || scope.user_id === grant.user_id)
             && (scope.status === null || scope.status === grant.status)
             && (scope.hold === null || (scope.hold === "held") === grant.admin_emergency_hold);
     }
@@ -90,7 +92,8 @@ window.EvAdminStaffPermissions = (() => {
         const releasing = grant.admin_emergency_hold;
         const action = releasing ? "release" : "revoke";
         const trigger = button(
-            releasing ? "Release Admin hold / رفع التعليق" : "Emergency revoke / إلغاء الوصول",
+            releasing ? "Release Admin hold / رفع التعليق" : grant.status === "revoked"
+                ? "Place Admin hold / فرض تعليق إداري" : "Emergency revoke / إلغاء الوصول",
             () => {
                 if (!active(controller)) return;
                 const form = node("form");
@@ -126,7 +129,8 @@ window.EvAdminStaffPermissions = (() => {
                             || (releasing && receipt.requires_fresh_invitation !== true)) {
                             throw new Error("Invalid permission receipt");
                         }
-                        notice = releasing ? "Hold released. The company owner must re-invite staff." : "Staff access revoked.";
+                        notice = releasing ? "Hold released. The company owner must re-invite staff."
+                            : grant.status === "revoked" ? "Admin hold placed. Re-invitation is blocked." : "Staff access revoked.";
                     } catch {
                         notice = "The change could not be confirmed. Review the current grant before trying again.";
                     }
@@ -189,10 +193,17 @@ window.EvAdminStaffPermissions = (() => {
             return;
         }
 
+        const staffText = staff.value.trim();
+        if (staffText && (!/^\d+$/.test(staffText) || !positiveInteger(Number(staffText)))) {
+            message.textContent = "Enter a valid staff account ID / أدخل معرف حساب موظف صالحاً.";
+            return;
+        }
+
         const controller = new AbortController();
         currentRequest = controller;
         const scope = {
             company_id: companyText ? Number(companyText) : null,
+            user_id: staffText ? Number(staffText) : null,
             status: status.value || null,
             hold: hold.value || null,
         };
@@ -257,10 +268,15 @@ window.EvAdminStaffPermissions = (() => {
         company.min = 1;
         company.max = Number.MAX_SAFE_INTEGER;
         company.setAttribute("aria-label", "Company ID");
+        staff = node("input");
+        staff.type = "number";
+        staff.min = 1;
+        staff.max = Number.MAX_SAFE_INTEGER;
+        staff.setAttribute("aria-label", "Staff account ID");
         const submit = node("button", "Search / بحث");
         submit.type = "submit";
         filters.append(field("Status", status), field("Company ID (optional)", company),
-            field("Admin hold", hold), submit);
+            field("Staff account ID / معرف حساب الموظف", staff), field("Admin hold", hold), submit);
         filters.onsubmit = event => { event.preventDefault(); load(); };
         filters.oninput = () => {
             invalidate();

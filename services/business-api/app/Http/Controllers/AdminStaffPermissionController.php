@@ -33,7 +33,8 @@ class AdminStaffPermissionController extends Controller
                 $this->activeAdmin($request)
             );
             $input = $request->validate([
-                'company_id' => 'sometimes|integer|min:1',
+                'company_id' => 'sometimes|integer|min:1|max:9007199254740991',
+                'user_id' => 'sometimes|integer|min:1|max:9007199254740991',
                 'status' => 'sometimes|in:active,invited,revoked',
                 'hold' => 'sometimes|in:held,unheld',
                 'page' => 'sometimes|integer|min:1|max:100000',
@@ -46,6 +47,9 @@ class AdminStaffPermissionController extends Controller
             if (isset($input['company_id'])) {
                 $query->where('company_id', $input['company_id']);
             }
+            if (isset($input['user_id'])) {
+                $query->where('user_id', $input['user_id']);
+            }
             if (isset($input['status'])) {
                 $query->where('status', $input['status']);
             }
@@ -55,7 +59,7 @@ class AdminStaffPermissionController extends Controller
                 $query->whereNull('admin_revoked_at');
             }
 
-            $page = $query->orderByDesc('id')->paginate(25);
+            $page = $query->orderByDesc('id')->paginate(25)->appends($input);
             $rows = $page->getCollection();
             $companies = VendorCompany::query()
                 ->whereIn('id', $rows->pluck('company_id'))
@@ -103,6 +107,7 @@ class AdminStaffPermissionController extends Controller
 
             return response()->json($view->toArray() + ['filters' => [
                 'company_id' => isset($input['company_id']) ? (int) $input['company_id'] : null,
+                'user_id' => isset($input['user_id']) ? (int) $input['user_id'] : null,
                 'status' => $input['status'] ?? null,
                 'hold' => $input['hold'] ?? null,
             ]])->header('Cache-Control', 'no-store, private');
