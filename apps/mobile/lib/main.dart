@@ -4,6 +4,7 @@ import 'unified_discovery.dart';
 import 'session_cost.dart';
 import 'precharge_pricing.dart';
 import 'vendor_campaigns.dart';
+import 'admin_campaign_review.dart';
 import 'provider_disputes.dart';
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
@@ -1555,6 +1556,10 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                           RiderAccessView(api: api!, onExpired: expiredSession),
                     ),
                   );
+                } else if (value == 'adminCampaignReview') {
+                  if (account?.role != 'admin') return;
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                    AdminCampaignReviewView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'vendorCampaigns') {
                   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
                     VendorCampaignsView(api: api!, onExpired: expiredSession)));
@@ -1786,6 +1791,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     value: 'financeApprovalQueue',
                     enabled: !busy,
                     child: Text(financeReviewText(context, 'Pending finance reviews', 'المراجعات المالية المعلقة')),
+                  ),
+                if (account!.role == 'admin')
+                  PopupMenuItem(
+                    value: 'adminCampaignReview',
+                    enabled: !busy,
+                    child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'إدارة الحملات' : 'Campaign administration'),
                   ),
                 if (account!.role == 'vendor')
                   PopupMenuItem(

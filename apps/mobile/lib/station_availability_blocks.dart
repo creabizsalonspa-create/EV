@@ -87,6 +87,24 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
     }
     setState(() => rows = typed);
   }
+  Future<void> readAfterWrite(int ticket, String confirmation) async {
+    try {
+      await read(ticket);
+      if (!current(ticket)) return;
+      setState(() => message = confirmation);
+    } catch (error) {
+      if (!current(ticket)) return;
+      if (error is ApiException && [401, 419].contains(error.status)) rethrow;
+      setState(() {
+        rows = [];
+        message = '$confirmation ${t(
+          'The block list is unavailable. Refresh to view current blocks.',
+          'قائمة الفترات غير متاحة. حدّث الصفحة لعرض الفترات الحالية.',
+        )}';
+      });
+    }
+  }
+
   Future<void> act(Future<void> Function(int) task) async {
     if (busy || background || !owner()) return;
     final ticket=generation;setState(() {busy=true;message=null;});
@@ -121,7 +139,14 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
         result['reason_ar'] != pending!['reason_ar']) {
       throw const ApiException(502, 'Invalid block receipt');
     }
-    pending=null;for(final controller in fields.values)controller.clear();await read(ticket);
+    pending = null;
+    for (final controller in fields.values) {
+      controller.clear();
+    }
+    final confirmation = result['cancelled'] == true
+        ? t('This station block was already cancelled.', 'أُلغيت فترة حجب المحطة سابقاً.')
+        : t('Station block published.', 'نُشرت فترة حجب المحطة.');
+    await readAfterWrite(ticket, confirmation);
   });
   Future<void> cancel(Map<String, dynamic> row) => act((ticket) async {
     final result = await widget.api.request('$path/${row['id']}/cancel',
@@ -136,7 +161,7 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
         result['reason_ar'] != row['reason_ar']) {
       throw const ApiException(502, 'Invalid cancellation receipt');
     }
-    await read(ticket);
+    await readAfterWrite(ticket, t('Station block cancelled.', 'أُلغيت فترة حجب المحطة.'));
   });
 
   @override

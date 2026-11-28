@@ -517,6 +517,36 @@ class CorporateBillingTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_exact_corporate_claim_and_statement_replays_survive_agreement_expiry(): void
+    {
+        $agreement = $this->agreement();
+        $invoice = $this->invoice();
+        $claim = $this->approved($agreement, $invoice);
+        $statementUrl = $this->url('agreements/'.$agreement['id'].'/statements');
+        $claimUrl = $this->url('agreements/'.$agreement['id'].'/claims');
+        $statementInput = ['period' => now()->format('Y-m'), 'claim_ids' => [$claim['id']], 'idempotency_key' => 'recover-statement'];
+        $claimInput = ['invoice_id' => $invoice->id, 'cost_center_id' => $this->center, 'idempotency_key' => 'claim-'.$invoice->id];
+        $statement = $this->postJson($statementUrl, $statementInput)->assertCreated()->json('statement');
+
+        $this->travel(2)->years();
+        $this->postJson($statementUrl, $statementInput)->assertCreated()
+            ->assertJsonPath('statement.id', $statement['id'])->assertJsonPath('statement.number', $statement['number']);
+        $this->postJson($statementUrl, array_replace($statementInput, ['idempotency_key' => 'new-statement']))
+            ->assertConflict();
+        $this->postJson($statementUrl, array_replace($statementInput, ['claim_ids' => [$claim['id'] + 1]]))
+            ->assertConflict()->assertJsonPath('message', 'Corporate request key payload changed.');
+
+        $this->actingAs($this->driver)->postJson($claimUrl, $claimInput)->assertCreated()->assertJsonPath('claim.id', $claim['id']);
+        $this->postJson($claimUrl, array_replace($claimInput, ['idempotency_key' => 'new-claim']))
+            ->assertConflict();
+        DB::table('fleet_members')->where('fleet_id', $this->fleet->id)->where('user_id', $this->driver->id)->update(['status' => 'revoked']);
+        $this->postJson($claimUrl, $claimInput)->assertNotFound();
+        $this->assertDatabaseCount('corporate_claims', 1);
+        $this->assertDatabaseCount('corporate_statements', 1);
+        $this->assertDatabaseCount('corporate_statement_lines', 1);
+        $this->assertDatabaseCount('corporate_receipts', 0);
+    }
+
     public function test_wrong_cost_center_month_duplicate_claims_and_changed_key_payload_are_rejected(): void
     {
         $a = $this->agreement();
