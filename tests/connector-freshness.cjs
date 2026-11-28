@@ -1,7 +1,23 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),{test}=require('node:test');
-const window={};vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),{window});
+function load(context) {
+ for (const script of ['station-time','connector-freshness']) {
+  vm.runInNewContext(fs.readFileSync(`services/business-api/public/${script}.js`,'utf8'),context);
+ }
+}
+const window={};load({window});
 const state=window.EvConnectorFreshness.state;
+function liveElement() {
+ let text = '', updates = 0;
+ const attributes = new Map();
+ return {
+  dataset:{}, isConnected:true, attributes,
+  setAttribute:(key,value)=>attributes.set(key,value),
+  get textContent(){return text;},
+  set textContent(value){text=value;updates++;},
+  get updates(){return updates;},
+ };
+}
 const value={state:'recent',reported_status:'Available',evidence:'SIMULATED_SOURCE',physical_availability_verified:false,max_age_seconds:300,observed_at:'2026-11-14T05:00:00Z',checked_at:'2026-11-14T05:04:00Z',valid_until:'2026-11-14T05:05:00Z'};
 test('connector status expires on screen using elapsed time, independent of client clock',()=>{assert.equal(state(value,59999),'Available');assert.equal(state(value,60000),'stale');});
 test('malformed, unsupported, physical and future claims fail closed',()=>{
@@ -11,12 +27,19 @@ test('malformed, unsupported, physical and future claims fail closed',()=>{
 
 test('actual display expires in both languages and disposes its timer when removed',()=>{
  for (const lang of ['en','ar']) {
-  let elapsed=0,tick,cancelled=false;const element={dataset:{},isConnected:true};
+  let elapsed=0,tick,cancelled=false;const element=liveElement();
   const context={window:{},document:{documentElement:{lang},createElement:()=>element},performance:{now:()=>elapsed},setInterval:fn=>{tick=fn;return 1;},clearInterval:id=>{assert.equal(id,1);cancelled=true;}};
-  vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),context);
+  load(context);
   context.window.EvConnectorFreshness.attach({append:p=>assert.equal(p,element)},value);
   assert.match(element.textContent,lang==='ar'?/متاح بحسب المصدر/:/Available/);
+  assert.equal(element.attributes.get('role'),'status');
+  assert.equal(element.attributes.get('aria-atomic'),'true');
+  assert.match(element.textContent,/\(UTC\)$/);
+  assert.doesNotMatch(element.textContent,/2026-11-14T05:00:00Z/);
+  const updates=element.updates;
+  elapsed=1000;tick();assert.equal(element.updates,updates);
   elapsed=60000;tick();assert.match(element.textContent,lang==='ar'?/قديم/:/stale/);
+  elapsed=61000;tick();assert.equal(element.updates,updates+1);
   assert.match(element.textContent,lang==='ar'?/التوفر الفعلي غير مؤكد/:/Physical availability is unverified/);
   element.isConnected=false;tick();assert.equal(cancelled,true);
   elapsed=0; element.isConnected=true;
@@ -50,12 +73,12 @@ test('connector clocks reject impossible calendar dates rather than silently rol
 test('malformed or untrusted observed clock cannot appear in EN/AR label',()=>{
  for(const lang of ['en','ar']){
   let tick;
-  const element={dataset:{},isConnected:true};
+  const element=liveElement();
   const window={},document={documentElement:{lang},createElement:()=>element};
   const perf={now:()=>0};
   const env={window,document,performance:perf,setInterval:fn=>{tick=fn;return 1;},
     clearInterval:()=>{}};
-  vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),env);
+  load(env);
   window.EvConnectorFreshness.attach({append:()=>{}},{...value,observed_at:'2026-02-30T05:00:00Z'});
   assert.doesNotMatch(element.textContent,/2026-02-30/);
   assert.match(element.textContent,lang==='ar'?/غير معروف/:/unknown/);
@@ -75,6 +98,8 @@ test('unresolved evidence stays unknown after expiry and malformed UTC never bec
   {observed_at: '2026-11-14T05:04:00.000002Z', checked_at: '2026-11-14T05:04:00.000001Z', valid_until: '2026-11-14T05:09:00.000002Z'},
  ]) assert.equal(state({...value, ...update}, 60000), 'unknown');
  assert.equal(state({...value, state: 'stale'}), 'unknown');
+ assert.equal(state({...value, checked_at: value.valid_until}), 'unknown');
+ assert.equal(state({...value, state: 'stale', checked_at: value.valid_until}), 'unknown');
  assert.equal(state({...value, state: 'stale', reported_status: null, checked_at: value.valid_until}), 'stale');
 });
 
@@ -88,9 +113,9 @@ test('valid microsecond observations expire at the exact source cutoff', () => {
 
 test('contradictory or incomplete source evidence hides time even after expiry', () => {
  for(const lang of ['en','ar']){
-  const element={dataset:{},isConnected:true};
+  const element=liveElement();
   const env={window:{},document:{documentElement:{lang},createElement:()=>element},performance:{now:()=>480000},setInterval:()=>1,clearInterval:()=>{}};
-  vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),env);
+  load(env);
   for(const update of [{state:'unknown'},{reported_status:null},{state:'stale'},{max_age_seconds:301},{checked_at:'2026-11-14T05:04:00Z\n'},{valid_until:'2026-11-14T05:05:00.000001Z'}]){
    const claim={...value,...update};
    assert.equal(state(claim,480000),'unknown');
