@@ -72,6 +72,53 @@ class OcpiIntegrationTest extends TestCase
         $this->assertArrayNotHasKey('commands', $modules);
     }
 
+    public function test_network_profiles_negotiate_only_approved_sender_modules_and_reject_stale_scope(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.connections.contract-test.read_modules' => ['sessions']]);
+        Http::fake([
+            'https://partner.example/ocpi/versions' => Http::response($this->envelope([
+                ['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1'],
+            ])),
+            'https://partner.example/ocpi/2.2.1' => Http::response($this->advertise()),
+            'https://partner.example/ocpi/2.2.1/sessions' => Http::response($this->envelope([$this->sessionFixture()])),
+        ]);
+        $client = app(PartnerClient::class);
+        $endpoints = $client->negotiate($provider);
+        $this->assertSame(['sessions'], array_keys($endpoints));
+        $this->assertSame(['sessions'], $provider->fresh()->readable_modules);
+        $this->assertCount(1, $client->pull($provider->fresh(), 'sessions'));
+        config(['ocpi.connections.contract-test.read_modules' => ['locations']]);
+        $this->assertSame([], $provider->fresh()->readable_modules);
+        try {
+            $client->pull($provider->fresh(), 'sessions');
+            $this->fail('A stale negotiated sender escaped the current network scope.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('approved network read scope', $error->getMessage());
+        }
+        Http::assertSentCount(3);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_invalid_network_read_profiles_fail_closed_before_negotiation(): void
+    {
+        $provider = $this->provider();
+        Http::fake();
+        foreach ([null, true, 'locations', ['locations', 'locations'], ['commands'], ['x' => 'locations'], [1]] as $scope) {
+            config(['ocpi.connections.contract-test.read_modules' => $scope]);
+            try {
+                app(PartnerClient::class)->negotiate($provider);
+                $this->fail('Malformed network read scope dispatched negotiation.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('network read scope', $error->getMessage());
+            }
+        }
+        Http::assertNothingSent();
+        $this->assertNull($provider->fresh()->version);
+    }
+
     public function test_legacy_headerless_synthetic_partner_read_remains_available_without_conformance_claim(): void
     {
         $provider = $this->provider();

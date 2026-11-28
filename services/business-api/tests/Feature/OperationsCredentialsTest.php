@@ -55,6 +55,45 @@ class OperationsCredentialsTest extends TestCase
         Http::assertSent(fn (Request $r) => $r->url() === 'https://identity.example.test/token' && $r['grant_type'] === 'client_credentials' && $r['scope'] === 'csms:operations' && $r->hasHeader('Authorization', 'Basic '.base64_encode('business-operations:'.str_repeat('private-secret-', 4))));
     }
 
+    public static function duplicateJwtMembers(): array
+    {
+        return [
+            [0, '"alg":"none",'], [0, '"k\u0069d":"other",'],
+            [1, '"tenantId":2,'], [1, '"\u0061ud":"https://other.test",'],
+            [1, '"roles":["viewer"],'], [1, '"extra":{"x":1,"\u0078":2},'],
+        ];
+    }
+
+    #[DataProvider('duplicateJwtMembers')]
+    public function test_signed_jwt_with_ambiguous_json_members_is_rejected(int $part, string $prefix): void
+    {
+        $pieces = explode('.', $this->jwt());
+        $json = base64_decode(strtr($pieces[$part], '-_', '+/'), true);
+        $encode = fn (string $raw) => rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+        $pieces[$part] = $encode('{'.$prefix.substr($json, 1));
+        $input = $pieces[0].'.'.$pieces[1];
+        openssl_sign($input, $signature, self::$key, OPENSSL_ALGO_SHA256);
+        $jwt = $input.'.'.$encode($signature);
+        $this->serve($jwt);
+        try {
+            app(OperationsCredentials::class)->token('https://csms.example.test');
+            $this->fail('Ambiguous signed JWT accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+            $this->assertStringNotContainsString($jwt, $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/dev/token') || str_contains($request->url(), '/ocpp/'));
+    }
+
+    public function test_distinct_nested_members_and_escaped_strings_do_not_invalidate_jwt(): void
+    {
+        $jwt = $this->jwt(['metadata' => [['key' => 'a"b\\c'], ['key' => '{"x":1}']]]);
+        $this->serve($jwt);
+        $this->assertSame($jwt, app(OperationsCredentials::class)->token('https://csms.example.test'));
+        Http::assertSentCount(1);
+    }
+
     public static function invalidClaims(): array
     {
         return [

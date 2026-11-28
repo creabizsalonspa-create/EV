@@ -8,9 +8,39 @@ use App\Services\Commercial\Disputes\ExternalDisputes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ExternalDisputesController extends Controller
 {
+    private const MAX_EXACT = 9_007_199_254_740_991;
+
+    private const STATES = ['warning_needs_response', 'warning_under_review', 'warning_closed',
+        'needs_response', 'under_review', 'won', 'lost'];
+
+    private static function exact(mixed $value, int $minimum = 0, int $maximum = self::MAX_EXACT): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409, 'Invalid dispute source integer.');
+        $number = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($number !== false && $number >= $minimum && $number <= $maximum,
+            409, 'Invalid dispute source bounds.');
+
+        return $number;
+    }
+
+    private static function verifySource(object $row): array
+    {
+        abort_unless(in_array($row->status, self::STATES, true)
+            && is_string($row->currency) && preg_match('/\A[A-Z]{3}\z/', $row->currency) === 1,
+            409, 'Invalid dispute source state or currency.');
+
+        return [
+            'id' => self::exact($row->id, 1),
+            'invoice_id' => self::exact($row->invoice_id, 1),
+            'amount_minor' => self::exact($row->amount_minor, 1),
+            'minor_units' => self::exact($row->minor_units, 0, 3),
+        ];
+    }
+
     /** Must run within a transaction that retains the live user row lock. */
     private function scoped(Request $r)
     {
@@ -38,7 +68,7 @@ class ExternalDisputesController extends Controller
 
     private function sanitized(object $row): array
     {
-        $value = (array) $row;
+        $value = array_replace((array) $row, self::verifySource($row));
         unset($value['provider_reference'], $value['charge_reference']);
         $value['settlement_hold'] = (bool) $value['settlement_hold'];
         $value['deadline_passed'] = in_array($value['status'], ['needs_response', 'warning_needs_response'], true) && $value['evidence_due_at'] && Carbon::parse($value['evidence_due_at'])->isPast();
@@ -49,10 +79,20 @@ class ExternalDisputesController extends Controller
 
     public function index(Request $r)
     {
-        $v = $r->validate(['attention' => 'sometimes|boolean']);
+        $v = $r->validate([
+            'attention' => 'sometimes|boolean',
+            'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
+            'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+            'status' => ['sometimes', Rule::in(self::STATES)],
+            'per_page' => 'sometimes|integer|between:1,25',
+            'page' => 'sometimes|integer|between:1,10000',
+        ]);
 
         return DB::transaction(function () use ($r, $v) {
-            $query = $this->scoped($r);
+            $query = $this->scoped($r)
+                ->when(isset($v['currency']), fn ($q) => $q->where('d.currency', $v['currency']))
+                ->when(isset($v['invoice_id']), fn ($q) => $q->where('i.id', (int) $v['invoice_id']))
+                ->when(isset($v['status']), fn ($q) => $q->where('d.status', $v['status']));
             if ($v['attention'] ?? false) {
                 $query->where(function ($q) {
                     $q->whereIn('d.status', ['lost', 'needs_response', 'warning_needs_response'])
@@ -64,8 +104,20 @@ class ExternalDisputesController extends Controller
                 });
             }
 
-            return response()->json($query->orderByDesc('d.id')->paginate(25)
-                ->through(fn ($row) => $this->sanitized($row)))
+            $page = $query->orderByDesc('d.id')
+                ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(fn ($row) => $this->sanitized($row));
+
+            return response()->json($page->toArray() + [
+                'scope' => [
+                    'currency' => $v['currency'] ?? null,
+                    'invoice_id' => isset($v['invoice_id']) ? (int) $v['invoice_id'] : null,
+                    'status' => $v['status'] ?? null,
+                    'attention' => (bool) ($v['attention'] ?? false),
+                ],
+                'evidence' => 'STRIPE_TEST_CONTRACT',
+                'real_money_moved' => false,
+            ])
                 ->header('Cache-Control', 'private, no-store');
         }, 3);
     }
@@ -81,24 +133,33 @@ class ExternalDisputesController extends Controller
             abort_unless($actor->role === 'admin', 403);
             $values = $r->validate([
                 'window_hours' => 'sometimes|integer|between:0,168',
+                'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
+                'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
                 'per_page' => 'sometimes|integer|between:1,25',
                 'page' => 'sometimes|integer|between:1,10000',
             ]);
             $window = (int) ($values['window_hours'] ?? 48);
-            $cutoff = now()->addHours($window);
-            $query = $this->scoped($r)->where(function ($q) use ($cutoff) {
-                $q->where('d.status', 'lost')
-                    ->orWhere(function ($q) use ($cutoff) {
-                        $q->whereIn('d.status', ['needs_response', 'warning_needs_response'])
-                            ->whereNotNull('d.evidence_due_at')
-                            ->where('d.evidence_due_at', '<=', $cutoff);
-                    })
-                    ->orWhereExists(function ($q) {
-                        $q->selectRaw('1')->from('external_dispute_evidence as e')
-                            ->whereColumn('e.dispute_id', 'd.id')
-                            ->whereIn('e.status', ['sending', 'uncertain']);
-                    });
-            });
+            $observedAt = now();
+            $cutoff = $observedAt->copy()->addHours($window);
+            $query = $this->scoped($r)
+                ->when(isset($values['currency']), fn ($q) => $q->where('d.currency', $values['currency']))
+                ->when(isset($values['invoice_id']), fn ($q) => $q->where('i.id', (int) $values['invoice_id']))
+                ->selectSub(DB::table('external_dispute_evidence as pending')
+                    ->selectRaw('COUNT(*)')->whereColumn('pending.dispute_id', 'd.id')
+                    ->whereIn('pending.status', ['sending', 'uncertain']), 'uncertain_evidence_count')
+                ->where(function ($q) use ($cutoff) {
+                    $q->where('d.status', 'lost')
+                        ->orWhere(function ($q) use ($cutoff) {
+                            $q->whereIn('d.status', ['needs_response', 'warning_needs_response'])
+                                ->whereNotNull('d.evidence_due_at')
+                                ->where('d.evidence_due_at', '<=', $cutoff);
+                        })
+                        ->orWhereExists(function ($q) {
+                            $q->selectRaw('1')->from('external_dispute_evidence as e')
+                                ->whereColumn('e.dispute_id', 'd.id')
+                                ->whereIn('e.status', ['sending', 'uncertain']);
+                        });
+                });
             // SQLite sorts NULLs first while PostgreSQL sorts them last for ASC.
             // Keep active evidence deadlines ahead of unresolved lost cases on both.
             $page = $query
@@ -107,29 +168,25 @@ class ExternalDisputesController extends Controller
                 ->orderBy('d.evidence_due_at')->orderBy('d.id')
                 ->paginate((int) ($values['per_page'] ?? 20),
                     ['*'], 'page', (int) ($values['page'] ?? 1));
-            $rows = $page->getCollection()->map(function ($row) {
-                $unresolved = DB::table('external_dispute_evidence')
-                    ->where('dispute_id', $row->id)
-                    ->whereIn('status', ['sending', 'uncertain'])->exists();
+            $rows = $page->getCollection()->map(function ($row) use ($observedAt) {
+                $source = self::verifySource($row);
+                $unresolved = self::exact($row->uncertain_evidence_count) > 0;
                 $needs = in_array($row->status, ['needs_response', 'warning_needs_response'], true);
                 $expired = $needs && $row->evidence_due_at
-                    && Carbon::parse($row->evidence_due_at)->isPast();
+                    && Carbon::parse($row->evidence_due_at)->lessThan($observedAt);
                 $urgency = $row->status === 'lost' ? 'financial_resolution_required'
                     : ($unresolved ? 'provider_submission_uncertain'
                         : ($expired ? 'deadline_passed' : 'evidence_due_soon'));
 
                 return [
-                    'id' => (int) $row->id,
-                    'invoice_id' => (int) $row->invoice_id,
+                    ...$source,
                     'currency' => $row->currency,
-                    'minor_units' => (int) $row->minor_units,
-                    'amount_minor' => (int) $row->amount_minor,
                     'status' => $row->status,
                     'urgency' => $urgency,
                     'evidence_due_at' => $row->evidence_due_at,
                     'provider_observed_at' => $row->provider_observed_at,
                     'provider_observation_stale' => ! $row->provider_observed_at
-                        || Carbon::parse($row->provider_observed_at)->lessThan(now()->subDay()),
+                        || Carbon::parse($row->provider_observed_at)->lessThan($observedAt->copy()->subDay()),
                     'deadline_passed' => (bool) $expired,
                     'settlement_hold' => (bool) $row->settlement_hold,
                     'requires_financial_resolution' => $row->status === 'lost',
@@ -146,6 +203,10 @@ class ExternalDisputesController extends Controller
                 'last_page' => $page->lastPage(),
                 'per_page' => $page->perPage(),
                 'window_hours' => $window,
+                'scope' => [
+                    'currency' => $values['currency'] ?? null,
+                    'invoice_id' => isset($values['invoice_id']) ? (int) $values['invoice_id'] : null,
+                ],
                 'provider_actions_performed' => false,
                 'real_money_moved' => false,
                 'evidence' => 'STRIPE_TEST_CONTRACT',

@@ -24,7 +24,8 @@ final class FinanceReconciliationAuditController extends Controller
         $user = app(CurrentFinanceReader::class)->requireCurrent($request);
         abort_unless(in_array($user->role, ['vendor', 'admin'], true), 403);
         $values = $request->validate([
-            'currency' => ['sometimes', 'regex:/^[A-Z]{3}$/'],
+            'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
+            'vendor_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
             'from' => ['sometimes', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
             'per_page' => ['sometimes', 'integer', 'between:1,25'],
@@ -32,8 +33,13 @@ final class FinanceReconciliationAuditController extends Controller
         ]);
 
         $query = Invoice::query();
+        $vendor = isset($values['vendor_id']) ? (int) $values['vendor_id'] : null;
         if ($user->role === 'vendor') {
-            $query->where('vendor_id', $user->id);
+            abort_if($vendor !== null && $vendor !== $user->id, 404);
+            $vendor = $user->id;
+        }
+        if ($vendor !== null) {
+            $query->where('vendor_id', $vendor);
         }
         if (isset($values['currency'])) {
             $query->where('currency', $values['currency']);
@@ -57,6 +63,12 @@ final class FinanceReconciliationAuditController extends Controller
             'last_page' => $page->lastPage(),
             'per_page' => $page->perPage(),
             'total' => $page->total(),
+            'scope' => [
+                'vendor_id' => $vendor,
+                'currency' => $values['currency'] ?? null,
+                'from' => $values['from'] ?? null,
+                'to' => $values['to'] ?? null,
+            ],
             'evidence' => 'SIMULATED_INTERNAL_RECONCILIATION',
             'external_psp_or_bank_verified' => false,
         ];

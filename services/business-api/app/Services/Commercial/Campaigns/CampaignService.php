@@ -32,11 +32,43 @@ class CampaignService
         $e = json_decode($i->entitlements, true, 32, JSON_THROW_ON_ERROR);
         $summary = app(SubscriptionService::class)->summary($s->id);
         abort_unless($p->audience === 'vendor' && $summary['entitlements_active'] && $summary['ledger_balanced'] && (int) $s->cycle_number === (int) $i->cycle_number && $receipt && $receipt->currency === $i->currency && $p->currency === $i->currency && (int) $p->minor_units === (int) $i->minor_units && (int) $i->minor_units >= 0 && (int) $i->minor_units <= 3 && (int) $i->total_minor > 0 && (int) $receipt->amount_minor === (int) $i->total_minor && ! DB::table('subscription_credits')->where('invoice_id', $invoice)->exists(), 409, 'An active fully paid vendor package without credits is required.');
+        abort_unless((int) $s->plan_id === (int) $i->plan_id
+            && $s->period_start === $i->period_start && $s->period_end === $i->period_end
+            && $i->evidence === 'MOCK_PROVIDER'
+            && $this->settlementMatches($i, $receipt), 409, 'Paid package settlement evidence is inconsistent.');
         foreach (['campaign_slots', 'campaign_units'] as $key) {
             abort_unless(isset($e[$key]) && is_int($e[$key]) && $e[$key] > 0 && $e[$key] <= 1000000, 409, 'The paid package must explicitly grant campaign slots and delivery units.');
         }
 
         return [$i, $e, $receipt];
+    }
+
+    private function settlementMatches(object $invoice, object $receipt): bool
+    {
+        // Match SubscriptionService::settleReceipt's immutable posting shape.
+        // A receipt and a globally balanced ledger alone cannot establish that
+        // this invoice was paid, or that its cash account matches its source.
+        $cash = match ($receipt->evidence) {
+            'MOCK_PROVIDER' => 'cash:mock_subscription',
+            'STRIPE_TEST_CONTRACT' => 'cash:stripe_test_subscription',
+            default => null,
+        };
+        if ($cash === null) {
+            return false;
+        }
+        $entries = DB::table('commercial_subscription_ledger')->where('invoice_id', $invoice->id)
+            ->where('kind', 'payment')->limit(3)->get(['account', 'debit_minor', 'credit_minor']);
+        if ($entries->count() !== 2) {
+            return false;
+        }
+        $byAccount = $entries->keyBy('account');
+        $debit = $byAccount->get($cash);
+        $credit = $byAccount->get('subscription_receivable');
+        $amount = (string) $invoice->total_minor;
+
+        return $debit && $credit
+            && (string) $debit->debit_minor === $amount && (string) $debit->credit_minor === '0'
+            && (string) $credit->debit_minor === '0' && (string) $credit->credit_minor === $amount;
     }
 
     private function usage(int $invoice): array
@@ -143,6 +175,12 @@ class CampaignService
             }
             if (in_array($action, ['submit', 'approve', 'resume', 'reinstate'], true)) {
                 $this->billing($row->invoice_id, $row->vendor_id, true);
+                // Approval and reactivation must still refer to the original
+                // vendor's station and country. Use the same lock order as
+                // publisher ingestion; restrictive decisions remain available.
+                abort_unless(DB::table('stations')->where('id', $row->station_id)
+                    ->where('vendor_id', $row->vendor_id)->where('country', $row->country)
+                    ->lockForUpdate()->first(), 409, 'Station ownership or country changed.');
                 abort_unless(CarbonImmutable::parse($row->ends_at)->isFuture(), 409, 'Campaign has expired.');
             }
             DB::table('commercial_campaigns')->where('id', $id)->update(['status' => $to, 'updated_at' => now()]);
@@ -198,6 +236,14 @@ class CampaignService
                 abort_unless($this->eligible($c, $v['kind'] === 'click') && $v['country'] === $c->country && $v['placement'] === $c->placement && ($c->region === null || $c->region === ($v['region'] ?? null)), 409, 'Campaign is not eligible for this delivery context.');
                 $occurred = CarbonImmutable::parse($v['occurred_at']);
                 abort_unless($occurred->gte(CarbonImmutable::parse($c->starts_at)) && $occurred->gte(CarbonImmutable::parse($c->created_at)) && $occurred->lt(CarbonImmutable::parse($c->ends_at)) && $occurred->betweenIncluded(now()->subMinutes(5), now()->addMinute()), 422, 'Delivery occurrence is outside the allowed interval.');
+                // A fresh delivery must belong to the current approved window,
+                // not an earlier draft, pause or suspension. Exact replays
+                // return above and never allocate a second delivery unit.
+                $activation = DB::table('commercial_campaign_events')->where('campaign_id', $c->id)
+                    ->orderByDesc('id')->first();
+                abort_unless($activation && in_array($activation->action, ['approve', 'resume', 'reinstate'], true)
+                    && $occurred->gte(CarbonImmutable::parse($activation->created_at)), 409,
+                    'Publisher event predates the current approved campaign window.');
                 $parent = null;
                 if ($v['kind'] === 'click') {
                     $parent = DB::table('commercial_campaign_deliveries')->where('event_id', $v['parent_event_id'] ?? '')->where('campaign_id', $c->id)->where('kind', 'delivery')->first();

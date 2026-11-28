@@ -89,11 +89,52 @@ class OperationsCredentials
         return $raw;
     }
 
+    /** Reject ambiguous JSON members before trusting a signed JWT's claims. */
+    private function jwtObject(string $json): array
+    {
+        $value = json_decode($json, true, 16, JSON_THROW_ON_ERROR);
+        abort_unless(is_array($value) && str_starts_with(ltrim($json), '{'), 503);
+        // JSON syntax and depth are already validated. Walk only object braces
+        // and quoted strings, skipping escaped characters, to detect repeated
+        // decoded member names (including escaped aliases) in every object.
+        $objects = [];
+        $length = strlen($json);
+        for ($i = 0; $i < $length; $i++) {
+            if ($json[$i] === '{') {
+                $objects[] = [];
+
+                continue;
+            }
+            if ($json[$i] === '}') {
+                array_pop($objects);
+
+                continue;
+            }
+            if ($json[$i] !== '"') {
+                continue;
+            }
+            $start = $i++;
+            while ($i < $length && $json[$i] !== '"') {
+                $i += $json[$i] === '\\' ? 2 : 1;
+            }
+            $next = $i + 1 + strspn($json, " \t\r\n", $i + 1);
+            if ($next < $length && $json[$next] === ':') {
+                $name = json_decode(substr($json, $start, $i - $start + 1), true, 2, JSON_THROW_ON_ERROR);
+                $key = "\0".$name;
+                $index = count($objects) - 1;
+                abort_if(isset($objects[$index][$key]), 503);
+                $objects[$index][$key] = true;
+            }
+        }
+
+        return $value;
+    }
+
     private function verify(string $token, string $audience, string $scope, array $authority): void
     {
         abort_unless(strlen($token) <= 16384 && count($pieces = explode('.', $token)) === 3, 503);
-        $header = json_decode($this->decode($pieces[0]), true, 16, JSON_THROW_ON_ERROR);
-        $claims = json_decode($this->decode($pieces[1]), true, 16, JSON_THROW_ON_ERROR);
+        $header = $this->jwtObject($this->decode($pieces[0]));
+        $claims = $this->jwtObject($this->decode($pieces[1]));
         abort_unless(is_array($header) && ($header['alg'] ?? null) === 'RS256' && ($header['typ'] ?? null) === 'JWT' && is_string($header['kid'] ?? null) && ! array_key_exists('crit', $header) && ! array_key_exists('jku', $header) && ! array_key_exists('jwk', $header) && ! array_key_exists('x5u', $header) && is_array($claims), 503);
         $keys = $authority['keys'];
         $pem = is_array($keys) ? ($keys[$header['kid']] ?? null) : null;

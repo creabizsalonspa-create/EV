@@ -256,6 +256,8 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       'min_reported_power_kw',
       'reported_connector',
       'operator_contains',
+      'address_contains',
+      'access_contains',
       'max_source_age_hours',
     ])
       key: TextEditingController(),
@@ -480,7 +482,11 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
       } else {
         valid =
             text.runes.length <=
-                (entry.key == 'reported_connector' ? 80 : 120) &&
+                (entry.key == 'reported_connector'
+                    ? 80
+                    : entry.key == 'address_contains'
+                    ? 150
+                    : 120) &&
             !RegExp(r'[\x00-\x1f\x7f]').hasMatch(text);
         input[entry.key] = text;
       }
@@ -663,7 +669,10 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
                             : null,
                         maxLength: entry.key == 'reported_connector'
                             ? 80
-                            : entry.key == 'operator_contains'
+                            : entry.key == 'address_contains'
+                            ? 150
+                            : ['operator_contains', 'access_contains']
+                                  .contains(entry.key)
                             ? 120
                             : 32,
                         onChanged: edited,
@@ -933,6 +942,14 @@ class _LicensedDiscoveryScreenState extends State<LicensedDiscoveryScreen>
     'operator_contains' => t(
       'Reported operator (optional)',
       'المشغل المبلغ عنه (اختياري)',
+    ),
+    'address_contains' => t(
+      'Reported address or city (optional)',
+      'العنوان أو المدينة حسب التقرير (اختياري)',
+    ),
+    'access_contains' => t(
+      'Reported access (optional, unverified)',
+      'الوصول حسب التقرير (اختياري، غير مؤكد)',
     ),
     _ => t(
       'Maximum report age (1–168 hours, optional)',

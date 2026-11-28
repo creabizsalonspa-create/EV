@@ -20,6 +20,8 @@ test('offline inventory preserves package instances, hashes and unknown licenses
 });
 test('repository inventory covers every current language lock and never infers approval',()=>{
  const result=run(path.resolve('.'));assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);assert(data.lockfiles.length>=4);assert.equal(data.file_selection,'git_index');assert.equal(data.lockfiles_match_source_commit,true);assert(data.component_count>=300);assert(data.components.some(c=>c.ecosystem==='pub'));assert(data.components.some(c=>c.ecosystem==='composer'));assert(data.components.some(c=>c.ecosystem==='npm'));assert(data.components_without_license_declarations>0);assert.equal(data.production_accepted,false);
+ assert(data.lockfiles.some(lock => lock.path === 'services/business-api/package-lock.json' && lock.matches_source_commit));
+ assert(!data.manifests_without_inventory_lock.includes('services/business-api/package.json'));
  for (const [file, kind] of [
   ['infra/staging/Dockerfile', 'container_build'],
   ['infra/staging/compose.yaml', 'container_deployment'],
@@ -27,7 +29,7 @@ test('repository inventory covers every current language lock and never infers a
   ['apps/mobile/ios/Podfile', 'ios_dependencies'],
   ['THIRD_PARTY_NOTICES.md', 'third_party_notices'],
   ['docs/evidence/composer-licenses.json', 'composer_license_declarations'],
-  ['services/business-api/package.json', 'unlocked_web_build_manifest'],
+  ['services/business-api/package.json', 'web_build_manifest'],
   ['services/business-api/vite.config.js', 'web_build_configuration'],
   ['apps/mobile/third_party/pdfium_flutter/CREABIZ_PATCH.md', 'native_dependency_provenance'],
   ['apps/mobile/third_party/pdfium_flutter/pubspec.yaml', 'native_dependency_manifest'],

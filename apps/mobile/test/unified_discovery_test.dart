@@ -137,6 +137,40 @@ class ForgedPublishedApi extends UnifiedApi {
 
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+  test('partner age must match valid server UTC clocks, never ingestion time', () {
+    final row = <String,dynamic>{
+      ...partnerRow(),
+      'source_timestamp_evidence':'PARTNER_REPORTED_ONLY',
+      'source_clock_evidence':'PARTNER_REPORTED_TIME',
+      'source_updated_at':'2026-11-26T12:00:00.000001Z',
+      'catalog_checked_at':'2026-11-27T12:00:00.000000Z',
+      'received_at':'2026-11-27T11:59:59Z',
+      'reported_source_age_minutes':1439,
+    };
+    expect(verifiedPartnerSourceTime(row),row['source_updated_at']);
+    expect(partnerCatalogAgeLabel(row,false),contains('1439 min'));
+    expect(partnerCatalogAgeLabel(row,false),isNot(contains('over 24')));
+    final stale={...row,'catalog_checked_at':'2026-11-27T12:00:00.000001Z','reported_source_age_minutes':1440};
+    expect(partnerCatalogAgeLabel(stale,false),contains('over 24'));
+    expect(partnerCatalogAgeLabel(stale,true),contains('أقدم من 24'));
+    for(final patch in <Map<String,dynamic>>[
+      {'source_updated_at':null},
+      {'source_updated_at':'2026-02-30T12:00:00Z'},
+      {'source_updated_at':'2026-11-28T12:00:00Z'},
+      {'catalog_checked_at':null},
+      {'catalog_checked_at':'2026-11-27T12:00:00'},
+      {'reported_source_age_minutes':1440},
+      {'reported_source_age_minutes':1439.0},
+      {'source_clock_evidence':'PARTNER_CLOCK_AHEAD'},
+      {'source_timestamp_evidence':'LOCAL_INGESTION_TIME'},
+      {'evidence':'LIVE_PROVIDER_VERIFIED'},
+    ]){
+      final bad={...row,...patch};
+      expect(verifiedPartnerSourceTime(bad),isNull,reason:'$patch');
+      expect(partnerCatalogAgeLabel(bad,false),contains('unknown'));
+      expect(partnerCatalogAgeLabel(bad,true),contains('غير معروف'));
+    }
+  });
 
   for (final ar in [false, true]) {
     testWidgets('unverified union source cannot grant a map pin or saved-place action ($ar)', (tester) async {

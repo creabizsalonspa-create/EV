@@ -4,7 +4,8 @@ window.EvReservationPolicy = (() => {
         return terms?.version === 1 && terms.slot_minutes === 30 && terms.arrival_before_minutes === 15 && terms.unused_expiry_minutes === 30 &&
             terms.no_show_fee_minor === 0 && terms.cancellation_fee_minor === 0 && terms.cancellation_rule === 'BEFORE_ADMITTED_OR_UNCERTAIN_START' &&
             terms.occupancy_basis === 'CANONICAL_LOGICAL_SESSION_ONLY' && terms.occupancy_enforcement === 'START_ADMISSION' && terms.physical_occupancy_verified === false &&
-            terms.unresolved_session_requires_reconciliation === true && terms.automatic_stop === false && terms.evidence === 'SIMULATED_BUSINESS_POLICY';
+            terms.unresolved_session_requires_reconciliation === true && terms.automatic_stop === false && terms.evidence === 'SIMULATED_BUSINESS_POLICY' &&
+            (!Object.prototype.hasOwnProperty.call(terms,'price_acceptance_required') || terms.price_acceptance_required === true);
     }
     function attach(root, terms) {
         if (!valid(terms)) return;

@@ -14,6 +14,7 @@ class CredentialsApi extends FixtureApi {
   bool Function() sessionFence() =>
       () => active;
   bool lost = false, expired = false, incoming = false, forgedCapability = false;
+  bool forgedSandboxPolicy = false;
   Map<String, dynamic>? intent;
   @override
   Future<dynamic> request(
@@ -59,6 +60,8 @@ class CredentialsApi extends FixtureApi {
         'physical_availability_verified': false,
         'partner_conformance_verified': false,
         'payment_authority': false,
+        'sandbox_command_policy_ready': false,
+        'sandbox_reservation_policy_ready': forgedSandboxPolicy,
         'modules': [
           for (final module in ['locations', 'tariffs', 'sessions', 'cdrs'])
             {
@@ -110,10 +113,28 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
       expect(find.textContaining(ar ? 'قراءة الشريك نعم' : 'Partner read yes'), findsOneWidget);
+      expect(find.textContaining(ar ? 'سياسة أوامر الاختبار: لا' : 'Sandbox command policy: no'), findsOneWidget);
       expect(find.textContaining('SYNTHETIC-PEER-BOOTSTRAP'), findsNothing);
       expect(api.writes, 0);
     });
   }
+
+  testWidgets('reservation policy without command policy fails closed', (
+    tester,
+  ) async {
+    final api = CredentialsApi();
+    await tester.pumpWidget(MaterialApp(
+      home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Sandbox command policy: no'), findsOneWidget);
+    api.forgedSandboxPolicy = true;
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Partner credentials unavailable.'), findsOneWidget);
+    expect(find.text('Rotate partner credentials'), findsNothing);
+    expect(api.writes, 0);
+  });
 
   testWidgets('forged module authority fails closed without retaining prior credential history', (tester) async {
     final api = CredentialsApi();
