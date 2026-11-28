@@ -95,6 +95,9 @@ final class VendorRevenueCohortController extends Controller
             ->groupBy('j.invoice_id')
             ->select('j.invoice_id')
             ->selectRaw("COUNT(CASE WHEN j.kind = 'invoice' THEN 1 END) AS issuance_count")
+            ->selectRaw("COUNT(CASE WHEN j.kind = 'payment' THEN 1 END) AS payment_count")
+            ->selectRaw("COUNT(CASE WHEN j.kind = 'refund' THEN 1 END) AS refund_count")
+            ->selectRaw("COUNT(CASE WHEN j.kind = 'unpaid_credit' THEN 1 END) AS credit_count")
             ->selectRaw("MIN(CASE WHEN {$journalValid} THEN 1 ELSE 0 END) AS source_valid");
 
         $posting = function (string $table, string $kind) use ($cohortIds, $cutoff, $max, $sqlite) {
@@ -118,7 +121,7 @@ final class VendorRevenueCohortController extends Controller
             }
             $valid = "CASE WHEN {$condition} THEN 1 ELSE 0 END";
             $query->select('p.invoice_id')
-                ->selectRaw("SUM(CASE WHEN {$valid} = 1 THEN p.amount_minor ELSE 0 END) AS amount_minor, MIN({$valid}) AS source_valid")
+                ->selectRaw("COUNT(*) AS receipt_count, SUM(CASE WHEN {$valid} = 1 THEN p.amount_minor ELSE 0 END) AS amount_minor, MIN({$valid}) AS source_valid")
                 ->groupBy('p.invoice_id');
             if ($kind !== 'payment') {
                 $query->selectRaw("SUM(CASE WHEN {$valid} = 1 THEN p.vendor_minor ELSE 0 END) AS vendor_minor");
@@ -134,6 +137,9 @@ final class VendorRevenueCohortController extends Controller
             $invoiceValid .= " AND typeof(i.minor_units) = 'integer' AND typeof(i.total_minor) = 'integer' AND typeof(i.vendor_minor) = 'integer' AND typeof(i.commission_minor) = 'integer' AND typeof(i.tax_minor) = 'integer'";
         }
         $invoiceValid .= ' AND a.issuance_count = 1 AND a.source_valid = 1';
+        // Every non-issuance journal needs its single canonical receipt as of
+        // this cutoff. A balanced orphan posting must not silently disappear.
+        $invoiceValid .= ' AND a.payment_count = COALESCE(p.receipt_count,0) AND a.refund_count = COALESCE(r.receipt_count,0) AND a.credit_count = COALESCE(c.receipt_count,0)';
         $invoiceValid .= ' AND COALESCE(p.source_valid,1) = 1 AND COALESCE(r.source_valid,1) = 1 AND COALESCE(c.source_valid,1) = 1 AND COALESCE(p.amount_minor,0) + COALESCE(c.amount_minor,0) <= i.total_minor AND COALESCE(r.amount_minor,0) <= COALESCE(p.amount_minor,0) AND COALESCE(r.vendor_minor,0) + COALESCE(c.vendor_minor,0) <= i.vendor_minor';
 
         // All period buckets are computed from one SQL snapshot with no per-invoice
