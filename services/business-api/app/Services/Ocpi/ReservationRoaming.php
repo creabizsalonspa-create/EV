@@ -377,6 +377,16 @@ final class ReservationRoaming
         }
     }
 
+    /** Stored database timestamps are UTC SQL clocks, never relative dates. */
+    private function receiptInstant(mixed $value): ?CarbonImmutable
+    {
+        if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/D', $value) !== 1) {
+            return null;
+        }
+
+        return $this->sourceUtcInstant(str_replace(' ', 'T', $value));
+    }
+
     /** A partial or impossible source cancellation receipt cannot release capacity. */
     private function validSourceCancellation(object $row): bool
     {
@@ -395,14 +405,11 @@ final class ReservationRoaming
             return false;
         }
 
-        try {
-            $cancelled = CarbonImmutable::parse($row->reservation_cancelled_at, 'UTC');
+        $cancelled = $this->receiptInstant($row->reservation_cancelled_at);
+        $attempted = $this->receiptInstant($attempt->attempted_at);
 
-            return $cancelled->gte(CarbonImmutable::parse($attempt->attempted_at, 'UTC'))
-                && $cancelled->lte(now());
-        } catch (Throwable) {
-            return false;
-        }
+        return $cancelled !== null && $attempted !== null
+            && $cancelled->gte($attempted) && $cancelled->lte(now());
     }
 
     public function review(object $order): object
@@ -423,13 +430,15 @@ final class ReservationRoaming
                 ->where('actor_id', $row->user_id)->where('action', 'CANCEL_RESERVATION')
                 ->whereNotNull('attempted_at')->whereNotNull('callback_hash')->whereNotNull('callback_at')
                 ->where('callback_result', 'ACCEPTED')->orderByDesc('callback_at')->orderByDesc('id')->first();
+            $callbackAt = $this->receiptInstant($cancel?->callback_at);
+            $attemptedAt = $this->receiptInstant($cancel?->attempted_at);
             // A callback must not turn a contradictory synchronous rejection
             // into an independently proven cancellation.
             if ($cancel && ($cancel->transport_result !== 'ACCEPTED' && $cancel->transport_result !== null
                 || ! in_array($cancel->state, ['dispatching', 'transport_accepted', 'outcome_unknown'], true)
                 || ! is_string($cancel->callback_hash) || preg_match('/^[a-f0-9]{64}$/D', $cancel->callback_hash) !== 1
-                || CarbonImmutable::parse($cancel->callback_at, 'UTC')->gt(now())
-                || CarbonImmutable::parse($cancel->callback_at, 'UTC')->lt(CarbonImmutable::parse($cancel->attempted_at, 'UTC'))
+                || $callbackAt === null || $attemptedAt === null
+                || $callbackAt->gt(now()) || $callbackAt->lt($attemptedAt)
                 || ! $this->receiptPayload($row, $cancel, 'CANCEL_RESERVATION', $this->payload($row, 'CANCEL_RESERVATION', $cancel->callback_key, $local, $service)))) {
                 $cancel = null;
             }
