@@ -28,7 +28,7 @@ RELEASE_INPUTS = {
 }
 EXACT_RELEASE_INPUTS = {
     'docs/evidence/composer-licenses.json': 'composer_license_declarations',
-    'services/business-api/package.json': 'unlocked_web_build_manifest',
+    'services/business-api/package.json': 'web_build_manifest',
     'services/business-api/vite.config.js': 'web_build_configuration',
     'apps/mobile/third_party/pdfium_flutter/CREABIZ_PATCH.md': 'native_dependency_provenance',
     'apps/mobile/third_party/pdfium_flutter/pubspec.yaml': 'native_dependency_manifest',

@@ -94,14 +94,9 @@ final class OpenChargeMapAdapter
      * list. Can be run repeatedly on one short-lived cached discovery source.
      * This never upgrades historical reports to live charging privileges.
      */
-    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null, ?int $maxSourceAgeHours = null): array
+    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null, ?int $maxSourceAgeHours = null, ?string $address = null, ?string $access = null): array
     {
-        if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
-            || ! self::validOptionalFilter($connector, 80)
-            || ! self::validOptionalFilter($operator, 120)
-            || ($maxSourceAgeHours !== null && ($maxSourceAgeHours < 1 || $maxSourceAgeHours > 168))) {
-            throw new LookupFailure('invalid_request', 422);
-        }
+        self::validateReportedFilters($minPowerKw, $connector, $operator, $maxSourceAgeHours, $address, $access);
         if (($source['provider'] ?? null) !== 'open_charge_map'
             || ($source['evidence'] ?? null) !== 'OPEN_LICENSED_DISCOVERY_ONLY'
             || ($source['availability'] ?? null) !== 'unknown'
@@ -212,6 +207,9 @@ final class OpenChargeMapAdapter
                 continue;
             }
             if (($operator !== null && ! self::labelContains((string) ($item['operator_label'] ?? ''), $operator))
+                || ($address !== null && ! self::labelContains($item['address'], $address)
+                    && ! self::labelContains($item['city'], $address))
+                || ($access !== null && ! self::labelContains($item['reported_access'], $access))
                 || ($membership !== null && ($item['reported_membership_required'] ?? null) !== $membership)
                 || ($operational !== null && ($item['reported_operational'] ?? null) !== $operational)) {
                 continue;
@@ -389,6 +387,19 @@ final class OpenChargeMapAdapter
         return (is_int($value) || is_float($value))
             && is_finite((float) $value)
             && ($signed ? abs((float) $value) <= $maximum : ($value >= 0 && $value <= $maximum));
+    }
+
+    /** Validate local filters before any consented source lookup or cache access. */
+    public static function validateReportedFilters(?float $minPowerKw, ?string $connector, ?string $operator, ?int $maxSourceAgeHours, ?string $address, ?string $access): void
+    {
+        if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
+            || ! self::validOptionalFilter($connector, 80)
+            || ! self::validOptionalFilter($operator, 120)
+            || ! self::validOptionalFilter($address, 150)
+            || ! self::validOptionalFilter($access, 120)
+            || ($maxSourceAgeHours !== null && ($maxSourceAgeHours < 1 || $maxSourceAgeHours > 168))) {
+            throw new LookupFailure('invalid_request', 422);
+        }
     }
 
     private static function validOptionalFilter(?string $value, int $maximum): bool
