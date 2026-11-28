@@ -12,9 +12,11 @@ class Element {
         this.parent = null;
         this._text = '';
         this.attributes = {};
+        this.dataset = {};
         this.value = '';
         this.disabled = false;
     }
+    get isConnected() { return this.tag === 'div' && this.parent === null && this.root === true || !!this.parent?.isConnected; }
     get textContent() {
         return this._text + this.children.map(x => x.textContent).join('');
     }
@@ -27,6 +29,7 @@ class Element {
     }
     replaceChildren(...values) {
         this._text = '';
+        for(const old of this.children) old.parent = null;
         this.children = [];
         this.append(...values);
     }
@@ -38,16 +41,20 @@ class Element {
         this.parent = null;
     }
 }
-function fixture() {
+function fixture(lang='en') {
     const root = new Element('div');
+    root.root = true;
     const window = {};
     const document = {
+        documentElement:{lang},
         getElementById(id) {
             assert.equal(id, 'admin-role-history');
             return root;
         },
         createElement(tag) { return new Element(tag); },
     };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+        '../services/business-api/public/station-time.js'), 'utf8'), {window,document});
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,
         '../services/business-api/public/admin-role-history.js'), 'utf8'), {
         window, document, AbortController, URLSearchParams,
@@ -98,7 +105,7 @@ test('role filter, account ID filter, and stable cursor do not write roles', asy
     ui.setActor({role:'admin'}, async (p, method) => {
         requests.push({p, method});
         if (p.includes('before_id=17'))
-            return page([{...event,id:13,previous_role:'vendor',assigned_role:'admin'}]);
+            return page([{...event,id:13,previous_role:'customer',assigned_role:'vendor'}]);
         return page([event], true, 17);
     });
     await tick();
@@ -111,9 +118,13 @@ test('role filter, account ID filter, and stable cursor do not write roles', asy
     assert.match(requests[1].p, /assigned_role=vendor/);
     const more = nodes(ui.root, 'button').find(x => x.textContent.includes('Load older role changes'));
     assert.ok(more);
+    nodes(f, 'input')[0].value = '999';
     await more.onclick();
     await tick();
     assert.match(requests[2].p, /before_id=17/);
+    assert.match(requests[2].p, /target_user_id=7/);
+    await more.onclick();
+    assert.equal(requests.length,3);
     assert.equal(requests.every(x => x.method === 'GET'), true);
     assert.equal(nodes(ui.root,'article').length,2);
     assert.equal(nodes(ui.root,'button').filter(x => x.textContent.includes('Load older role changes')).length,0);
@@ -153,4 +164,78 @@ test('private API errors produce bounded retry UI without exposing exception det
     assert.match(ui.root.textContent,/Role change history unavailable/);
     assert.equal(ui.root.textContent.includes('private-auth-key'),false);
     assert.ok(nodes(ui.root,'button').some(x => x.textContent.includes('Retry')));
+});
+
+test('localized audit clocks preserve source instant and reject impossible time presentation', async () => {
+    for (const lang of ['en','ar']) {
+        const ui=fixture(lang);
+        ui.setActor({role:'admin'},async()=>page([
+            {...event,created_at:'2026-11-07T12:00:00+04:00'},
+            {...event,id:16,created_at:'2026-02-30T08:00:00Z'}
+        ]));
+        await tick();
+        const expected=new Intl.DateTimeFormat(lang==='ar'?'ar':'en-GB',{
+            timeZone:'UTC',dateStyle:'medium',timeStyle:'short',hourCycle:'h23'
+        }).format(new Date('2026-11-07T08:00:00Z'))+' (UTC)';
+        assert.ok(ui.root.textContent.includes(expected));
+        assert.ok(ui.root.textContent.includes(lang==='ar'?'وقت الحدث غير متاح':'Event time unavailable'));
+        assert.equal(ui.root.textContent.includes('2026-02-30'),false);
+    }
+});
+test('out-of-scope and repeated cursor rows are rejected before rendering',async()=>{
+    const ui=fixture();
+    let bad=false;
+    ui.setActor({role:'admin'},async()=>bad?page([{...event,target_user_id:999}]):page());
+    await tick();
+    const form=nodes(ui.root,'form')[0];
+    nodes(form,'input')[0].value='7';
+    bad=true;
+    form.onsubmit({preventDefault(){}});
+    await tick();
+    assert.equal(nodes(ui.root,'article').length,0);
+    assert.match(ui.root.textContent,/Role change history unavailable/);
+    ui.clear();
+    form.onsubmit({preventDefault(){}});
+    assert.equal(ui.root.children.length,0);
+});
+
+test('failed pagination retains applied scope and a single retry; invalid draft does not read', async()=>{
+    const ui=fixture(), calls=[];
+    let failing=false;
+    ui.setActor({role:'admin'},async p=>{
+        calls.push(p);
+        if(failing)throw Error('private failure');
+        return p.includes('before_id=17')?page([{...event,id:16}]):page([event],true,17);
+    });
+    await tick();
+    const form=nodes(ui.root,'form')[0], input=nodes(form,'input')[0];
+    input.value='0007';form.onsubmit({preventDefault(){}});await tick();
+    assert.match(calls[1],/target_user_id=7/);
+    input.value='999';failing=true;
+    await nodes(ui.root,'button').find(n=>n.textContent==='Load older role changes').onclick();
+    for(let i=0;i<2;i++){
+        const retry=nodes(ui.root,'button').filter(n=>n.textContent==='Retry');
+        assert.equal(retry.length,1);
+        await retry[0].onclick();
+    }
+    assert.ok(calls.slice(2).every(p=>p.includes('before_id=17')&&p.includes('target_user_id=7')));
+    failing=false;
+    await nodes(ui.root,'button').find(n=>n.textContent==='Retry').onclick();
+    assert.equal(nodes(ui.root,'article').length,2);
+    const count=calls.length;
+    input.value='1.5';form.onsubmit({preventDefault(){}});await tick();
+    assert.equal(calls.length,count);
+    assert.equal(nodes(ui.root,'article').length,0);
+    assert.match(ui.root.textContent,/Enter a valid positive account ID/);
+});
+test('Arabic role controls and records are localized without translating source identifiers',async()=>{
+    const ui=fixture('ar');
+    ui.setActor({role:'admin'},async()=>page());
+    await tick();
+    assert.match(ui.root.textContent,/بحث سجل الأدوار/);
+    assert.match(ui.root.textContent,/الدور المعين/);
+    assert.match(ui.root.textContent,/عميل ← مورد/);
+    assert.match(ui.root.textContent,/SEC-2026:17/);
+    assert.ok(nodes(ui.root,'option').every(n=>n.dataset.en&&n.dataset.ar));
+    assert.ok(nodes(ui.root,'label').every(n=>n.dataset.en===undefined));
 });

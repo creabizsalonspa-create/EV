@@ -3,6 +3,7 @@ import 'api.dart';
 import 'connector_fleet.dart';
 import 'action_form.dart';
 import 'strings.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 String opsText(BuildContext c, String k) =>
     (Localizations.localeOf(c).languageCode == 'ar' ? opsAr : opsEn)[k] ?? k;
@@ -466,7 +467,7 @@ class _HistoryState extends State<_CaseHistory> {
         for (final event in data?.items ?? <Map<String, dynamic>>[])
           ListTile(
             title: Text(opsText(c, event['action'])),
-            subtitle: Text('${event['note']}\n${event['created_at']} UTC'),
+            subtitle: Text('${event['note']}\n${serverEventTime(c, event['created_at'])}'),
           ),
         if (data != null && data!.current < data!.last)
           TextButton(

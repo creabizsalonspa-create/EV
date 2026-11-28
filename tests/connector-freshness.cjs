@@ -13,9 +13,15 @@ test('actual display expires in both languages and disposes its timer when remov
  for (const lang of ['en','ar']) {
   let elapsed=0,tick,cancelled=false;const element={dataset:{},isConnected:true};
   const context={window:{},document:{documentElement:{lang},createElement:()=>element},performance:{now:()=>elapsed},setInterval:fn=>{tick=fn;return 1;},clearInterval:id=>{assert.equal(id,1);cancelled=true;}};
+  vm.runInNewContext(fs.readFileSync('services/business-api/public/station-time.js','utf8'),context);
   vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),context);
   context.window.EvConnectorFreshness.attach({append:p=>assert.equal(p,element)},value);
   assert.match(element.textContent,lang==='ar'?/متاح بحسب المصدر/:/Available/);
+  const expected = new Intl.DateTimeFormat(lang==='ar'?'ar':'en-GB',{
+    timeZone:'UTC',dateStyle:'medium',timeStyle:'short',hourCycle:'h23'
+  }).format(new Date(value.observed_at))+' (UTC)';
+  assert.ok(element.textContent.includes(expected));
+  assert.doesNotMatch(element.textContent,/2026-11-14T05:00:00Z/);
   elapsed=60000;tick();assert.match(element.textContent,lang==='ar'?/قديم/:/stale/);
   assert.match(element.textContent,lang==='ar'?/التوفر الفعلي غير مؤكد/:/Physical availability is unverified/);
   element.isConnected=false;tick();assert.equal(cancelled,true);
@@ -97,5 +103,23 @@ test('contradictory or incomplete source evidence hides time even after expiry',
    env.window.EvConnectorFreshness.attach({append:()=>{}},claim,480000);
    assert.match(element.textContent,lang==='ar'?/وقت الرصد: غير معروف/:/Observed: unknown/);
   }
+ }
+});
+
+test('contradictory recent or stale server labels match native fail-closed behavior',()=>{
+ const expired={...value,checked_at:value.valid_until};
+ assert.equal(state(expired),'unknown');
+ assert.equal(state(expired,60000),'unknown');
+ assert.equal(state({...expired,state:'stale'}),'unknown');
+ assert.equal(state({...expired,state:'stale',reported_status:null}),'stale');
+ assert.equal(state({...expired,state:'stale',reported_status:'Faulted'}),'unknown');
+ for(const lang of ['en','ar']){
+  const element={dataset:{},isConnected:true};
+  const env={window:{},document:{documentElement:{lang},createElement:()=>element},performance:{now:()=>0},setInterval:()=>1,clearInterval:()=>{}};
+  vm.runInNewContext(fs.readFileSync('services/business-api/public/station-time.js','utf8'),env);
+  vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),env);
+  env.window.EvConnectorFreshness.attach({append:()=>{}},expired);
+  assert.match(element.textContent,lang==='ar'?/وقت الرصد: غير معروف/:/Observed: unknown/);
+  assert.doesNotMatch(element.textContent,/\(UTC\)/);
  }
 });

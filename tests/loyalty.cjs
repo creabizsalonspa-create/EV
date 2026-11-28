@@ -264,6 +264,19 @@ const { exerciseCoupons, verifyForeignCouponPrivacy } = require("./helpers/loyal
     await cp
       .getByText("Refund or chargeback reversal", { exact: true })
       .waitFor();
+    const ledgerClocks = cp.locator("time[data-loyalty-date][datetime]");
+    assert(await ledgerClocks.count() > 0);
+    for (const lang of ["en", "ar", "en"]) {
+      await customer.evaluate(language => window.EvLocale.set(language), lang);
+      const clocks = await ledgerClocks.evaluateAll(nodes => nodes.map(n => ({raw:n.dateTime,text:n.textContent})));
+      for (const item of clocks) {
+        const expected = await customer.evaluate(({raw,lang}) =>
+          new Intl.DateTimeFormat(lang==="ar"?"ar":"en-GB", {
+            timeZone:"UTC",dateStyle:"medium",timeStyle:"short",hourCycle:"h23",
+          }).format(new Date(raw))+" (UTC)", {raw:item.raw,lang});
+        assert.equal(item.text, expected);
+      }
+    }
     // A source read failure must not leave the previous refund/points
     // history visible, and retry must load the canonical ledger again.
     const failLedger = async (route) => {
