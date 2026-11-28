@@ -105,7 +105,12 @@ class RecordSynchronizer
                     $existing->update(['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash, 'source_updated_at' => $updated, 'received_at' => now()]);
                     $counts['updated']++;
                 } else {
-                    $existing = OcpiRecord::create($identity + ['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash, 'source_updated_at' => $updated, 'received_at' => now()]);
+                    $source = ['payload' => $raw, 'normalized' => $n, 'content_hash' => $hash,
+                        'source_updated_at' => $updated, 'received_at' => now()];
+                    if ($module === 'cdrs') {
+                        $source += CdrSessionClaims::metadata($n['session_id'], $hash);
+                    }
+                    $existing = OcpiRecord::create($identity + $source);
                     $counts['created']++;
                 }
                 if ($module === 'sessions') {

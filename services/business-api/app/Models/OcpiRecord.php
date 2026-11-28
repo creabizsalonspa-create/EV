@@ -13,7 +13,7 @@ class OcpiRecord extends Model
 
     protected $dateFormat = 'Y-m-d H:i:s.u';
 
-    protected $hidden = ['payload', 'content_hash'];
+    protected $hidden = ['payload', 'content_hash', 'cdr_session_claim_key', 'cdr_session_claim_source_hash'];
 
     protected function casts(): array
     {
