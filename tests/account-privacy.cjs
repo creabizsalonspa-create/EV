@@ -997,7 +997,7 @@ test("optional erasure security step explicitly confirms scoped copy discard and
   const ui=fixture(),calls=[];let ended=0;
   ui.setSelfActor({id:3,role:"customer"},async(path,method="GET",body)=>{
     calls.push({path,method,body});
-    if(method==="POST")return {request_id:22,case_status:"pending",derived_copies_discarded:1,sessions_revoked:true,
+    if(method==="POST")return {request_id:22,case_status:"reviewing",derived_copies_discarded:1,sessions_revoked:true,
       sign_in_required:true,automated_erasure_performed:false,source_records_deleted:false,manual_processing_required:true};
     return page([record]);
   },()=>ended++);
