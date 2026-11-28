@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'api.dart';
@@ -32,6 +33,7 @@ const financialEn = {
       'Document preparation was not confirmed. Refresh the list. Any explicit resubmission uses the same source and language; it cannot create a payment.',
   'snapshot': 'State at generation',
   'current': 'Current source state',
+  'privateCleared': 'Private document source cleared. Refresh with the currently authorized account.',
   'en': 'English',
   'ar': 'Arabic',
 };
@@ -62,6 +64,7 @@ const financialAr = {
       'لم يتم تأكيد إعداد المستند. حدّث القائمة. تستخدم إعادة الإرسال الصريحة المصدر واللغة نفسيهما ولا تنشئ دفعة.',
   'snapshot': 'الحالة عند الإنشاء',
   'current': 'حالة المصدر الحالية',
+  'privateCleared': 'مُسحت المستندات المالية الخاصة. حدّث باستخدام الحساب المصرح به حالياً.',
   'en': 'الإنجليزية',
   'ar': 'العربية',
 };
@@ -92,8 +95,10 @@ class FinancialDocumentRecord {
       locale = j['locale'] as String,
       pdfHash = j['pdf_sha256'] as String,
       current = j['current_source_state'] as String? {
-    if (id < 1 ||
-        sourceId < 1 ||
+    if (id < 1 || id > 9007199254740991 ||
+        sourceId < 1 || sourceId > 9007199254740991 ||
+        !RegExp(r'^CB-TDOC-[A-Z]{2}-(P|V[1-9][0-9]*)-[0-9]{4}-[0-9]{9}$')
+            .hasMatch(number) ||
         !financialKinds.contains(kind) ||
         !['en', 'ar'].contains(locale) ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(pdfHash) ||
@@ -129,11 +134,44 @@ class FinancialDocumentsView extends StatefulWidget {
   State<FinancialDocumentsView> createState() => _DocumentsState();
 }
 
-class _DocumentsState extends State<FinancialDocumentsView> {
+class _DocumentsState extends State<FinancialDocumentsView>
+    with WidgetsBindingObserver {
   ApiPage<FinancialDocumentRecord>? page;
   Object? error;
-  bool busy = false, uncertain = false;
+  bool busy = false, uncertain = false, foreground = true, hidden = false;
+  bool mutationInFlight = false;
+  bool Function()? currentSession;
+  StreamSubscription<int>? sessionEvents;
   int generation = 0, target = 1;
+
+  void observe(EvApi api) {
+    sessionEvents?.cancel();
+    sessionEvents = api.sessionEvents.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        // A revoked account must not silently "resolve" an in-flight
+        // immutable document creation or invite an automatic resubmission.
+        final possibleWrite = mutationInFlight || uncertain;
+        erasePrivate();
+        currentSession = null;
+        uncertain = possibleWrite;
+      });
+    });
+  }
+
+  bool get current => foreground && (currentSession?.call() ?? false);
+  bool active(int epoch, bool Function() fence) =>
+      mounted && foreground && generation == epoch && fence();
+
+  void erasePrivate() {
+    generation++;
+    page = null;
+    error = null;
+    busy = false;
+    mutationInFlight = false;
+    hidden = true;
+    consent = false;
+  }
   String kind = 'charging_invoice', language = 'en';
   final source = TextEditingController();
   final form = GlobalKey<FormState>();
@@ -142,14 +180,62 @@ class _DocumentsState extends State<FinancialDocumentsView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    observe(widget.api);
     kind = widget.sourceKind ?? kind;
     source.text = widget.sourceId?.toString() ?? '';
-    load();
+    foreground = WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    hidden = !foreground;
+    if (foreground) load();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinancialDocumentsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.sourceKind != widget.sourceKind ||
+        oldWidget.sourceId != widget.sourceId) {
+      if (oldWidget.api != widget.api) observe(widget.api);
+      erasePrivate();
+      currentSession = null;
+      uncertain = false;
+      kind = widget.sourceKind ?? 'charging_invoice';
+      source.text = widget.sourceId?.toString() ?? '';
+      language = 'en';
+      target = 1;
+      if (foreground) {
+        final api = widget.api, expectedKind = widget.sourceKind;
+        final id = widget.sourceId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && foreground && identical(api, widget.api) &&
+              expectedKind == widget.sourceKind && id == widget.sourceId) {
+            load();
+          }
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() {
+      foreground = state == AppLifecycleState.resumed;
+      if (!foreground) {
+        // Unknown POST outcome is preserved for this same screen. Never
+        // allow an unknown response to become a new document or auto-retry.
+        if (mutationInFlight) uncertain = true;
+        erasePrivate();
+      }
+    });
   }
 
   @override
   void dispose() {
-    generation++;
+    sessionEvents?.cancel();
+    erasePrivate();
+    WidgetsBinding.instance.removeObserver(this);
     source.dispose();
     super.dispose();
   }
@@ -157,101 +243,187 @@ class _DocumentsState extends State<FinancialDocumentsView> {
   void failed(Object e) {
     error = e;
     page = null;
-    if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
+  }
+
+  bool handleExpiry(Object e, EvApi requestApi) {
+    // A real expiry clears the old session fence before the error arrives.
+    // Do not sign out a replacement API or newer credential generation.
+    if (mounted && identical(requestApi, widget.api) &&
+        e is ApiException && e.endsCurrentSession) {
+      widget.onExpired();
+      return true;
+    }
+    return false;
   }
 
   Future<void> load({int number = 1}) async {
-    final epoch = ++generation;
+    if (!foreground || number < 1 || number > 100000) return;
+    final api = widget.api;
+    final epoch = ++generation, fence = api.sessionFence();
+    currentSession = fence;
     target = number;
     setState(() {
       busy = true;
+      mutationInFlight = false;
       error = null;
       page = null;
+      hidden = false;
     });
     try {
+      final raw = await api.request(
+        'financial/documents',
+        query: {
+          'page': '$number',
+          if (widget.sourceKind != null) 'source_kind': widget.sourceKind!,
+          if (widget.sourceId != null) 'source_id': '${widget.sourceId}',
+        },
+      );
+      if (!active(epoch, fence)) return;
       final result = ApiPage.fromJson(
-        await widget.api.request(
-          'financial/documents',
-          query: {
-            'page': '$number',
-            if (widget.sourceKind != null) 'source_kind': widget.sourceKind!,
-            if (widget.sourceId != null) 'source_id': '${widget.sourceId}',
-          },
-        ),
+        raw,
         FinancialDocumentRecord.fromJson,
       );
-      if (mounted && epoch == generation) setState(() => page = result);
+      // The requested immutable source scope is independent of server
+      // access authorization; verify the native view cannot be pointed at
+      // another source by an old or malformed response.
+      if (widget.sourceKind != null &&
+          result.items.any((r) => r.kind != widget.sourceKind)) {
+        throw const FormatException('Foreign document kind.');
+      }
+      if (widget.sourceId != null &&
+          result.items.any((r) => r.sourceId != widget.sourceId)) {
+        throw const FormatException('Foreign document record.');
+      }
+      if (active(epoch, fence)) setState(() => page = result);
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (handleExpiry(e, api)) return;
+      if (active(epoch, fence)) setState(() => failed(e));
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && epoch == generation) {
+        setState(() {
+          busy = false;
+          if (!fence()) {
+            page = null;
+            error = null;
+            hidden = true;
+          }
+        });
+      }
     }
   }
 
   Future<void> generate() async {
-    if (!consent || !form.currentState!.validate()) return;
-    final epoch = ++generation;
+    if (!current || busy || uncertain || !consent ||
+        !form.currentState!.validate()) return;
+    final api = widget.api;
+    final epoch = ++generation, fence = currentSession!;
+    final selectedKind = kind, selectedLanguage = language;
+    final selectedSource = decimalMinor(source.text, 0, maximum: 2000000000)!;
     setState(() {
       busy = true;
+      mutationInFlight = true;
       error = null;
     });
     try {
-      final result = await widget.api.request(
+      final result = await api.request(
         'financial/documents',
         method: 'POST',
         body: {
-          'source_kind': kind,
-          'source_id': decimalMinor(source.text, 0, maximum: 2000000000)!,
-          'locale': language,
+          'source_kind': selectedKind,
+          'source_id': selectedSource,
+          'locale': selectedLanguage,
         },
       );
-      FinancialDocumentRecord.fromJson(
+      if (!active(epoch, fence)) return;
+      final record = FinancialDocumentRecord.fromJson(
         Map<String, dynamic>.from(result as Map),
       );
-      if (!mounted || epoch != generation) return;
+      if (record.kind != selectedKind ||
+          record.sourceId != selectedSource ||
+          record.locale != selectedLanguage) {
+        throw const FormatException('Foreign document response.');
+      }
+      if (!active(epoch, fence)) return;
       uncertain = false;
+      mutationInFlight = false;
       await load();
     } catch (e) {
-      if (mounted && epoch == generation)
+      if (handleExpiry(e, api)) return;
+      if (active(epoch, fence)) {
         setState(() {
+          mutationInFlight = false;
+          // After a possible provider/database commit, never silently
+          // regenerate a numbered artifact. Require explicit list review.
           uncertain = true;
           failed(e);
         });
+      }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        setState(() {
+          busy = false;
+          mutationInFlight = false;
+          if (!fence()) {
+            erasePrivate();
+            uncertain = true;
+          }
+        });
+      }
     }
   }
 
   Future<void> open(FinancialDocumentRecord row) async {
-    final epoch = ++generation;
+    if (!current || busy || page == null ||
+        !page!.items.any((record) => record.id == row.id &&
+            record.kind == row.kind && record.sourceId == row.sourceId &&
+            record.pdfHash == row.pdfHash)) return;
+    final api = widget.api;
+    final epoch = ++generation, fence = currentSession!;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final bytes = await widget.api.downloadDocument(
+      final bytes = await api.downloadDocument(
         'financial/documents/${row.id}/download/pdf',
       );
+      if (!active(epoch, fence)) return;
+      // Server encrypted-file SHA and the originally displayed document
+      // metadata must agree before any bytes are handed to a PDF viewer.
       row.verify(bytes);
-      if (!mounted || epoch != generation) return;
+      if (!active(epoch, fence)) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => VendorDocumentPreview(
             document: bytes,
             title: t('title'),
             notice: t('notice'),
+            revokedSessionEvents: widget.api.sessionEvents,
           ),
         ),
       );
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => failed(e));
+      if (handleExpiry(e, api)) return;
+      if (active(epoch, fence)) setState(() => failed(e));
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && foreground && generation == epoch) {
+        setState(() {
+          busy = false;
+          if (!fence()) {
+            erasePrivate();
+          }
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
+  Widget build(BuildContext c) => !current
+      ? Scaffold(
+          appBar: AppBar(title: Text(t('title'))),
+          body: Center(child: Text(t('privateCleared'))),
+        )
+      : Scaffold(
     appBar: AppBar(title: Text(t('title'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
@@ -272,13 +444,15 @@ class _DocumentsState extends State<FinancialDocumentsView> {
                       for (final k in financialKinds)
                         DropdownMenuItem(value: k, child: Text(t(k))),
                     ],
-                    onChanged: busy || uncertain || widget.sourceKind != null
+                    onChanged: busy || uncertain || !foreground ||
+                        widget.sourceKind != null
                         ? null
                         : (v) => setState(() => kind = v!),
                   ),
                   TextFormField(
                     controller: source,
-                    readOnly: busy || uncertain || widget.sourceId != null,
+                    readOnly: busy || uncertain || !foreground ||
+                        widget.sourceId != null,
                     decoration: InputDecoration(labelText: t('id')),
                     keyboardType: TextInputType.number,
                     validator: (v) =>
@@ -292,19 +466,20 @@ class _DocumentsState extends State<FinancialDocumentsView> {
                       for (final l in ['en', 'ar'])
                         DropdownMenuItem(value: l, child: Text(t(l))),
                     ],
-                    onChanged: busy || uncertain
+                    onChanged: busy || uncertain || !foreground
                         ? null
                         : (v) => setState(() => language = v!),
                   ),
                   CheckboxListTile(
                     value: consent,
-                    onChanged: busy
+                    onChanged: busy || !foreground || uncertain
                         ? null
                         : (v) => setState(() => consent = v!),
                     title: Text(t('consent')),
                   ),
                   FilledButton(
-                    onPressed: busy || !consent ? null : generate,
+                    onPressed: busy || !consent || uncertain || !foreground
+                        ? null : generate,
                     child: Text(t('generate')),
                   ),
                 ],
@@ -318,9 +493,12 @@ class _DocumentsState extends State<FinancialDocumentsView> {
           child: Text(t('refresh')),
         ),
         if (busy) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
-        if (page != null && page!.items.isEmpty) Text(t('empty')),
-        if (page != null) ...[
+        if (error != null && current)
+          Text(EvStrings.of(c).t(errorKey(error!))),
+        if (hidden) Text(t('privateCleared')),
+        if (page != null && current && page!.items.isEmpty)
+          Text(t('empty')),
+        if (page != null && current) ...[
           for (final row in page!.items)
             Card(
               child: Padding(

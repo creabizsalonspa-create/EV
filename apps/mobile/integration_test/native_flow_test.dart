@@ -604,7 +604,7 @@ void main() {
             'id': 9,
             'source_id': 7,
             'source_kind': 'charging_invoice',
-            'number': 'TEST-DEVICE-DOC',
+            'number': 'CB-TDOC-AE-P-2026-000000009',
             'locale': 'en',
             'pdf_sha256': sha256.convert(pdf).toString(),
             'legal_status': 'TEST_DOCUMENT_NOT_LEGALLY_APPROVED',
@@ -1454,7 +1454,7 @@ void main() {
       );
       await tester.tap(find.text('Private financial documents'));
       await settle();
-      expect(find.text('TEST-DEVICE-DOC'), findsOneWidget);
+      expect(find.text('CB-TDOC-AE-P-2026-000000009'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('View private PDF'),
         250,
