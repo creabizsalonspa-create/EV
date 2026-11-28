@@ -12,6 +12,7 @@ use App\Services\Charging\SessionBridge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\TestWith;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -127,6 +128,53 @@ class CsmsSessionControlAuthorityTest extends TestCase
         // The reservation's actual customer can still request a safety stop.
         app(SessionBridge::class)->stop($f['session'],
             $f['customer']->id, $f['customer']->role, $f['customer']);
+        $this->assertDatabaseCount('charger_commands', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['revoked'])]
+    #[TestWith(['individual_expiry'])]
+    #[TestWith(['global_expiry'])]
+    public function test_captured_bearer_cannot_replay_start_stop_or_read_source_receipts_after_revocation(string $reason): void
+    {
+        $f = $this->fixture();
+        $reservation = Reservation::findOrFail($f['session']->reservation_id);
+        config(['sanctum.expiration' => 60]);
+        $token = $f['customer']->createToken('charging-consent', ['*'], now()->addHours(2))->accessToken;
+        $actor = $f['customer']->fresh()->withAccessToken($token);
+        $bridge = app(SessionBridge::class);
+        $controller = app(CsmsSessionController::class);
+        $request = Request::create('/api/v1/charging-sessions/'.$f['session']->id.'/reconcile', 'POST');
+        $request->setUserResolver(fn () => $actor);
+
+        $this->assertSame('pending_start', $bridge->start($reservation, $actor->id, consentingActor: $actor)['session']->status);
+        $this->assertSame(200, $controller->reconcile($request, $f['session'], $bridge, app(CommandReconciler::class))->getStatusCode());
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        $this->assertSame((int) $actor->auth_epoch, (int) $f['customer']->fresh()->auth_epoch);
+        $this->active($f['session']);
+        foreach ([
+            fn () => $bridge->start($reservation, $actor->id, consentingActor: $actor),
+            fn () => $bridge->stop($f['session'], $actor->id, $actor->role, $actor),
+            fn () => $controller->reconcile($request, $f['session'], $bridge, app(CommandReconciler::class)),
+        ] as $attempt) {
+            try {
+                $attempt();
+                $this->fail('Stale individual bearer authority was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+        }
+        $this->assertSame('charging', $f['session']->fresh()->status);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        $replacement = $f['customer']->createToken('replacement', ['*'], now()->addHours(2))->accessToken;
+        $fresh = $f['customer']->fresh()->withAccessToken($replacement);
+        $this->assertSame('stopping', $bridge->stop($f['session'], $fresh->id, $fresh->role, $fresh)['session']->status);
         $this->assertDatabaseCount('charger_commands', 2);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
