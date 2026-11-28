@@ -49,10 +49,7 @@ final class OpenChargeMapDiscoveryController extends Controller
         ]);
 
         if (! self::configured()) {
-            return self::privateResponse([
-                'message' => 'Approved Open Charge Map source is not configured. Local station and partner catalog search remains available.',
-                'reason' => 'not_configured',
-            ], 503);
+            return self::unconfiguredResponse();
         }
 
         $key = (string) config('discovery.ocm_api_key');
@@ -98,8 +95,18 @@ final class OpenChargeMapDiscoveryController extends Controller
                 $input['access_contains'] ?? null,
             );
 
+            // A provider response or cached report is not releasable after
+            // the approved source configuration changes during this lookup.
+            if (! self::configurationCurrent($key)) {
+                return self::unconfiguredResponse();
+            }
+
             return self::privateResponse($result);
         } catch (LookupFailure $error) {
+            if (! self::configurationCurrent($key)) {
+                return self::unconfiguredResponse();
+            }
+
             $response = self::privateResponse([
                 'message' => 'Licensed discovery source temporarily unavailable. Manual station searches remain available.',
                 'reason' => $error->reason,
@@ -110,6 +117,19 @@ final class OpenChargeMapDiscoveryController extends Controller
 
             return $response;
         }
+    }
+
+    private static function configurationCurrent(string $key): bool
+    {
+        return self::configured() && hash_equals($key, config('discovery.ocm_api_key'));
+    }
+
+    private static function unconfiguredResponse()
+    {
+        return self::privateResponse([
+            'message' => 'Approved Open Charge Map source is not configured. Local station and partner catalog search remains available.',
+            'reason' => 'not_configured',
+        ], 503);
     }
 
     private static function configured(): bool
