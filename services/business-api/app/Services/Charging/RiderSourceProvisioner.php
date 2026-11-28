@@ -68,6 +68,7 @@ class RiderSourceProvisioner
 
     private function owned(array $row, RiderAccessToken $token, string $raw): void
     {
+        abort_unless(RiderSourceIdentity::matches($token->source_authorization_id, $row), 409, 'Previously verified rider source identity changed.');
         $marker = ['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER'];
         $info = $row['additionalInfo'] ?? null;
         abort_unless(is_int($row['id'] ?? null) && $row['id'] > 0 && strtoupper($row['idToken'] ?? '') === $raw && ($row['idTokenType'] ?? null) === $token->token_type && is_array($info) && array_is_list($info) && count($info) >= 1 && count($info) <= 2 && $this->marker($info[0] ?? null, $marker), 409, 'Source authorization is not owned by this registry.');
@@ -107,6 +108,7 @@ class RiderSourceProvisioner
             $current = RiderAccessToken::whereKey($token->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->provision_lease === $lease && $current->provision_lease_until?->isFuture()
                 && $current->revoked_at === null && $current->expires_at->isFuture() && $current->expires_at->equalTo($token->expires_at)
+                && $current->source_authorization_id === $token->source_authorization_id
                 && DB::table('rider_charging_grants')->where('token_id', $current->id)->where('company_id', $company->id)->where('state', 'approved')->whereNull('revoked_at')->where('expires_at', '>', now())->exists(), 409, 'Approval changed during source publication.');
         }, 3);
     }
@@ -167,6 +169,7 @@ class RiderSourceProvisioner
         try {
             $raw = Crypt::decryptString($token->token_ciphertext);
             $source = $this->lookup($raw, $authority);
+            abort_unless(RiderSourceIdentity::matches($token->source_authorization_id, $source, true), 409, 'Previously verified rider source identity changed.');
             if ($source !== null) {
                 $this->owned($source, $token, $raw);
                 if (($source['status'] ?? null) !== 'Blocked') {
@@ -184,9 +187,10 @@ class RiderSourceProvisioner
                 }
             }
 
-            return DB::transaction(function () use ($actor, $company, $tokenId, $lease, $source, $authority) {
+            return DB::transaction(function () use ($actor, $company, $tokenId, $lease, $source, $authority, $token) {
                 $this->sourceAuthority($authority);
                 $current = $this->inactiveToken($actor, $company, $tokenId, $lease);
+                abort_unless($current->source_authorization_id === $token->source_authorization_id, 409, 'Historical rider source identity changed during retirement.');
                 $current->update(['provisioning_state' => 'retired', 'provisioned_at' => null, 'provision_lease' => null, 'provision_lease_until' => null]);
                 app(RiderTokenRegistry::class)->event($current->id, null, $actor->id, $source === null ? 'source.retired_absent' : 'source.retired');
 
@@ -229,6 +233,7 @@ class RiderSourceProvisioner
         try {
             $this->currentPublication($actor, $company, $token, $lease);
             $source = $this->lookup($raw, $authority);
+            abort_unless(RiderSourceIdentity::matches($token->source_authorization_id, $source), 409, 'Previously verified rider source is missing or replaced; retain the original identity for review.');
             if ($source === null) {
                 $object = ['tenantId' => 1, 'idToken' => $raw, 'idTokenType' => $token->token_type, 'status' => 'Blocked', 'additionalInfo' => [$marker], 'realTimeAuth' => 'Never', 'realTimeAuthUrl' => $callback, 'realTimeAuthTimeout' => 0, 'concurrentTransaction' => false, 'isPrepaid' => false, 'cacheExpiryDateTime' => $token->expires_at->toISOString(), 'createdAt' => now()->toISOString(), 'updatedAt' => now()->toISOString()];
                 $this->currentPublication($actor, $company, $token, $lease);
@@ -259,7 +264,7 @@ class RiderSourceProvisioner
                 app(VendorAccess::class)->operational($company);
                 abort_unless($actor->role === 'admin' || $actor->id === $company->owner_id, 404);
                 $current = RiderAccessToken::whereKey($token->id)->lockForUpdate()->firstOrFail();
-                abort_unless($current->provision_lease === $lease && $current->provision_lease_until?->isFuture() && $current->revoked_at === null && $current->expires_at->isFuture() && $current->expires_at->equalTo($token->expires_at) && DB::table('rider_charging_grants')->where('token_id', $current->id)->where('company_id', $company->id)->where('state', 'approved')->whereNull('revoked_at')->where('expires_at', '>', now())->exists(), 409, 'Approval changed during source publication.');
+                abort_unless($current->provision_lease === $lease && $current->provision_lease_until?->isFuture() && $current->revoked_at === null && $current->expires_at->isFuture() && $current->expires_at->equalTo($token->expires_at) && $current->source_authorization_id === $token->source_authorization_id && DB::table('rider_charging_grants')->where('token_id', $current->id)->where('company_id', $company->id)->where('state', 'approved')->whereNull('revoked_at')->where('expires_at', '>', now())->exists(), 409, 'Approval changed during source publication.');
                 $current->update(['source_authorization_id' => $verified['id'], 'provisioned_at' => now(), 'provisioning_state' => 'active', 'provision_lease' => null, 'provision_lease_until' => null]);
                 app(RiderTokenRegistry::class)->event($current->id, null, $actor->id, 'source.provisioned');
 

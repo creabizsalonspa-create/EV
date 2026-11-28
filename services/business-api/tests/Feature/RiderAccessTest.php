@@ -307,6 +307,76 @@ class RiderAccessTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function historicalSourceIdentityCases(): array
+    {
+        return [
+            ['publish', 'same', true, 1],
+            ['publish', 'replaced', false, 0],
+            ['publish', 'absent', false, 0],
+            ['retire', 'same', true, 1],
+            ['retire', 'replaced', false, 0],
+            ['retire', 'absent', true, 0],
+        ];
+    }
+
+    #[DataProvider('historicalSourceIdentityCases')]
+    public function test_historical_source_identity_cannot_be_replaced_or_recreated(string $operation, string $observation, bool $accepted, int $expectedWrites): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        $token = RiderAccessToken::findOrFail($id);
+        $token->update(['source_authorization_id' => 71, 'provisioning_state' => 'active', 'provisioned_at' => now()]);
+        if ($operation === 'retire') {
+            $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        }
+        $row = $observation === 'absent' ? null : [
+            'id' => $observation === 'same' ? 71 : 72,
+            'idToken' => $this->payload()['value'],
+            'idTokenType' => $token->token_type,
+            'status' => 'Accepted',
+            'additionalInfo' => [['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER']],
+        ];
+        $writes = 0;
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use (&$row, &$writes) {
+            if (str_contains($request->url(), '/capabilities')) {
+                parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1, 'offline_fallback' => false, 'cache_seconds' => 0,
+                    'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+            }
+            $this->assertSame('https://source.example.test/v1/graphql', $request->url());
+            if (str_contains($request['query'], 'insert_Authorizations_one')) {
+                $this->fail('A previously published token must never create another source identity.');
+            }
+            if (str_contains($request['query'], 'update_Authorizations')) {
+                $writes++;
+                $this->assertSame(71, $request['variables']['id']);
+                $row = array_replace($row, $request['variables']['set']);
+
+                return Http::response(['data' => ['update_Authorizations' => ['affected_rows' => 1]]]);
+            }
+
+            return Http::response(['data' => ['Authorizations' => $row === null ? [] : [$row]]]);
+        });
+        try {
+            app(RiderSourceProvisioner::class)->$operation($owner, $company, $id);
+            $this->assertTrue($accepted);
+        } catch (HttpException $error) {
+            $this->assertFalse($accepted);
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $token->refresh();
+        $this->assertSame(71, $token->source_authorization_id);
+        $this->assertSame($accepted ? ($operation === 'publish' ? 'active' : 'retired') : 'requires_inspection', $token->provisioning_state);
+        if (! $accepted || $operation === 'retire') {
+            $this->assertNull($token->provisioned_at);
+        }
+        $this->assertSame($expectedWrites, $writes);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('csms_session_links', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_station_approval_is_operator_scoped_expiry_bounded_and_private(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
