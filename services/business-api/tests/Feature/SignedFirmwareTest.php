@@ -11,6 +11,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\FirmwareCompatibility;
+use App\Services\Charging\SignedFirmwareCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -84,7 +85,7 @@ class SignedFirmwareTest extends TestCase
         ]);
         $request->setUserResolver(fn () => $snapshot);
         $controller = app(ChargerFirmwareController::class);
-        $catalog = app(\App\Services\Charging\SignedFirmwareCatalog::class);
+        $catalog = app(SignedFirmwareCatalog::class);
         $this->assertSame(200, $controller->releases($request, $f['company'], $catalog)->getStatusCode());
         match ($reason) {
             'revoked' => $token->delete(),
