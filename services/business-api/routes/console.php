@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\CsmsPreflight;
+use App\Services\Charging\DirectSourceAuthority;
+use App\Services\Charging\DirectSourceRegistrationEpoch;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
@@ -91,6 +93,47 @@ Artisan::command('csms:dispatch {id}', function () {
 
     return $c->status === 'submitted' ? 0 : 1;
 })->purpose('Dispatch one simulator-only outbox command; never auto-retry uncertain outcomes');
+
+Artisan::command('csms:provision-direct-source-authority {--ticket=}', function () {
+    $ticket = $this->option('ticket');
+    if (! is_string($ticket) || ! preg_match('/^[A-Za-z0-9._:-]{1,100}$/D', $ticket)) {
+        $this->error('A valid operator ticket reference is required.');
+
+        return 1;
+    }
+    try {
+        $changed = app(DirectSourceAuthority::class)->provision($ticket);
+    } catch (Throwable) {
+        $this->error('Direct source authority not provisioned. Review configuration and immutable history.');
+
+        return 1;
+    }
+    $this->info($changed ? 'Direct source authority epoch recorded.' : 'Direct source authority unchanged.');
+
+    return 0;
+})->purpose('Operator-only local source authority provisioning; never contacts a charger');
+
+Artisan::command('csms:reconcile-direct-registration {registration} {--receipt=} {--ticket=}', function () {
+    $registration = $this->argument('registration');
+    $receipt = $this->option('receipt');
+    $ticket = $this->option('ticket');
+    if (! is_string($registration) || ! preg_match('/^[1-9][0-9]{0,15}$/D', $registration)
+        || (int) $registration > 9007199254740991 || ! is_string($receipt) || ! is_string($ticket)) {
+        $this->error('An exact registration, receipt hash and operator ticket are required.');
+
+        return 1;
+    }
+    try {
+        $changed = app(DirectSourceRegistrationEpoch::class)->reconcile((int) $registration, $receipt, $ticket);
+    } catch (Throwable) {
+        $this->error('Registration not reconciled. Review immutable source evidence.');
+
+        return 1;
+    }
+    $this->info($changed ? 'Registration reconciliation recorded.' : 'Registration reconciliation unchanged.');
+
+    return 0;
+})->purpose('Record reviewed direct registration for current authority; no upstream or charger action');
 
 Artisan::command('csms:preflight', function () {
     // Offline read-only diagnostics. This does not connect to a charger,

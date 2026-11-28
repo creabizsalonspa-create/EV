@@ -2,6 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerLiveConnectorsController;
+use App\Http\Controllers\ChargerResetController;
+use App\Http\Controllers\RegisteredChargerFleetController;
+use App\Models\Charging\AdmissionProfile;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Station;
@@ -10,10 +14,16 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\DirectSourceAuthority;
+use App\Services\Charging\DirectSourceRegistrationEpoch;
+use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerLiveConnectorsTest extends TestCase
@@ -82,6 +92,447 @@ class ChargerLiveConnectorsTest extends TestCase
         ];
     }
 
+    private function registeredFixture(string $protocol, bool $reverseReceipt = false): array
+    {
+        $f = $this->fixture($protocol);
+        $f['station']->update(['source' => 'direct_unverified']);
+        $f['charger']->update(['source' => 'direct_unverified']);
+        config(['csms.registered_live_monitoring_enabled' => true, 'csms.session_bridge_enabled' => false,
+            'csms.registered_source_authority_epoch' => 1]);
+        app(DirectSourceAuthority::class)->provision('test-direct-source');
+        DB::table('charging_connector_mappings')->where('station_id', $f['station']->id)->delete();
+        Evse::where('charger_id', $f['charger']->id)->delete();
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
+        $identity = 'DIRECT-'.$f['charger']->id;
+        DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => $identity]);
+        $profile = AdmissionProfile::create(['charger_id' => $f['charger']->id, 'identity' => $identity, 'protocol' => $protocol]);
+        $generation = hash('sha256', 'citrineos-v2.1.0-tenant-1|'.config('csms.graphql_url'));
+        $payload = hash('sha256', json_encode([$f['company']->id, $f['owner']->id,
+            $f['charger']->id, $f['station']->id, $identity, $protocol,
+            $f['charger']->manufacturer, $f['charger']->model, $generation], JSON_THROW_ON_ERROR));
+        $admin = User::factory()->create(['role' => 'admin']);
+        $offline = [
+            'id' => 42, 'tenantId' => 1, 'ocppConnectionName' => $identity,
+            'protocol' => 'ocpp'.$protocol, 'isOnline' => false,
+            'chargePointVendor' => $f['charger']->manufacturer, 'chargePointModel' => $f['charger']->model,
+        ];
+        $f['receipt'] = DB::table('charger_source_registrations')->insertGetId([
+            'charger_id' => $f['charger']->id, 'binding_id' => $binding->id, 'profile_id' => $profile->id,
+            'actor_id' => $admin->id, 'idempotency_key' => 'direct-live-test', 'payload_hash' => $payload,
+            'source_generation' => $generation, 'state' => 'registered', 'source_station_id' => 42,
+            'source_receipt_hash' => hash('sha256', json_encode($reverseReceipt ? array_reverse($offline, true) : $offline, JSON_THROW_ON_ERROR)), 'verified_at' => now(),
+            'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $f['receipt_hash'] = DB::table('charger_source_registrations')->where('id', $f['receipt'])->value('source_receipt_hash');
+        app(DirectSourceRegistrationEpoch::class)->reconcile($f['receipt'], $f['receipt_hash'], 'test-registration-review');
+
+        return $f;
+    }
+
+    public function test_direct_fleet_lists_only_current_owned_inventory_without_source_reads_or_mapping(): void
+    {
+        $first = $this->registeredFixture('1.6');
+        $second = $this->registeredFixture('2.0.1');
+        $simulator = $this->fixture('1.6');
+        Http::fake();
+        DB::table('charger_source_registrations')->where('id', $second['receipt'])->update(['state' => 'prepared']);
+        $path = '/api/charging-operations/registered-chargers';
+        $this->actingAs($first['owner'])->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'direct_charger_fleet')
+            ->assertJsonPath('evidence', 'INVENTORY_ONLY')
+            ->assertJsonPath('chargers.total', 1)
+            ->assertJsonPath('chargers.data.0.charger_id', $first['charger']->id)
+            ->assertJsonPath('chargers.data.0.state', 'not_inspected')
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false)
+            ->assertJsonPath('billing_authority', false)
+            ->assertJsonMissingPath('chargers.data.0.identifier')
+            ->assertJsonMissingPath('chargers.data.0.source_station_id')
+            ->assertJsonMissingPath('chargers.data.0.registration_id');
+        $this->getJson($path.'?station_id='.$second['station']->id)->assertNotFound();
+        $this->actingAs($second['owner'])->getJson($path)->assertOk()
+            ->assertJsonPath('chargers.data.0.state', 'not_inspected')
+            ->assertJsonPath('chargers.data.0.protocol', '2.0.1');
+        $this->actingAs($simulator['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 0);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson($path)->assertOk()->assertJsonPath('chargers.total', 2);
+        $first['station']->update(['vendor_id' => $second['owner']->id]);
+        $this->getJson($path)->assertOk()->assertJsonPath('chargers.total', 1);
+        $this->actingAs($first['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 0);
+        $this->actingAs(User::factory()->create())->getJson($path)->assertForbidden();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_direct_fleet_paginates_before_projection_and_denies_stale_captured_bearer(): void
+    {
+        $f = $this->registeredFixture('1.6');
+        Http::fake();
+        for ($i = 1; $i <= 25; $i++) {
+            VendorCharger::create(['company_id' => $f['company']->id,
+                'site_id' => $f['charger']->site_id, 'asset_reference' => 'PAGE-'.$i,
+                'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'source' => 'direct_unverified',
+                'ocpp_protocol' => '2.0.1']);
+        }
+        $path = '/api/charging-operations/registered-chargers';
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('chargers.total', 26)
+            ->assertJsonPath('chargers.last_page', 2)->assertJsonCount(25, 'chargers.data');
+        $this->getJson($path.'?page=2')->assertOk()->assertJsonCount(1, 'chargers.data');
+        $this->getJson($path.'?page=0')->assertUnprocessable();
+        $token = $f['owner']->createToken('direct-fleet', ['*'], now()->addHour())->accessToken;
+        $snapshot = $f['owner']->fresh()->withAccessToken($token);
+        $request = Request::create($path);
+        $request->setUserResolver(fn () => $snapshot);
+        $token->delete();
+        try {
+            app(RegisteredChargerFleetController::class)($request);
+            $this->fail('Revoked bearer must not receive a private fleet list.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function directReviewProtocols(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_owner_reviews_exact_direct_connector_without_admitting_charging(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connectors[0]->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        Http::assertNothingSent();
+        $first = $this->postJson($path, $body)->assertCreated()
+            ->assertJsonPath('evidence', 'DIRECT_CONNECTOR_REVIEW_ONLY')
+            ->assertJsonPath('current_registration_matches', true)
+            ->assertJsonPath('review_state', 'current')
+            ->assertJsonPath('charging_mapping_created', false)
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false)->json('id');
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $first);
+        $this->assertDatabaseHas('direct_connector_review_receipts', [
+            'id' => $first, 'source_connector_database_id' => 7, 'source_event_id' => 11,
+        ]);
+        $this->getJson($f['url'])->assertOk()->assertJsonMissingPath('connectors.0.source_connector_database_id')
+            ->assertJsonMissingPath('connectors.0.source_event_id');
+        $this->source($f, 'replacement_source_connector');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'regressed_source_event_id');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f);
+        $this->postJson($path, array_replace($body, ['source_connector_number' => 2]))->assertConflict();
+        $this->postJson($path, array_replace($body, ['connector_id' => $connectors[1]->id]))->assertConflict();
+        $this->postJson($path, array_replace($body, ['source_connector_number' => 100]))->assertConflict();
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonMissingPath('data.0.registration_fingerprint');
+        $this->assertDatabaseCount('direct_connector_review_receipts', 1);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charging_evses', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_connector_review_requires_current_owner_recent_evidence_and_registration(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connector = VendorConnector::where('charger_id', $f['charger']->id)->firstOrFail();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connector->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($path, $body)->assertNotFound();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->postJson($path, $body)->assertNotFound();
+        $this->actingAs($f['owner'])->postJson($path, array_replace($body, [
+            'source_evse_number' => $protocol === '1.6' ? 1 : 0,
+        ]))->assertUnprocessable();
+        Http::assertNothingSent();
+        $this->source($f, 'stale');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'missing_event');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'receipt_changed_during_read');
+        $this->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_authority_rotation_rejects_old_epoch_and_invalidates_review_receipt(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connector = VendorConnector::where('charger_id', $f['charger']->id)->firstOrFail();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connector->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f);
+        $this->actingAs($f['owner'])->postJson($path, $body)->assertCreated();
+        config(['csms.registered_source_authority_epoch' => 2]);
+        $this->source($f);
+        $this->getJson($f['url'])->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROTATION'])->assertSuccessful();
+        $this->getJson($f['url'])->assertConflict();
+        $this->getJson($path)->assertConflict();
+        $this->postJson($path, $body)->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => str_repeat('a', 64), '--ticket' => 'TEST-WRONG',
+        ])->assertFailed();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 1);
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-REVIEW',
+        ])->assertSuccessful();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-REPLAY',
+        ])->assertSuccessful();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.current_registration_matches', false)
+            ->assertJsonPath('data.0.review_state', 'renewal_required');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'replacement_source_connector');
+        $this->postJson($path, $body)->assertConflict();
+        $this->source($f, 'newer_review_event');
+        $renewed = $this->postJson($path, $body)->assertCreated()
+            ->assertJsonPath('current_registration_matches', true)->assertJsonPath('review_state', 'current')->json('id');
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $renewed);
+        $this->getJson($path.'?connector_id='.$connector->id)->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $renewed);
+        $this->assertDatabaseHas('direct_connector_review_receipts', ['connector_id' => $connector->id,
+            'authority_epoch' => 1, 'source_event_id' => 11]);
+        $this->assertDatabaseHas('direct_connector_review_receipts', ['connector_id' => $connector->id,
+            'authority_epoch' => 2, 'source_event_id' => 21]);
+        config(['csms.registered_source_authority_epoch' => 1]);
+        $this->source($f);
+        $this->getJson($f['url'])->assertConflict();
+        $this->artisan('csms:provision-direct-source-authority', ['--ticket' => 'TEST-ROLLBACK'])->assertFailed();
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('direct_source_authority_epochs', 2);
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_registration_epoch_reconciliation_rejects_corrupted_owned_lineage_without_network(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        config(['csms.registered_source_authority_epoch' => 2]);
+        app(DirectSourceAuthority::class)->provision('test-rotation');
+        Http::fake();
+        $command = ['registration' => (string) $f['receipt'],
+            '--receipt' => $f['receipt_hash'], '--ticket' => 'TEST-RECONCILIATION'];
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
+
+        $f['charger']->update(['model' => 'Unreviewed model']);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertFailed();
+        $f['charger']->update(['model' => 'Fixture']);
+
+        $originalOwner = $f['station']->vendor_id;
+        $f['station']->update(['vendor_id' => User::factory()->create(['role' => 'vendor'])->id]);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertFailed();
+        $f['station']->update(['vendor_id' => $originalOwner]);
+
+        $forged = str_repeat('a', 64);
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $forged]);
+        $this->artisan('csms:reconcile-direct-registration', array_replace($command, ['--receipt' => $forged]))->assertFailed();
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $f['receipt_hash']]);
+
+        // A valid digest for the same offline values in another order is
+        // still not the immutable original receipt once reconciled.
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $f['charger']->id)->first();
+        $replacement = hash('sha256', json_encode([
+            'chargePointModel' => $f['charger']->model,
+            'chargePointVendor' => $f['charger']->manufacturer,
+            'isOnline' => false, 'protocol' => 'ocpp'.$protocol,
+            'ocppConnectionName' => $binding->identifier, 'tenantId' => 1, 'id' => 42,
+        ], JSON_THROW_ON_ERROR));
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $replacement]);
+        $this->artisan('csms:reconcile-direct-registration', array_replace($command, ['--receipt' => $replacement]))->assertFailed();
+        DB::table('charger_source_registrations')->where('id', $f['receipt'])
+            ->update(['source_receipt_hash' => $f['receipt_hash']]);
+        $this->assertDatabaseCount('direct_source_registration_epochs', 1);
+        $this->artisan('csms:reconcile-direct-registration', $command)->assertSuccessful();
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_live_review_coverage_requires_every_owned_current_identity(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+            ->assertJsonPath('review_coverage.state', 'requires_review')
+            ->assertJsonPath('review_coverage.current_review_count', 0);
+        foreach ($connectors as $i => $connector) {
+            $this->postJson($path, ['connector_id' => $connector->id,
+                'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+                'source_connector_number' => $i + 1])->assertCreated();
+            $this->getJson($f['url'])->assertOk()
+                ->assertJsonPath('review_coverage.current_review_count', $i + 1)
+                ->assertJsonPath('review_coverage.state', $i === 0 ? 'requires_review' : 'all_identities_reviewed')
+                ->assertJsonPath('review_coverage.evidence', 'DIRECT_CONNECTOR_REVIEW_COVERAGE_ONLY')
+                ->assertJsonPath('review_coverage.charging_mapping_created', false)
+                ->assertJsonPath('review_coverage.physical_availability_verified', false)
+                ->assertJsonPath('review_coverage.remote_control_authorized', false)
+                ->assertJsonPath('local_mapping_verified', false);
+        }
+        foreach (['missing_event', 'replacement_source_connector', 'regressed_source_event_id', 'stale'] as $case) {
+            $this->source($f, $case);
+            $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        }
+        $this->source($f);
+        VendorConnector::create(['charger_id' => $f['charger']->id,
+            'connector_number' => 3, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.inventory_count', 3)
+            ->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_direct_review_rejects_changed_local_inventory_before_and_after_source_review(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol);
+        $connectors = VendorConnector::where('charger_id', $f['charger']->id)->orderBy('id')->get();
+        $path = str_replace('/live-connectors', '/direct-connector-reviews', $f['url']);
+        $body = ['connector_id' => $connectors[0]->id, 'source_evse_number' => $protocol === '1.6' ? 0 : 1,
+            'source_connector_number' => 1];
+        $this->source($f, 'local_connector_restored_during_read');
+        $this->actingAs($f['owner'])->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $this->source($f, 'local_connector_changed_during_read');
+        $this->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 0);
+        $connectors[0]->fresh()->update(['max_power_kw' => 50]);
+        $this->source($f);
+        $this->postJson($path, $body)->assertCreated();
+        $this->postJson($path, array_replace($body, ['connector_id' => $connectors[1]->id,
+            'source_connector_number' => 2]))->assertCreated();
+        $this->getJson($f['url'])->assertOk()
+            ->assertJsonPath('review_coverage.state', 'all_identities_reviewed')
+            ->assertJsonMissingPath('internal_registration_fingerprint');
+        $connectors[0]->fresh()->update(['max_power_kw' => 75]);
+        $this->getJson($path.'?connector_id='.$connectors[0]->id)->assertOk()
+            ->assertJsonPath('data.0.current_registration_matches', false)
+            ->assertJsonPath('data.0.review_state', 'inventory_changed')
+            ->assertJsonMissingPath('data.0.connector_fingerprint');
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->postJson($path, $body)->assertConflict();
+        $connectors[0]->fresh()->update(['max_power_kw' => 50]);
+        $this->getJson($f['url'])->assertOk()->assertJsonPath('review_coverage.state', 'requires_review');
+        $this->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('direct_connector_review_receipts', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    #[DataProvider('directReviewProtocols')]
+    public function test_operator_reconciliation_accepts_original_receipt_with_reordered_json_fields(string $protocol): void
+    {
+        $f = $this->registeredFixture($protocol, true);
+        $digest = $f['receipt_hash'];
+        config(['csms.registered_source_authority_epoch' => 2]);
+        app(DirectSourceAuthority::class)->provision('test-reordered-receipt');
+        $this->source($f);
+        $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict();
+        Http::assertNothingSent();
+        $this->artisan('csms:reconcile-direct-registration', [
+            'registration' => (string) $f['receipt'], '--receipt' => $digest,
+            '--ticket' => 'TEST-REORDERED-RECEIPT',
+        ])->assertSuccessful();
+        $this->getJson($f['url'])->assertOk()
+            ->assertJsonPath('evidence', 'REGISTERED_DIRECT_SOURCE')
+            ->assertJsonPath('physical_availability_verified', false)
+            ->assertJsonPath('remote_control_authorized', false);
+        $this->assertDatabaseCount('direct_source_registration_epochs', 2);
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public static function directSourceCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['healthy', 'disabled', 'plaintext', 'unregistered', 'wrong_station',
+                'changed_generation', 'receipt_changed_during_read', 'missing_event', 'foreign_owner',
+                'wrong_tenant', 'wrong_connection', 'connection_changed_during_read', 'corrupt_receipt',
+                'authority_epoch_changed_during_read'] as $case) {
+                $cases[] = [$protocol, $case];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('directSourceCases')]
+    public function test_registered_direct_source_inspection_is_scoped_tls_read_only_and_never_a_mapping(string $protocol, string $case): void
+    {
+        $f = $this->registeredFixture($protocol);
+        if ($case === 'disabled') {
+            config(['csms.registered_live_monitoring_enabled' => false]);
+        } elseif ($case === 'plaintext') {
+            config(['csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql']);
+        } elseif ($case === 'unregistered') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['state' => 'prepared']);
+        } elseif ($case === 'wrong_station') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['source_station_id' => 43]);
+        } elseif ($case === 'corrupt_receipt') {
+            DB::table('charger_source_registrations')->where('id', $f['receipt'])->update(['source_receipt_hash' => str_repeat('a', 64)]);
+        } elseif ($case === 'changed_generation') {
+            config(['csms.graphql_url' => 'https://replacement.test/graphql']);
+        }
+        $this->source($f, $case);
+        $actor = $case === 'foreign_owner' ? User::factory()->create(['role' => 'vendor']) : $f['owner'];
+        $response = $this->actingAs($actor)->getJson($f['url']);
+        if ($case === 'healthy' || $case === 'missing_event') {
+            $response->assertOk()->assertJsonPath('evidence', 'REGISTERED_DIRECT_SOURCE')
+                ->assertJsonPath('source_topology_complete', $case === 'healthy')
+                ->assertJsonPath('source_topology_matches_local', false)->assertJsonPath('local_mapping_verified', false)
+                ->assertJsonPath('connectors.0.mapping_id', null)->assertJsonPath('connectors.0.operator_maintenance_blocked', null)
+                ->assertJsonPath('connectors.0.state', $case === 'healthy' ? 'recent' : 'unknown')
+                ->assertJsonPath('connectors.0.reported_status', $case === 'healthy' ? 'Available' : null)
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('remote_control_authorized', false)->assertJsonPath('commands_sent', false);
+            Http::assertSentCount(3);
+        } else {
+            $response->assertStatus(match ($case) {
+                'disabled', 'plaintext', 'authority_epoch_changed_during_read' => 503, 'foreign_owner' => 404, default => 409,
+            });
+            if (in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read',
+                'authority_epoch_changed_during_read'], true) === false) {
+                Http::assertNothingSent();
+            }
+        }
+        Http::assertNotSent(fn ($request) => str_contains($request['query'], 'mutation'));
+        $this->assertDatabaseCount('charging_connector_mappings', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     private function source(array $fixture, string $case = 'healthy', string $endpoint = 'https://source.test/graphql'): void
     {
         Http::swap(new Factory);
@@ -94,6 +545,10 @@ class ChargerLiveConnectorsTest extends TestCase
                 $stationReads++;
                 $row = [
                     'id' => 42, 'protocol' => $fixture['protocol'],
+                    'tenantId' => $case === 'wrong_tenant' ? 2 : 1,
+                    'ocppConnectionName' => $case === 'wrong_connection' ||
+                        ($case === 'connection_changed_during_read' && $stationReads === 2)
+                        ? 'FOREIGN-CONNECTION' : $request['variables']['name'],
                     'isOnline' => $case !== 'offline',
                     'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture',
                     'firmwareVersion' => 'sim-fw',
@@ -115,11 +570,35 @@ class ChargerLiveConnectorsTest extends TestCase
                 if ($case === 'malformed_source_id') {
                     $row['id'] = '42';
                 }
+                if ($case === 'source_endpoint_changed') {
+                    config(['csms.graphql_url' => 'https://replacement.test/graphql']);
+                }
 
                 return Http::response(['data' => ['ChargingStations' => [$row]]]);
             }
+            if ($case === 'authority_epoch_changed_during_read') {
+                config(['csms.registered_source_authority_epoch' => 2]);
+                app(DirectSourceAuthority::class)->provision('test-rotation-during-read');
+            }
+            if ($case === 'receipt_changed_during_read') {
+                DB::table('charger_source_registrations')->where('id', $fixture['receipt'])
+                    ->update(['source_receipt_hash' => hash('sha256', 'changed-receipt')]);
+            }
+            if ($case === 'source_secret_changed') {
+                config(['csms.graphql_secret' => str_repeat('r', 64)]);
+            }
+            if ($case === 'bearer_revoked_during_read') {
+                $fixture['owner']->tokens()->delete();
+            }
             if ($case === 'revoke_during_read') {
                 DB::table('users')->where('id', $fixture['owner']->id)->increment('auth_epoch');
+            }
+            if (in_array($case, ['local_connector_changed_during_read', 'local_connector_restored_during_read'], true)) {
+                $connector = VendorConnector::where('charger_id', $fixture['charger']->id)->orderBy('id')->firstOrFail();
+                $connector->update(['max_power_kw' => 75]);
+                if ($case === 'local_connector_restored_during_read') {
+                    $connector->update(['max_power_kw' => 50]);
+                }
             }
             if ($case === 'model_changed_during_read') {
                 DB::table('vendor_chargers')->where('id', $fixture['charger']->id)
@@ -145,6 +624,21 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'NoError', 'timestamp' => now()->subMinute()->toISOString(),
                 ],
             ];
+            if ($case === 'evse_null') {
+                $events[1]['evseId'] = null;
+            }
+            if ($case === 'evse_missing') {
+                unset($events[1]['evseId']);
+            }
+            if ($case === 'evse_string') {
+                $events[1]['evseId'] = (string) $events[1]['evseId'];
+            }
+            if ($case === 'evse_wrong_protocol') {
+                $events[1]['evseId'] = $fixture['protocol'] === '1.6' ? 1 : 0;
+            }
+            if ($case === 'evse_negative') {
+                $events[1]['evseId'] = -1;
+            }
             if ($case === 'unknown_connector') {
                 $events[0]['connectorDatabaseId'] = 999;
             }
@@ -171,6 +665,28 @@ class ChargerLiveConnectorsTest extends TestCase
                     'errorCode' => 'GroundFailure',
                     'timestamp' => $events[1]['timestamp'],
                 ];
+            }
+            if (in_array($case, ['deep_clock_regressed', 'deep_clock_contradiction', 'deep_history_valid'], true)) {
+                // An older pair must be validated even though both times
+                // precede the latest status of connector 1. Interleave
+                // connector 2 to ensure the chronology is target-specific.
+                $older = now()->subMinutes(3);
+                $events[] = array_replace($events[1], [
+                    'id' => 10, 'timestamp' => $older->toISOString(),
+                ]);
+                $events[] = array_replace($events[0], [
+                    'id' => 9, 'timestamp' => now()->subMinutes(2)->toISOString(),
+                ]);
+                $events[] = array_replace($events[1], [
+                    'id' => 8,
+                    'timestamp' => match ($case) {
+                        'deep_clock_regressed' => $older->copy()->addSecond()->toISOString(),
+                        'deep_clock_contradiction' => $older->toISOString(),
+                        default => $older->copy()->subSecond()->toISOString(),
+                    },
+                    'connectorStatus' => $case === 'deep_clock_contradiction' ? 'Faulted' : 'Available',
+                    'errorCode' => $case === 'deep_clock_contradiction' ? 'GroundFailure' : 'NoError',
+                ]);
             }
             if ($case === 'wrong_protocol_status') {
                 $events[0]['connectorStatus'] = $fixture['protocol'] === '1.6' ? 'Occupied' : 'Charging';
@@ -201,8 +717,23 @@ class ChargerLiveConnectorsTest extends TestCase
                 return Http::response(['data' => ['Connectors' => [], 'StatusNotifications' => null]]);
             }
 
+            if ($case === 'missing_event') {
+                array_shift($events);
+            }
+            if ($case === 'replacement_source_connector') {
+                $events[1]['connectorDatabaseId'] = 9;
+            }
+            if ($case === 'regressed_source_event_id') {
+                $events[1]['id'] = 10;
+            }
+            if ($case === 'newer_review_event') {
+                array_unshift($events, array_replace($events[1], [
+                    'id' => 21, 'timestamp' => now()->subSeconds(5)->toISOString(),
+                ]));
+            }
+
             return Http::response(['data' => [
-                'Connectors' => [['id' => 7], ['id' => 8]],
+                'Connectors' => [['id' => $case === 'replacement_source_connector' ? 9 : 7], ['id' => 8]],
                 'StatusNotifications' => $events,
             ]]);
         });
@@ -232,6 +763,32 @@ class ChargerLiveConnectorsTest extends TestCase
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charging_status_observations', 0);
         }
+    }
+
+    public function test_live_connector_projection_requires_protocol_exact_evse_identity(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['evse_missing', 'evse_string', 'evse_wrong_protocol', 'evse_negative', 'evse_null'] as $case) {
+                $this->source($f, $case);
+                $response = $this->actingAs($f['owner'])->getJson($f['url']);
+                if ($protocol === '1.6' && $case === 'evse_null') {
+                    $response->assertOk()
+                        ->assertJsonPath('source_topology_matches_local', true)
+                        ->assertJsonPath('connectors.0.source_evse_number', 0)
+                        ->assertJsonPath('connectors.0.reported_status', 'Available')
+                        ->assertJsonPath('connectors.0.physical_available', false)
+                        ->assertJsonPath('commands_sent', false);
+                    Http::assertSentCount(3);
+                } else {
+                    $response->assertConflict()->assertDontSee('remote_control_authorized');
+                    Http::assertSentCount(2);
+                }
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
     }
 
     public function test_known_local_charging_graphql_compose_host_allows_authenticated_read_only_source(): void
@@ -352,6 +909,83 @@ class ChargerLiveConnectorsTest extends TestCase
         }
     }
 
+    public function test_all_retained_connector_status_pairs_require_consistent_chronology_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            foreach (['deep_clock_regressed', 'deep_clock_contradiction'] as $case) {
+                $this->source($f, $case);
+                $this->actingAs($f['owner'])->getJson($f['url'])->assertConflict()
+                    ->assertDontSee('remote_control_authorized');
+            }
+            $this->source($f, 'deep_history_valid');
+            $this->actingAs($f['owner'])->getJson($f['url'])->assertOk()
+                ->assertJsonPath('source_topology_matches_local', true)
+                ->assertJsonPath('connectors.0.state', 'recent')
+                ->assertJsonPath('connectors.0.reported_status', 'Available')
+                ->assertJsonPath('connectors.1.reported_status', $protocol === '1.6' ? 'Charging' : 'Occupied')
+                ->assertJsonPath('physical_availability_verified', false)
+                ->assertJsonPath('commands_sent', false);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
+    public function test_live_connector_inspection_cannot_mix_source_authorities(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $fixture = $this->fixture($protocol);
+            foreach (['source_endpoint_changed' => 1, 'source_secret_changed' => 2] as $case => $requests) {
+                config(['csms.graphql_url' => 'https://source.test/graphql', 'csms.graphql_secret' => str_repeat('x', 64)]);
+                $this->source($fixture, $case);
+                $this->actingAs($fixture['owner'])->getJson($fixture['url'])->assertServiceUnavailable()
+                    ->assertJsonMissingPath('connectors');
+                Http::assertSentCount($requests);
+            }
+        }
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_captured_bearer_revocation_fences_live_connector_disclosure_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $token = $f['owner']->createToken('live-fleet', ['*'], now()->addHour())->accessToken;
+            $snapshot = $f['owner']->fresh()->withAccessToken($token);
+            $request = Request::create($f['url'], 'GET');
+            $request->setUserResolver(fn () => $snapshot);
+            $read = fn () => app(ChargerLiveConnectorsController::class)(
+                $request, $f['company'], $f['charger'], app(ChargerResetController::class), app(RemoteSessionAuthorization::class)
+            );
+            $this->source($f);
+            $this->assertSame(200, $read()->getStatusCode());
+            Http::assertSentCount(3);
+
+            $this->source($f, 'bearer_revoked_during_read');
+            try {
+                $read();
+                $this->fail('A revoked captured token received live source evidence.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertSentCount(3);
+
+            $this->source($f);
+            try {
+                $read();
+                $this->fail('A revoked captured token initiated source reads.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            Http::assertNothingSent();
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertDatabaseCount('charging_status_observations', 0);
+        }
+    }
+
     public function test_missing_canonical_target_digest_prevents_any_source_request(): void
     {
         $f = $this->fixture();
@@ -369,6 +1003,8 @@ class ChargerLiveConnectorsTest extends TestCase
         $this->source($f);
         foreach ([
             'http://source.test/graphql',
+            'http://charging-graphql:8080/other-path',
+            'http://charging-graphql.evil.test:8080/v1/graphql',
             'http://user:secret@source.test/graphql',
             'https://user:secret@source.test/graphql',
             'https://source.test/graphql?secret=unsafe',
