@@ -103,21 +103,7 @@ class CdrReconciler
                     $issues[] = 'cost_'.$field.'_mismatch';
                 }
             }
-            // Multiple CDRs claiming the same source session cannot be counted twice.
-            // Do not reuse a high-water cache across independent reviews:
-            // a repaired or corrupted stored projection may retain the same ID.
-            $claims = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
-                ->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)
-                ->orderByDesc('id')->limit(1001)->pluck('normalized');
-            if ($claims->count() > 1000) {
-                $issues[] = 'history_exceeds_comparison_limit';
-            }
-            if ($claims->contains(fn ($claim) => empty($claim['session_id']))) {
-                $issues[] = 'history_contains_unlinked_cdrs';
-            }
-            if ($claims->filter(fn ($claim) => ($claim['session_id'] ?? null) === $sessionId)->count() > 1) {
-                $issues[] = 'multiple_cdrs_for_session';
-            }
+            $issues = [...$issues, ...app(CdrSessionClaims::class)->findings($cdr, $sessionId)];
         }
 
         return ['status' => $issues === [] ? 'source_consistent' : 'requires_review', 'issues' => $issues, 'session_record_id' => $session?->id,
