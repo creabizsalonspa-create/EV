@@ -593,3 +593,37 @@ test('federated late results cannot repopulate retired actor or private coordina
  assert.equal(f.fields.consent.checked,false);
  assert.equal(f.calls.length,1);
 });
+
+test('federated map publication is explicit, bounded by source evidence, and revoked on next search',async()=>{
+ const reply=federatedReply();
+ Object.assign(reply.published.data[0].station,{latitude:25.2,longitude:55.3});
+ Object.assign(reply.published.data[1].location,{latitude:'25.21',longitude:'55.31'});
+ const licensed=reply.licensed.sample.results[0];
+ Object.assign(licensed,{latitude:25.22,longitude:55.32,reported_operational:null,
+   reported_operational_evidence:'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED',
+   reported_access_evidence:'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED',
+   reported_cost_evidence:'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED',
+   reported_access:'',reported_cost_note:''});
+ const f=federationFixture('en',async()=>reply);fillFederation(f);
+ const panel=f.root.children.find(node=>node.id==='unified-federated-nearby');
+ const map=panel.children.at(-1);
+ assert.equal(map.disabled,true);f.fields.consent.checked=true;await f.submit();
+ assert.equal(f.events.length,0,'Search must not publish a map');
+ assert.equal(map.disabled,false);map.onclick();
+ assert.equal(f.events.length,1);const publication=f.events[0];
+ assert.equal(publication.type,'unified-map-data');
+ assert.deepEqual(Array.from(publication.detail,r=>r.key),['catalog:7','partner:7']);
+ assert.deepEqual(Array.from(publication.evLicensedRows,r=>r.id),['ocm:123']);
+ const token=publication.evUnifiedPublication;
+ // No new consent: the explicit second search clears prior map ownership.
+ await f.submit();
+ assert.equal(f.events[1].type,'unified-map-clear');assert.equal(f.events[1].detail,token);
+ assert.equal(map.disabled,true);assert.equal(f.calls.length,1);
+ // Malformed and polar coordinates stay readable but are not plotted.
+ licensed.latitude=true;reply.published.data[0].station.latitude=90;
+ f.fields.consent.checked=true;await f.submit();map.onclick();
+ assert.deepEqual(Array.from(f.events.at(-1).detail,r=>r.key),['partner:7']);
+ assert.equal(f.events.at(-1).evLicensedRows.length,0);
+ f.control.clear();assert.equal(f.events.at(-1).type,'unified-map-clear');
+ assert.equal(map.disabled,true);assert.equal(f.fields.latitude.value,'');
+});
