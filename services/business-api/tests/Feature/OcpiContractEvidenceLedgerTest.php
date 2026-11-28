@@ -81,6 +81,54 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_opt_in_administrative_authorization_requires_current_evidence_and_preserves_revocation(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        config(['ocpi.contract_review_authorization_required' => true,
+            'ocpi.connections.contract-evidence-test' => ['origin' => 'https://partner.example',
+                'authorization_token' => 'synthetic-token'],
+            'ocpi.connections.contract-pending-other' => ['origin' => 'https://partner.example',
+                'authorization_token' => 'synthetic-token']]);
+        $authorization = '/api/ocpi/providers/'.$provider->id.'/authorization';
+        $this->actingAs($admin)->postJson('/api/ocpi/providers', ['owner_id' => $owner->id,
+            'name' => 'Cannot bypass pending review', 'connection_key' => 'contract-pending-other',
+            'authorized' => true])->assertConflict();
+        $this->patchJson($authorization, ['authorized' => true])->assertConflict();
+        $this->assertFalse($provider->fresh()->authorized);
+        $this->postJson($path, $this->review())->assertCreated()
+            ->assertJsonPath('administrative_authorization_review_required', true)
+            ->assertJsonPath('operational_enforcement_available', false);
+        $this->patchJson($authorization, ['authorized' => true])->assertOk()->assertJsonPath('authorized', true);
+        $revoke = ['decision' => 'revoke', 'expected_revision' => 1,
+            'idempotency_key' => 'synthetic-revoke-gate-001', 'reason' => 'Withdraw synthetic review after deauthorization.'];
+        $this->postJson($path, $revoke)->assertConflict();
+        $this->patchJson($authorization, ['authorized' => false])->assertOk();
+        $this->postJson($path, $revoke)->assertCreated();
+        $this->patchJson($authorization, ['authorized' => true])->assertConflict();
+        $this->assertFalse($provider->fresh()->authorized);
+        $this->assertDatabaseCount('ocpi_partner_contract_reviews', 2);
+        Http::assertNothingSent();
+    }
+
+    public function test_expired_or_corrupt_evidence_denies_new_authorization(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        config(['ocpi.contract_review_authorization_required' => true,
+            'ocpi.connections.contract-evidence-test' => ['origin' => 'https://partner.example',
+                'authorization_token' => 'synthetic-token']]);
+        $this->actingAs($admin)->postJson($path, $this->review())->assertCreated();
+        $authorization = '/api/v1/ocpi/providers/'.$provider->id.'/authorization';
+        $row = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
+        $row->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->patchJson($authorization, ['authorized' => true])->assertConflict();
+        $row->update(['valid_until' => $this->review()['valid_until'], 'evidence_sha256' => str_repeat('x', 64)]);
+        $this->getJson($path)->assertOk()->assertJsonPath('review_valid_for_current_owner', false);
+        $this->patchJson($authorization, ['authorized' => true])->assertConflict();
+        $row->update(['evidence_sha256' => $this->review()['evidence_sha256']]);
+        $this->patchJson($authorization, ['authorized' => true])->assertOk();
+        Http::assertNothingSent();
+    }
+
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
