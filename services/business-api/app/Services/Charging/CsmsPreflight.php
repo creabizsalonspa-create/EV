@@ -11,36 +11,9 @@ final class CsmsPreflight
     private function endpointConfigured(): bool
     {
         $url = config('csms.graphql_url');
-        if (! is_string($url) || strlen($url) > 512 || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) {
-            return false;
-        }
-        $parts = parse_url($url);
 
-        if (! is_array($parts) || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
-            || ! is_string($parts['host'] ?? null) || $parts['host'] === ''
-            || ! preg_match('/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/D', $parts['host'])
-            || (isset($parts['port']) && ($parts['port'] < 1 || $parts['port'] > 65535))
-            || isset($parts['user']) || isset($parts['pass'])
-            || isset($parts['query']) || isset($parts['fragment'])
-            || ($parts['path'] ?? '') !== '/v1/graphql') {
-            return false;
-        }
-        // An admin-authenticated GraphQL source URL must never be advertised
-        // as ready if its secret would be sent in cleartext to an external
-        // HTTP hostname. Dedicated staging endpoints need HTTPS; only fixed
-        // local simulator/container service labels may use internal HTTP.
-        if ($parts['scheme'] === 'http') {
-            return in_array(strtolower($parts['host']), [
-                'localhost', '127.0.0.1', '[::1]',
-                'citrine', 'hasura', 'citrine-hasura', 'ev-hasura',
-                // Compose's authenticated read-only Hasura service label:
-                // the vendor source inspector already permits this exact
-                // hostname. It is not a wildcard or an external HTTP host.
-                'charging-graphql',
-            ], true);
-        }
-
-        return true;
+        return app(CsmsGraphqlTransport::class)->approved($url)
+            && parse_url($url, PHP_URL_PATH) === '/v1/graphql';
     }
 
     private function schemaReady(): bool
