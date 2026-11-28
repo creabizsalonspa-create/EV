@@ -20,6 +20,7 @@ class ChargerCertificateController extends Controller
         return DB::transaction(function () use ($r, $company, $charger, $service) {
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             app(MaintenanceActor::class)->check($r->user());
+            app(MaintenanceActor::class)->checkBearer($r->user());
             $actor = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $charger = VendorCharger::findOrFail($charger->id);
             $service->scope($actor, $company, $charger);
