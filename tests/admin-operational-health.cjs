@@ -149,3 +149,42 @@ test('local review escalation shows overdue and unknown without external deliver
         click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
     }
 });
+
+test('incident history requests an exclusive cursor and rejects an overlapping page', async () => {
+    const f = fixture(), calls = [];
+    let overlap = false;
+    const event = id => ({id, condition_key: 'queue_worker_stale', transition: 'opened', observed_at: '2026-11-14T00:00:00Z'});
+    const incidents = (recent_events, next_before_event_id) => ({
+        store_readable: true, monitoring_enabled: true, automatic_retry: false,
+        external_alert_delivery: false, production_recovery_verified: false,
+        open: [], recent_events, next_before_event_id,
+    });
+
+    f.setActor({role: 'admin'}, async (path, method) => {
+        calls.push([path, method]);
+        const feed = path.includes('?')
+            ? incidents([event(overlap ? 3 : 2)], null)
+            : incidents(Array.from({length: 20}, (_, offset) => event(22 - offset)), 3);
+        return {...report(), incidents: feed};
+    });
+    await click(f);
+    const older = nodes(f.root, 'button').find(button => button.textContent === 'View earlier transitions');
+    assert(older);
+    older.onclick();
+    await flush();
+    assert.deepEqual(calls, [
+        ['admin/operational-health', 'GET'],
+        ['admin/operational-health?before_event_id=3', 'GET'],
+    ]);
+    assert(f.root.textContent.includes('Earlier incident transitions'));
+    assert(!nodes(f.root, 'button').some(button => button.textContent === 'View earlier transitions'));
+    older.onclick();
+    await flush();
+    assert.equal(calls.length, 2);
+
+    await click(f);
+    overlap = true;
+    nodes(f.root, 'button').find(button => button.textContent === 'View earlier transitions').onclick();
+    await flush();
+    assert(f.root.textContent.includes('Process observations could not load'));
+});

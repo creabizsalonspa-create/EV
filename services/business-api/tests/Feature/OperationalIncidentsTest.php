@@ -342,6 +342,34 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_incident_timeline_cursor_is_bounded_and_excludes_newer_events(): void
+    {
+        $url = '/api/admin/operational-health';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $events = DB::table('operational_incident_events');
+        $ids = [];
+        for ($i = 0; $i < 23; $i++) {
+            $ids[] = $events->insertGetId([
+                'condition_key' => 'email_queue_backlog',
+                'transition' => $i % 2 === 0 ? 'opened' : 'resolved',
+                'observed_at' => now(),
+            ]);
+        }
+
+        $first = $this->actingAs($admin)->getJson($url)->assertOk();
+        $this->assertSame(array_slice(array_reverse($ids), 0, 20), array_column($first->json('incidents.recent_events'), 'id'));
+        $first->assertJsonPath('incidents.next_before_event_id', $ids[3]);
+
+        $events->insert(['condition_key' => 'queue_worker_stale', 'transition' => 'opened', 'observed_at' => now()]);
+        $older = $this->getJson($url.'?before_event_id='.$ids[3])->assertOk()
+            ->assertJsonPath('incidents.next_before_event_id', null);
+        $this->assertSame(array_reverse(array_slice($ids, 0, 3)), array_column($older->json('incidents.recent_events'), 'id'));
+        $this->getJson($url.'?before_event_id=0')->assertUnprocessable();
+        $this->getJson($url.'?before_event_id=9007199254740992')->assertUnprocessable();
+        $this->actingAs(User::factory()->create(['role' => 'customer']))
+            ->getJson($url.'?before_event_id='.$ids[3])->assertForbidden();
+    }
+
     public function test_only_authenticated_current_admin_can_read_timeline(): void
     {
         $url = '/api/admin/operational-health';

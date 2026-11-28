@@ -193,12 +193,12 @@ final class OperationalIncidents
     }
 
     /** Read-only, bounded and deliberately free of queue payloads or recipient data. */
-    public function summary(): array
+    public function summary(?int $beforeEventId = null): array
     {
         try {
             // A missing incident table must abort only this nested savepoint,
             // not poison the enclosing PostgreSQL Admin transaction.
-            return DB::transaction(function () {
+            return DB::transaction(function () use ($beforeEventId) {
                 // Partition one result so a concurrent scan cannot make a
                 // condition appear in both projections in the same response.
                 $states = DB::table('operational_incident_states as incident')
@@ -228,6 +228,11 @@ final class OperationalIncidents
                 $priority = ['overdue' => 0, 'unknown' => 1, 'pending' => 2, 'acknowledged' => 3];
                 $open = $open->sortBy(fn ($state) => $priority[$state->review_escalation['state']])->values();
 
+                $events = DB::table('operational_incident_events')
+                    ->when($beforeEventId !== null, fn ($query) => $query->where('id', '<', $beforeEventId))
+                    ->orderByDesc('id')->limit(21)
+                    ->get(['id', 'condition_key', 'transition', 'observed_at']);
+
                 return [
                     'store_readable' => true,
                     'monitoring_enabled' => (bool) config('operational_health.enabled'),
@@ -239,8 +244,8 @@ final class OperationalIncidents
                         'observed_at' => $observedAt->toISOString(), 'external_actions' => false],
                     'open' => $open->all(),
                     'resolved' => $states->where('state', 'resolved')->whereNotNull('resolved_at')->values()->all(),
-                    'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
-                        ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
+                    'recent_events' => $events->take(20)->all(),
+                    'next_before_event_id' => $events->count() > 20 ? (int) $events[19]->id : null,
                 ];
             });
         } catch (Throwable) {
@@ -249,7 +254,7 @@ final class OperationalIncidents
                 'production_recovery_verified' => false, 'scanner' => $this->unknownScanner(),
                 'review_policy' => ['target_minutes' => null, 'scope' => 'local_operator_review_only',
                     'observed_at' => null, 'external_actions' => false],
-                'open' => [], 'resolved' => [], 'recent_events' => []];
+                'open' => [], 'resolved' => [], 'recent_events' => [], 'next_before_event_id' => null];
         }
     }
 

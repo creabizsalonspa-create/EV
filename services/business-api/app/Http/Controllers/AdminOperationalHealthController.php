@@ -40,8 +40,11 @@ final class AdminOperationalHealthController extends Controller
     {
         return DB::transaction(function () use ($request, $health) {
             $this->currentAdmin($request);
+            $cursor = $request->validate(['before_event_id' => 'sometimes|required|integer|min:1|max:9007199254740991']);
             $report = $health->report();
-            $report['incidents'] = app(OperationalIncidents::class)->summary();
+            $report['incidents'] = app(OperationalIncidents::class)->summary(
+                isset($cursor['before_event_id']) ? (int) $cursor['before_event_id'] : null,
+            );
 
             return response()->json($report)->header('Cache-Control', 'private, no-store');
         });
