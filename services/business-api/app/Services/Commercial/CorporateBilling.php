@@ -250,9 +250,17 @@ class CorporateBilling
         $open = 0;
         $rows = DB::table('corporate_statements')->where('fleet_id', $agreement->fleet_id)
             ->where('currency', $agreement->currency)
-            ->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
             ->orderBy('id')->cursor();
         foreach ($rows as $row) {
+            // A receipt header alone cannot restore available corporate credit.
+            // Historical paid statements may have a different precision, but
+            // only a fully allocated receipt proves they are no longer open.
+            $receipt = DB::table('corporate_receipts')->where('statement_id', $row->id)->first();
+            if ($receipt) {
+                $this->verifiedReceipt($row, $receipt);
+
+                continue;
+            }
             abort_unless(self::exactMinor($row->minor_units) === $precision,
                 409, 'Outstanding corporate statements have incompatible currency precision.');
             $open = self::addMinor($open, self::exactMinor($row->total_minor));

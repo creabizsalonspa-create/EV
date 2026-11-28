@@ -182,6 +182,46 @@ class CorporateBillingTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
+    public function test_unallocated_receipt_cannot_restore_corporate_credit_for_new_statement(): void
+    {
+        $a = $this->agreement(1050);
+        $first = $this->approved($a, $this->invoice());
+        $second = $this->approved($a, $this->invoice());
+        $s = $this->issue($a, [$first])->assertCreated()->json('statement');
+        $this->issue($a, [$second], 'next-statement')->assertConflict();
+        DB::table('corporate_receipts')->insert([
+            'statement_id' => $s['id'], 'actor_id' => $this->owner->id,
+            'number' => 'SIM-CORP-CREDIT-UNALLOCATED', 'amount_minor' => 1050,
+            'request_key' => hash('sha256', 'credit-unallocated'),
+            'fingerprint' => hash('sha256', 'credit-unallocated-source'),
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->issue($a, [$second], 'next-statement')->assertConflict();
+        $this->assertDatabaseCount('corporate_statements', 1);
+        $this->assertDatabaseCount('corporate_statement_lines', 1);
+        $this->assertDatabaseCount('corporate_receipt_payments', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_journals', $before);
+    }
+
+    public function test_verified_receipt_restores_corporate_credit_without_duplicate_collection(): void
+    {
+        $a = $this->agreement(1050);
+        $first = $this->approved($a, $this->invoice());
+        $second = $this->approved($a, $this->invoice());
+        $s = $this->issue($a, [$first])->assertCreated()->json('statement');
+        $this->issue($a, [$second], 'next-statement')->assertConflict();
+        $this->postJson($this->url('statements/'.$s['id'].'/simulate-payment'), [
+            'idempotency_key' => 'restore-credit',
+        ])->assertOk()->assertJsonPath('receipt.amount_minor', 1050);
+        $this->issue($a, [$second], 'next-statement')->assertCreated()->assertJsonPath('statement.total_minor', 1050);
+        $this->assertDatabaseCount('corporate_statements', 2);
+        $this->assertDatabaseCount('corporate_receipts', 1);
+        $this->assertDatabaseCount('corporate_receipt_payments', 1);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
     public function test_unallocated_corporate_receipt_cannot_claim_a_collected_statement(): void
     {
         $a = $this->agreement();
