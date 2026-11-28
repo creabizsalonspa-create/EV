@@ -18,8 +18,25 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
     const t = (en, ar) => document.documentElement.lang === 'ar' ? ar : en;
     const node = (tag, text) => { const n = document.createElement(tag); n.textContent = text; return n; };
     const current = n => !disposed && panel.isConnected && !document.hidden && actor() === viewer && n === generation;
-    const sourceClock = raw => typeof raw === 'string' && raw === raw.trim() &&
-        window.EvStationTime?.displayStationTime(raw,'UTC','en') ? Date.parse(raw) : NaN;
+    // The fleet endpoint publishes ISO UTC clocks with up to six decimal
+    // digits. Compare their source instants without device-clock assumptions
+    // or losing ordering within a millisecond.
+    function sourceClock(raw) {
+        const m = typeof raw === 'string' &&
+            /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(raw);
+        if (!m || m[0] !== raw || !window.EvStationTime?.displayStationTime(raw,'UTC','en')) return null;
+        const milliseconds = Date.parse(raw);
+        return Number.isFinite(milliseconds) ? {milliseconds, remainder:Number((m[2] || '').padEnd(6,'0').slice(3))} : null;
+    }
+    function stateAtSnapshot(f, asOf) {
+        const checked = sourceClock(f?.checked_at), snapshot = sourceClock(asOf);
+        if (!checked || !snapshot) return 'unknown';
+        const elapsed = snapshot.milliseconds - checked.milliseconds +
+            (snapshot.remainder - checked.remainder) / 1000;
+        // The report may expire after its individual row was read but before
+        // the server finished the fleet snapshot. Do not label it recent.
+        return elapsed < 0 ? 'unknown' : window.EvConnectorFreshness?.state(f,elapsed) ?? 'unknown';
+    }
     const clockLine = (en, ar, raw) => {
         const p = node('p','');
         const label = language => window.EvStationTime?.serverEventTime(raw,language) ||
@@ -79,7 +96,7 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 !Array.isArray(data.connectors?.data) || data.connectors.data.length > 25 ||
                 !Number.isSafeInteger(data.connectors.current_page) || !Number.isSafeInteger(data.connectors.last_page) ||
                 data.connectors.current_page !== page || data.connectors.last_page < page ||
-                !Number.isFinite(sourceClock(data.as_of)) ||
+                !sourceClock(data.as_of) ||
                 new Set(data.connectors.data.map(row => row?.mapping_id)).size !== data.connectors.data.length) throw Error('Invalid snapshot');
             for (const row of data.connectors.data) {
                 const f = row.status_freshness;
@@ -99,8 +116,7 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 card.append(node('h4', `${row.station_name} · #${row.mapping_id}`), node('p', `${t('Protocol', 'البروتوكول')}: ${row.protocol ?? t('No qualified source', 'لا يوجد مصدر مؤهل')}`));
                 // Check the existing strict source freshness contract at the
                 // recorded read instant, never against the device clock.
-                const sourceState = sourceClock(f.checked_at) <= sourceClock(data.as_of)
-                    ? window.EvConnectorFreshness?.state(f,0) ?? 'unknown' : 'unknown';
+                const sourceState = stateAtSnapshot(f,data.as_of);
                 card.append(node('p', !row.inventory_eligible_at_read ? t('Inventory unavailable or maintenance blocked', 'المخزون غير متاح أو محظور للصيانة') :
                     f.state === 'recent' && sourceState === f.reported_status ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + window.EvConnectorFreshness.label(f.reported_status, document.documentElement.lang === 'ar') :
                     sourceState === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
