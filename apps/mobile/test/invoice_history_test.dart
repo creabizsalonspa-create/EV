@@ -137,7 +137,15 @@ void main() {
     await tester.tap(find.text('إعادة المحاولة'));
     await tester.pumpAndSettle();
     expect(find.text('SIM-HISTORY-7'), findsOneWidget);
-    expect(find.textContaining('UTC'), findsOneWidget);
+    // Match the actual localized invoice timestamp, not the two UTC filter labels.
+    final ctx = tester.element(find.text('SIM-HISTORY-7'));
+    final localizations = MaterialLocalizations.of(ctx);
+    final expectedDate = localizations.formatCompactDate(DateTime.utc(2026, 10, 27));
+    final expectedTime = localizations.formatTimeOfDay(
+      const TimeOfDay(hour: 4, minute: 0),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(ctx),
+    );
+    expect(find.text('$expectedDate · $expectedTime · \u2068UTC\u2069'), findsOneWidget);
     expect(find.text(api.clock), findsNothing);
   });
   testWidgets('revocation immediately removes invoice history and retained detail callback cannot navigate', (tester) async {
