@@ -43,6 +43,40 @@ class SubscriptionTest extends TestCase
         return $this->actingAs($f[0])->postJson($f[2].'/mock-payment', ['invoice_id' => end($f[1]['invoices'])['id'], 'outcome' => $outcome, 'idempotency_key' => $key])->assertOk()->json();
     }
 
+    public function test_stale_service_actor_cannot_enroll_change_pay_or_publish(): void
+    {
+        $p = $this->plan();
+        $f = $this->subscribe($p);
+        $service = app(SubscriptionService::class);
+        $vendor = $f[0];
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $before = DB::table('commercial_subscription_ledger')->count();
+        DB::table('users')->where('id', $vendor->id)->update(['auth_epoch' => (int) $vendor->auth_epoch + 1]);
+        DB::table('users')->where('id', $other->id)->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        $operations = [
+            fn () => $service->subscribe($other, $p['id'], 'stale-enroll'),
+            fn () => $service->change($vendor, $f[1]['subscription']['id'], 'cancel_now', null, 'stale-change'),
+            fn () => $service->mockPay($vendor, $f[1]['subscription']['id'], $f[1]['invoices'][0]['id'], 'succeeded', 'stale-pay'),
+            fn () => $service->publish($admin, []),
+        ];
+        foreach ($operations as $operation) {
+            try {
+                $operation();
+                $this->fail('Revoked service actor was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('commercial_plan_versions', 1);
+        $this->assertDatabaseCount('commercial_subscriptions', 1);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+    }
+
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
     {
         $p = $this->plan();
