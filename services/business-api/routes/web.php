@@ -101,6 +101,7 @@ Route::post('/api/account/privacy-requests/{privacyCase}/withdraw', [AccountPriv
 Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
 Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/erasure-assessment', [AccountPrivacyController::class, 'erasureAssessment'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/security-denials', [AdminSecurityDenialSummaryController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/command-secret-storage', [AdminCommandSecretStorageController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
