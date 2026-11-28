@@ -724,6 +724,31 @@ class _VendorSessionObservationsState
               ),
               Text(t('Observed at UTC', 'تمت الملاحظة بالتوقيت العالمي')),
               Text(serverEventTime(context, p.asOf)),
+              Wrap(
+                spacing: 4,
+                children: [
+                  Text(t('Page', 'الصفحة')),
+                  Text(
+                    '${p.current} / ${p.last}',
+                    textDirection: TextDirection.ltr,
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: p.current > 1 ? readAction(p.current - 1) : null,
+                    child: Text(t('Previous', 'السابق')),
+                  ),
+                  OutlinedButton(
+                    onPressed: p.current < p.last
+                        ? readAction(p.current + 1)
+                        : null,
+                    child: Text(t('Next', 'التالي')),
+                  ),
+                ],
+              ),
               if (p.items.isEmpty)
                 Text(
                   t(
@@ -781,31 +806,6 @@ class _VendorSessionObservationsState
                     ),
                   ),
                 ),
-              Wrap(
-                spacing: 4,
-                children: [
-                  Text(t('Page', 'الصفحة')),
-                  Text(
-                    '${p.current} / ${p.last}',
-                    textDirection: TextDirection.ltr,
-                  ),
-                ],
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  OutlinedButton(
-                    onPressed: p.current > 1 ? readAction(p.current - 1) : null,
-                    child: Text(t('Previous', 'السابق')),
-                  ),
-                  OutlinedButton(
-                    onPressed: p.current < p.last
-                        ? readAction(p.current + 1)
-                        : null,
-                    child: Text(t('Next', 'التالي')),
-                  ),
-                ],
-              ),
             ],
           ],
         ),

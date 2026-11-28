@@ -280,7 +280,7 @@ void main() {
           OutlinedButton,
           lang == 'ar' ? 'التالي' : 'Next',
         );
-        await tester.ensureVisible(next);
+        expect(next.hitTestable(), findsOneWidget);
         await tester.tap(next);
         await tester.pumpAndSettle();
         expect(api.reads.last, {'page': '2'});
@@ -298,8 +298,7 @@ void main() {
       await tester.pumpAndSettle();
       api.fail = true;
       final next = find.widgetWithText(OutlinedButton, 'Next');
-      await tester.ensureVisible(next);
-      await tester.pumpAndSettle();
+      expect(next.hitTestable(), findsOneWidget);
       await tester.tap(next);
       await tester.pumpAndSettle();
       expect(find.text('Owned station 27'), findsNothing);
