@@ -10,18 +10,40 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 /** Explicit non-billable sandbox authority; imported records never grant charging on their own. */
 class SandboxRoaming
 {
     public const TERMS = 'sandbox-roaming-v1';
 
-    public function policy(OcpiProvider $provider): array
+    /** Contract eligibility can be checked while the peer is still discovering our modules. */
+    private function configuredPolicy(OcpiProvider $provider): array
     {
-        abort_unless(app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && $provider->authorized && $provider->version === '2.2.1' && User::whereKey($provider->owner_id)->where('role', 'vendor')->exists(), 409, 'Approved sandbox roaming is unavailable.');
+        abort_unless(app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled'), 409, 'Approved sandbox roaming is unavailable.');
         [$c,$local] = app(CredentialExchange::class)->configuration($provider);
         abort_unless(($c['test_commands'] ?? false) === true && ($c['managed_credentials'] ?? false) === true && ($c['environment'] ?? null) === 'sandbox' && $c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP' && is_string($c['test_command_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_command_contract']), 409, 'An approved sandbox contract is required.');
-        abort_unless(in_array('sessions', app(CredentialExchange::class)->receiverModules($provider), true) && in_array('cdrs', app(CredentialExchange::class)->receiverModules($provider), true), 409, 'Approved session and CDR reception is required.');
+        $receivers = app(CredentialExchange::class)->receiverModules($provider);
+        abort_unless(in_array('sessions', $receivers, true) && in_array('cdrs', $receivers, true), 409, 'Approved session and CDR reception is required.');
+
+        return [$c, $local];
+    }
+
+    public function tokenSenderConfigured(OcpiProvider $provider): bool
+    {
+        try {
+            $this->configuredPolicy($provider);
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public function policy(OcpiProvider $provider): array
+    {
+        abort_unless($provider->authorized && $provider->version === '2.2.1' && User::whereKey($provider->owner_id)->where('role', 'vendor')->exists(), 409, 'Approved sandbox roaming is unavailable.');
+        [$c, $local] = $this->configuredPolicy($provider);
         foreach (['locations', 'tariffs', 'sessions', 'cdrs', 'commands_receiver', 'tokens_receiver'] as $module) {
             $url = $provider->endpoints[$module] ?? null;
             abort_unless(is_string($url) && parse_url($url, PHP_URL_QUERY) === null, 409, 'Required negotiated partner modules are unavailable.');
@@ -121,7 +143,7 @@ class SandboxRoaming
     {
         try {
             return $record->received_at?->lte(now()) === true;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -249,7 +271,7 @@ class SandboxRoaming
 
             return $command->action === 'TOKEN_REVOKE' && ($payload['valid'] ?? null) === false
                 && hash_equals($command->intent_hash, hash('sha256', json_encode([$command->order_id, $command->action, $payload], JSON_THROW_ON_ERROR)));
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -273,7 +295,7 @@ class SandboxRoaming
             $this->current($order);
             $source = $order->source_session_record_id ? OcpiRecord::find($order->source_session_record_id) : null;
             $canStop = $driver && $order->state === 'source_active' && $source && app(StoredSourceIntegrity::class)->consistent($source) && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
-        } catch (\Throwable) {
+        } catch (Throwable) {
         }
 
         $cost = null;
