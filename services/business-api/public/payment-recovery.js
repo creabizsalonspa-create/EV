@@ -31,6 +31,11 @@ function recoveryScope(container, actor, redact) {
         signal() { return controller.signal; },
     };
 }
+function validRecoveryMoney(row, field) {
+    return row && Number.isSafeInteger(row[field]) && row[field] >= 0 &&
+        Number.isInteger(row.minor_units) && row.minor_units >= 0 && row.minor_units <= 3 &&
+        typeof row.currency === "string" && /^[A-Z]{3}$/.test(row.currency);
+}
 function recoveryEventClock(node, raw) {
     return window.EvStationTime.bindServerEventTime(node, raw);
 }
@@ -79,7 +84,9 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                 )
                     state.replaceChildren(t("span", "Unable to read recovery status. Refresh before another action.", "تعذر قراءة حالة الاسترداد. حدّث قبل أي إجراء آخر."));
             } finally {
-                if (valid() && b.isConnected) b.disabled = false;
+                // An interrupted top-level read must remain manually reloadable
+                // after the tab returns, even if its finally ran while hidden.
+                if (b.isConnected) b.disabled = false;
             }
         };
         return b;
@@ -95,7 +102,12 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
             rows = await api("commercial/payment-recovery?page=" + page, "GET", undefined, scope.signal());
             if (!current()) return;
             if (!Array.isArray(rows?.data) || rows.current_page !== page ||
-                !Number.isSafeInteger(rows.last_page) || rows.last_page < page) throw Error("Invalid page");
+                !Number.isSafeInteger(rows.last_page) || rows.last_page < page ||
+                rows.data.some(row => !validRecoveryMoney(row, "amount_minor") ||
+                    !Number.isSafeInteger(row.id) || row.id < 1 ||
+                    typeof row.kind !== "string" || typeof row.scope !== "string" ||
+                    typeof row.status !== "string") ||
+                new Set(rows.data.map(row => row.id)).size !== rows.data.length) throw Error("Invalid page");
         } catch (e) {
             if (current() && !["SessionChangedError","AbortError"].includes(e.name))
                 state.replaceChildren(t("span", "Unable to read recovery status. Refresh before another action.", "تعذر قراءة حالة الاسترداد. حدّث قبل أي إجراء آخر."));
@@ -127,19 +139,21 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
             completed: ["Operation recorded", "تم تسجيل العملية"],
             rejected: ["Operation not sent", "لم ترسل العملية"],
         };
+        const statusLabel = value => Object.hasOwn(labels, value)
+            ? labels[value] : ["Status unavailable", "الحالة غير متاحة"];
         for (const row of rows.data) {
             const card = document.createElement("article");
             card.className = "finance-row";
             card.append(
                 literal("h4", "#" + row.id),
-                t("p", ...(labels[row.status] || [row.status, row.status])),
+                t("p", ...statusLabel(row.status)),
                 literal(
                     "p",
                     row.currency +
                         " " +
                         EvMoney.format(
-                            Number(row.amount_minor),
-                            Number(row.minor_units),
+                            row.amount_minor,
+                            row.minor_units,
                         ),
                 ),
             );
@@ -161,9 +175,19 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                         const ar = document.documentElement.lang === "ar";
                         if (!confirm(ar ? "قراءة حالة المزود لهذه العملية؟ لن ينشئ ذلك دفعة أو استرداداً جديداً." : "Read provider status for this operation? This does not create a new payment or refund.")) return;
                         if (!current() || !card.isConnected) return;
-                        await api("commercial/payment-recovery/" + row.id + "/reconcile",
-                            "POST", {}, scope.signal());
-                        if (current()) await load(page);
+                        // Retire all existing action grants before reconciliation.
+                        // An uncertain reply can only be followed by an explicit GET.
+                        const inspection = scope.begin();
+                        if (inspection === null) return;
+                        state.replaceChildren(t("span", "Checking provider outcome…", "جارٍ التحقق من نتيجة المزود…"));
+                        try {
+                            await api("commercial/payment-recovery/" + row.id + "/reconcile",
+                                "POST", {}, scope.signal());
+                            if (scope.current(inspection)) await load(page);
+                        } catch (error) {
+                            if (scope.current(inspection) && !["SessionChangedError","AbortError"].includes(error.name))
+                                state.replaceChildren(t("span", "Outcome not confirmed. Load recovery records before another action.", "لم تتأكد النتيجة. حمّل سجلات الاسترداد قبل أي إجراء آخر."));
+                        }
                     }, current,
                 );
             button(
@@ -176,7 +200,8 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                         "GET", undefined, scope.signal(),
                     );
                     if (!current() || !card.isConnected) return;
-                    if (!Array.isArray(history?.data)) throw Error("Invalid history");
+                    if (!Array.isArray(history?.data) ||
+                        history.data.some(event => !event || typeof event.status !== "string")) throw Error("Invalid history");
                     card.querySelector("[data-recovery-history]")?.remove();
                     const ul = document.createElement("ul");
                     ul.dataset.recoveryHistory = "";
@@ -184,7 +209,7 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                         const li = literal("li", "");
                         li.append(recoveryEventClock(literal("span", ""), event.created_at),
                             literal("span", " · "),
-                            t("span", ...(labels[event.status] || [event.status, event.status])));
+                            t("span", ...statusLabel(event.status)));
                         ul.append(li);
                     }
                     card.append(ul);
@@ -240,7 +265,10 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
             );
             if (!scope.current(epoch)) return;
             if (!Array.isArray(result?.data) || result.current_page !== page ||
-                !Number.isSafeInteger(result.last_page) || result.last_page < page) throw Error("Invalid page");
+                !Number.isSafeInteger(result.last_page) || result.last_page < page ||
+                result.data.some(row => !validRecoveryMoney(row, "total_minor") ||
+                    typeof row.number !== "string" || !["payment_due", "settled", "cancelled", "recovery_required"].includes(row.attention)))
+                throw Error("Invalid page");
             list.replaceChildren();
             if (!result.data.length)
                 list.append(
@@ -272,8 +300,8 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
                         row.currency +
                             " " +
                             EvMoney.format(
-                                Number(row.total_minor),
-                                Number(row.minor_units),
+                                row.total_minor,
+                                row.minor_units,
                             ),
                     ),
                     recoveryEventClock(literal("p", ""), row.created_at),

@@ -24,7 +24,7 @@ async function runRecoveryScopeChecks() {
     vm.runInNewContext(fs.readFileSync("services/business-api/public/station-time.js","utf8"),context);
     vm.runInNewContext(fs.readFileSync("services/business-api/public/payment-recovery.js","utf8"),context);
     const ui=(tag,key)=>{const n=new Element(tag);n.textContent=key;return n;};
-    const api=(path,method,body,signal)=>{calls.push({path,method,signal});return new Promise(resolve=>pending.push(resolve));};
+    const api=(path,method,body,signal)=>{calls.push({path,method,signal});return new Promise((resolve,reject)=>{resolve.fail=reject;pending.push(resolve);});};
     const root=new Element("section");document.documentElement.append(root);
     const find=(n,label)=>n.textContent===label?n:n.children.map(x=>find(x,label)).find(Boolean);
     const page=(id)=>({current_page:1,last_page:1,data:[{id,status:"uncertain",currency:"AED",amount_minor:100,minor_units:2,kind:"authorize",scope:"charging"}]});
@@ -47,6 +47,27 @@ async function runRecoveryScopeChecks() {
     assert.equal(calls.at(-1).signal.aborted,true);
     outcome({});await p;assert.equal(calls.length,4);assert.equal(find(root,"#8"),undefined);
     await load.onclick();assert.equal(calls.length,4);
+    // New mount: hidden-tab completion must release the surviving load control.
+    const second=new Element("section");document.documentElement.append(second);
+    window.mountPaymentRecovery({container:second,api,ui,actor:()=>owner});
+    const reload=find(second,"Load recovery records");
+    p=reload.onclick();const hiddenRead=pending.shift();
+    document.hidden=true;for(const fn of listeners.get("visibilitychange"))fn();
+    hiddenRead(page(9));await p;
+    assert.equal(reload.disabled,false);
+    assert.equal(find(second,"#9"),undefined);
+    document.hidden=false;
+    p=reload.onclick();pending.shift()({...page(10),data:[...page(10).data,{...page(11).data[0],amount_minor:"100"}]});await p;
+    assert.equal(find(second,"#10"),undefined);
+    assert.equal(find(second,"Check provider outcome"),undefined);
+    p=reload.onclick();pending.shift()(page(12));await p;
+    const uncertain=find(second,"Check provider outcome");
+    p=uncertain.onclick();pending.shift().fail(Error("private provider token"));await p;
+    assert.equal(find(second,"Check provider outcome"),undefined);
+    assert.ok(find(second,"Outcome not confirmed. Load recovery records before another action."));
+    const beforeReplay=calls.length;await uncertain.onclick();assert.equal(calls.length,beforeReplay);
+    p=reload.onclick();pending.shift()(page(13));await p;
+    assert.ok(find(second,"#13"));
     const notices=new Element("section");document.documentElement.append(notices);
     window.mountSubscriptionNotices({container:notices,api,ui,actor:()=>owner});
     pending.shift()({current_page:1,last_page:1,data:[{number:"INV-1",attention:"payment_due",stage:1,currency:"AED",total_minor:100,minor_units:2,created_at:"2026-02-30T08:00:00Z"}]});
