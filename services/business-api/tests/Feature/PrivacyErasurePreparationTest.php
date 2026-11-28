@@ -26,15 +26,17 @@ class PrivacyErasurePreparationTest extends TestCase
         $this->patchJson($base.'/review', [
             'expected_status' => 'pending', 'status' => 'reviewing', 'review_note' => 'Start independent review of retained data.',
         ])->assertOk();
-        $revision = $this->getJson($url)->assertOk()->assertJsonPath('stage', 'not_prepared')->json('review_revision');
-        $proposal = ['action' => 'propose', 'review_revision' => $revision, 'password' => 'password',
+        $initial = $this->getJson($url)->assertOk()->assertJsonPath('stage', 'not_prepared')->json();
+        $revision = $initial['review_revision'];
+        $scope = $initial['review_scope'];
+        $proposal = ['action' => 'propose', 'review_revision' => $revision, 'review_scope' => $scope, 'password' => 'password',
             'reason' => 'PRIVATE proposed assisted review note'];
         $this->postJson($url, array_replace($proposal, ['password' => 'invalid']))->assertUnprocessable();
         $plan = $this->postJson($url, $proposal)->assertOk()->assertJsonPath('stage', 'awaiting_independent_review')
             ->assertJsonPath('execution_authorized', false)->json('preparation_id');
         $this->postJson($url, $proposal)->assertOk();
         $this->postJson($url, array_replace($proposal, ['reason' => 'Different private review explanation']))->assertStatus(409);
-        $confirmation = ['action' => 'confirm', 'review_revision' => $revision, 'preparation_id' => $plan,
+        $confirmation = ['action' => 'confirm', 'review_revision' => $revision, 'review_scope' => $scope, 'preparation_id' => $plan,
             'password' => 'password', 'reason' => 'PRIVATE independent confirmation note'];
         $this->postJson($url, $confirmation)->assertForbidden();
         $response = $this->actingAs($second)->postJson($url, $confirmation)->assertOk()
@@ -53,6 +55,8 @@ class PrivacyErasurePreparationTest extends TestCase
         DB::table('users')->where('id', $owner->id)->increment('auth_epoch');
         $this->getJson($url)->assertOk()->assertJsonPath('stage', 'not_prepared');
         $this->postJson($url, $confirmation)->assertStatus(409);
+        $this->actingAs($first)->postJson($url, $proposal)->assertStatus(409);
+        $this->assertDatabaseCount('privacy_erasure_preparations', 1);
         $this->actingAs($owner->fresh())->postJson('/api/account/privacy-requests/'.$case.'/withdraw')->assertOk();
         $this->actingAs($second)->getJson($url)->assertStatus(409);
         $this->assertDatabaseCount('privacy_erasure_preparation_approvals', 1);
