@@ -61,11 +61,15 @@ Future<void> fill(WidgetTester tester) async {
     ['Internal review reason','Synthetic internal evidence only.'],
   ]) {
     final field = find.widgetWithText(TextField,item[0]);
-    await tester.scrollUntilVisible(field, 150);
+    await tester.scrollUntilVisible(field, 150, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(field);
     await tester.enterText(field,item[1]);
   }
   final button = find.text('Record internal review');
-  await tester.scrollUntilVisible(button, 150);
+  await tester.testTextInput.hide();
+  await tester.pumpAndSettle();
+  await tester.scrollUntilVisible(button, 150, scrollable: find.byType(Scrollable).first);
+  await tester.ensureVisible(button);
   await tester.tap(button);
   await tester.pumpAndSettle();
   await tester.tap(find.text('Confirm'));
