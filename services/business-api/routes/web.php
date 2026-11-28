@@ -8,6 +8,7 @@ use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminCommandSecretStorageController;
 use App\Http\Controllers\AdminKycQueueController;
+use App\Http\Controllers\AdminLicensedCoverageController;
 use App\Http\Controllers\AdminOperationalHealthController;
 use App\Http\Controllers\AdminOperationsMapController;
 use App\Http\Controllers\AdminOperatorRoleHistoryController;
@@ -89,6 +90,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/simulations/{session}/stop', [SimulationController::class, 'stop']);
 });
 
+Route::get('/admin/licensed-coverage', [AdminLicensedCoverageController::class, 'show'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/operations/map', [AdminOperationsMapController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/operational-health', [AdminOperationalHealthController::class, 'show'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::post('/api/admin/operational-health/acknowledge', [AdminOperationalHealthController::class, 'acknowledge'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
