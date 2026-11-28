@@ -20,6 +20,17 @@ class PrivacyRequestsView extends StatefulWidget {
 class _PrivacyRequestsState extends State<PrivacyRequestsView>
     with WidgetsBindingObserver {
   final reason = TextEditingController();
+  final securityPassword = TextEditingController();
+  final securityFactor = TextEditingController();
+  int? securityCase;
+  bool securityConfirmed = false;
+
+  void clearSecurity() {
+    securityPassword.clear();
+    securityFactor.clear();
+    securityCase = null;
+    securityConfirmed = false;
+  }
   final items = <Map<String, dynamic>>[];
   String kind = 'access';
   String? error, success, pendingId;
@@ -75,6 +86,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
 
   void clearPrivate() {
     generation++;
+    clearSecurity();
     reason.clear();
     items.clear();
     kind = 'access';
@@ -119,6 +131,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     reason.dispose();
+    securityPassword.dispose();
+    securityFactor.dispose();
     super.dispose();
   }
 
@@ -128,6 +142,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
       setState(() {
         // No historical withdraw/export control remains usable after an
         // unverified GET, POST receipt, or mutation outcome.
+        clearSecurity();
         items.clear();
         historyLoaded = false;
         error = e is ApiException && e.status == 409
@@ -188,6 +203,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (rejectStale()) return;
     final ticket = ++generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
       loading = true;
       error = null;
       items.clear();
@@ -283,6 +299,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     pendingBody ??= body;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
       sending = true;
       error = success = null;
       items.clear();
@@ -336,6 +353,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (sending || loading) return;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
       sending = true;
       error = success = null;
       items.clear();
@@ -353,6 +371,62 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     } catch (e) {
       if (mounted && ticket == generation && fence()) failure(e);
     } finally {
+      finish(ticket, fence, writing: true);
+    }
+  }
+
+  Future<void> secureErasure(int id) async {
+    if (rejectStale() || sending || loading || securityCase != id ||
+        !securityConfirmed || securityPassword.text.isEmpty ||
+        !items.any((row) => row['id'] == id && row['kind'] == 'erasure' &&
+            const {'pending', 'reviewing', 'blocked_external'}.contains(row['status']))) {
+      return;
+    }
+    final currentApi = widget.api;
+    final onExpired = widget.onExpired;
+    final fence = currentApi.sessionFence();
+    final payload = <String, dynamic>{
+      'confirmation': 'discard_copies_and_revoke_sessions',
+      'password': securityPassword.text,
+      'second_factor_code': securityFactor.text,
+    };
+    final ticket = ++generation;
+    setState(() {
+      clearSecurity();
+      sending = true;
+      error = success = null;
+      items.clear();
+      historyLoaded = false;
+    });
+    try {
+      final receipt = await currentApi.request(
+        'account/privacy-requests/$id/secure-account',
+        method: 'POST',
+        body: payload,
+      );
+      // A confirmed revocation must clear the old device credential even
+      // if the view was hidden or closed during the write. Never clear a
+      // newer account: the captured API session fence owns this cleanup.
+      if (!fence()) return;
+      if (receipt is! Map ||
+          receipt['request_id'] != id ||
+          !const {'pending', 'reviewing', 'blocked_external'}.contains(receipt['case_status']) ||
+          receipt['derived_copies_discarded'] is! int ||
+          (receipt['derived_copies_discarded'] as int) < 0 ||
+          (receipt['derived_copies_discarded'] as int) > 250 ||
+          receipt['sessions_revoked'] != true ||
+          receipt['sign_in_required'] != true ||
+          receipt['source_records_deleted'] != false ||
+          receipt['automated_erasure_performed'] != false ||
+          receipt['manual_processing_required'] != true) {
+        throw const FormatException('Unverified erasure security receipt');
+      }
+      if (mounted && identical(widget.api, currentApi)) setState(clearPrivate);
+      await currentApi.forgetRevokedSession(onCleared: onExpired);
+    } catch (e) {
+      if (mounted && ticket == generation && fence() && !background) failure(e);
+    } finally {
+      payload.clear();
       finish(ticket, fence, writing: true);
     }
   }
@@ -548,6 +622,58 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                                   : () => withdraw(row['id'] as int),
                               child: Text(t('Withdraw request', 'سحب الطلب')),
                             ),
+                          if (row['kind'] == 'erasure' &&
+                              const {'pending', 'reviewing', 'blocked_external'}.contains(row['status'])) ...[
+                            TextButton(
+                              key: ValueKey('privacy-security-open-${row['id']}'),
+                              onPressed: sending || loading ? null : () {
+                                if (rejectStale()) return;
+                                setState(() {
+                                  clearSecurity();
+                                  securityCase = row['id'] as int;
+                                });
+                              },
+                              child: Text(t('Secure account before erasure', 'تأمين الحساب قبل الحذف')),
+                            ),
+                            if (securityCase == row['id']) ...[
+                              Text(t(
+                                'Optional: discard prepared personal copies and end all sessions. Your account and source records remain; sign in again afterward.',
+                                'اختياري: إتلاف النسخ الشخصية المعدة وإنهاء جميع الجلسات. يبقى حسابك والسجلات الأصلية؛ سجّل الدخول مجدداً بعد ذلك.',
+                              )),
+                              TextField(
+                                key: const Key('privacy-security-password'),
+                                controller: securityPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 128,
+                                decoration: InputDecoration(labelText: t('Current password', 'كلمة المرور الحالية')),
+                              ),
+                              TextField(
+                                key: const Key('privacy-security-factor'),
+                                controller: securityFactor,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 64,
+                                decoration: InputDecoration(labelText: t('Authenticator or recovery code if enabled', 'رمز المصادقة أو الاسترداد إن فُعّل')),
+                              ),
+                              CheckboxListTile(
+                                key: const Key('privacy-security-consent'),
+                                value: securityConfirmed,
+                                onChanged: (value) => setState(() => securityConfirmed = value == true),
+                                title: Text(t('I agree to discard copies and revoke sessions', 'أوافق على إتلاف النسخ وإلغاء الجلسات')),
+                              ),
+                              FilledButton(
+                                key: const Key('privacy-security-submit'),
+                                onPressed: securityConfirmed && !sending && !loading
+                                    ? () => secureErasure(row['id'] as int) : null,
+                                child: Text(t('Confirm security step', 'تأكيد خطوة الأمان')),
+                              ),
+                              TextButton(onPressed: () => setState(clearSecurity),
+                                child: Text(t('Cancel', 'إلغاء'))),
+                            ],
+                          ],
                         ],
                       ),
                     ),
