@@ -344,6 +344,15 @@ jobs:
           ./scripts/loyalty-test-setup
           ./scripts/start
           node tests/native-connected.cjs
+      - name: Verify delegated simulator stop against local Laravel on both protocols
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./scripts/charging-bridge-setup
+          docker restart ev-business-api
+          ./scripts/start
+          EV_NATIVE_STAFF_STOP_PROTOCOL=1.6 node tests/native-vendor-session-observations.cjs
+          EV_NATIVE_STAFF_STOP_PROTOCOL=2.0.1 node tests/native-vendor-session-observations.cjs
       - run: flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'macOS'
         working-directory: apps/mobile

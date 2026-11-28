@@ -1,4 +1,4 @@
-// Opt-in private local HTTP integration. Synthetic records; no charger commands.
+// Opt-in private local HTTP integration for read-only observations and queued simulator stops.
 import 'dart:convert';
 import 'dart:io';
 import 'package:creabiz_ev/api.dart';
@@ -119,8 +119,93 @@ void main() {
         ),
       );
     },
-    skip: path == null
-        ? 'Requires owned local fixture: node tests/native-vendor-session-observations.cjs'
+    skip:
+        path == null ||
+            Platform.environment['EV_NATIVE_STAFF_STOP_PROTOCOL'] != null
+        ? 'Requires owned read-only local fixture: node tests/native-vendor-session-observations.cjs'
+        : false,
+  );
+
+  test(
+    'actual Laravel Flutter staff grant queues one scoped synthetic stop and replays its receipt',
+    () async {
+      final fixture =
+          jsonDecode(await File(path!).readAsString()) as Map<String, dynamic>;
+      expect(fixture['fixture_only'], isTrue);
+      final base = Uri.parse(fixture['base']);
+      expect(['127.0.0.1', 'localhost'], contains(base.host));
+      expect(base.scheme, 'http');
+      final api = EvApi(base);
+      addTearDown(api.close);
+      final account = await api.signIn(
+        fixture['staff_email'],
+        fixture['password'],
+      );
+      expect(account.role, 'customer');
+      final company = fixture['company_id'] as int;
+      final session = fixture['stop_session_id'] as int;
+      final member = fixture['membership_id'] as int;
+      final endpoint = 'vendor-ops/companies/$company/charging-sessions';
+      await expectLater(
+        api.request(endpoint),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.status,
+            'unaccepted grant',
+            404,
+          ),
+        ),
+      );
+      await api.request(
+        'vendor-ops/staff-invitations/$member/accept',
+        method: 'POST',
+        body: {'expected_version': 2, 'consent': true},
+      );
+      final first = VendorSessionObservationPage.parse(
+        await api.request(endpoint),
+        company: company,
+        page: 1,
+      );
+      expect(first.stopGrant, (id: member, version: 2));
+      final row = first.items.singleWhere((item) => item.id == session);
+      expect(row.canRequestStop, true);
+      expect(
+        row.protocol,
+        Platform.environment['EV_NATIVE_STAFF_STOP_PROTOCOL'],
+      );
+      expect(row.state, 'charging');
+      final response = await api.request(
+        '$endpoint/$session/stop',
+        method: 'POST',
+        body: {'grant_id': member, 'grant_version': 2, 'consent': true},
+      );
+      expect(response['scope'], 'company_simulator_session_stop');
+      expect(response['company_id'], company);
+      expect(response['session_id'], session);
+      expect(response['evidence'], 'SIMULATED_CSMS');
+      expect(response['physical_charging_verified'], false);
+      expect(response['command_status'], 'pending');
+      expect(response['session_status'], 'stopping');
+      final next = VendorSessionObservationPage.parse(
+        await api.request(endpoint),
+        company: company,
+        page: 1,
+      );
+      expect(
+        next.items.singleWhere((item) => item.id == session).canRequestStop,
+        false,
+      );
+      final replay = await api.request(
+        '$endpoint/$session/stop',
+        method: 'POST',
+        body: {'grant_id': member, 'grant_version': 2, 'consent': true},
+      );
+      expect(replay['command_id'], response['command_id']);
+    },
+    skip:
+        path == null ||
+            Platform.environment['EV_NATIVE_STAFF_STOP_PROTOCOL'] == null
+        ? 'Requires the owned simulator-stop fixture via EV_NATIVE_STAFF_STOP_PROTOCOL'
         : false,
   );
 }

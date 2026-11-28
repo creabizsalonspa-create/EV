@@ -5,6 +5,7 @@ const path = require('node:path');
 
 (async () => {
     const browser = await chromium.launch({
+        ...(process.env.EV_CHROMIUM_PATH ? { executablePath:process.env.EV_CHROMIUM_PATH } : {}),
         headless:true,
         args:['--no-sandbox'],
     });
@@ -95,6 +96,12 @@ const path = require('node:path');
         assert.equal(await page.evaluate(()=>window.fixture.calls.filter(x=>x.method==='PATCH').length),0,
             'A denied browser confirmation must not issue a privilege PATCH');
         await page.evaluate(()=>{window.fixture.confirming=true});
+        await editor.locator('input[value="charging.stop"]').check();
+        await editor.locator('button[type=submit]').click();
+        await page.waitForFunction(()=>window.fixture.notices.some(note=>note.includes('requires recorded session read access')));
+        assert.equal(await page.evaluate(()=>window.fixture.calls.filter(x=>x.method==='PATCH').length),0,
+            'Requesting stop without separately selecting read must not edit the staff grant');
+        await editor.locator('input[value="charging.read"]').check();
         await editor.locator('button[type=submit]').click();
         await page.waitForFunction(()=>window.fixture.calls.some(x=>x.method==='PATCH'));
         const result=await page.evaluate(()=>{
@@ -109,7 +116,7 @@ const path = require('node:path');
         assert.equal(result.path,'vendor-ops/companies/11/staff/22/permissions');
         assert.equal(result.method,'PATCH');
         assert.equal(result.body.expected_version,1);
-        assert.deepEqual(result.body.permissions,['inventory.read','inventory.write']);
+        assert.deepEqual(new Set(result.body.permissions),new Set(['inventory.read','inventory.write','charging.read','charging.stop']));
         assert.equal(result.status,'invited');
         assert.equal(result.version,2);
         assert.match(result.notes.join(' '),/Staff access is suspended until/);

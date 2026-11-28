@@ -48,7 +48,9 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 function fixture(ar = false) {
   const root = new Element("div"),
     events = {},
-    windowEvents = {};
+    windowEvents = {},
+    confirmations = [];
+  let willConfirm = false;
   const document = {
     hidden: false,
     documentElement: { lang: ar ? "ar" : "en" },
@@ -57,22 +59,24 @@ function fixture(ar = false) {
     removeEventListener: (key) => delete events[key],
   };
   const window = {
+    confirm: (text) => { confirmations.push(text); return willConfirm; },
     addEventListener: (key, fn) => (windowEvents[key] = fn),
     removeEventListener: (key) => delete windowEvents[key],
   };
-  vm.runInNewContext(
-    fs.readFileSync(
-      "services/business-api/public/vendor-session-observations.js",
-      "utf8",
-    ),
-    { window, document, AbortController, URLSearchParams },
-  );
+  for (const script of ["station-time", "vendor-session-observations"]) {
+    vm.runInNewContext(
+      fs.readFileSync(`services/business-api/public/${script}.js`, "utf8"),
+      { window, document, AbortController, URLSearchParams },
+    );
+  }
   let current = true;
   return {
     root,
     document,
     events,
     windowEvents,
+    confirmations,
+    approve: () => (willConfirm = true),
     revoke: () => (current = false),
     open: (api, onExpired, session = null) =>
       window.EvCompanySessionObservations.open({
@@ -96,7 +100,7 @@ function record(id) {
     energy_state: "recorded",
     record_created_at: "2026-11-19T06:00:00.000000Z",
     record_updated_at: "2026-11-19T06:01:00Z",
-    stopped_at: null,
+    stopped_at: "2026-11-19T06:00:00Z",
     protocol: null,
     evidence: "SIMULATED",
     physical_charging_verified: false,
@@ -144,6 +148,17 @@ for (const ar of [false, true])
     );
     assert(f.root.textContent.includes("Station 27"));
     assert(!f.root.textContent.includes("PRIVATE"));
+    const clocks = nodes(f.root, "time");
+    assert.deepEqual(clocks.map(clock => clock.dateTime), [
+      "2026-11-19T06:02:00Z",
+      "2026-11-19T06:01:00Z",
+      "2026-11-19T06:00:00Z",
+    ]);
+    for (const clock of clocks) {
+      assert.equal(clock.textContent, clock.dataset[ar ? "ar" : "en"]);
+      assert.match(clock.textContent, /\(UTC\)$/);
+      assert.notEqual(clock.dataset.en, clock.dataset.ar);
+    }
   });
 test("pagination clears old records, failure retries precise page and filter resets page", async () => {
   const f = fixture(),
@@ -351,6 +366,7 @@ for (const ar of [false, true])
       );
       await flush();
       assert(f.root.textContent.includes("1002500 Wh"));
+      assert(f.root.textContent.includes("2026-11-19T09:59:00.123456Z"));
       assert(!f.root.textContent.includes("PRIVATE"));
       assert(
         f.root.textContent.includes(
@@ -444,4 +460,57 @@ test("unsafe, foreign or acceptance-promoting meter replies cannot render a coun
     assert(!f.root.textContent.includes("1002500 Wh"));
     assert.equal(byLabel(f, "Retry this page").hidden, false);
   }
+});
+
+
+function stopPage() {
+  const value = page();
+  value.staff_stop_grant = { id: 42, version: 7 };
+  Object.assign(value.data[0], {
+    recorded_status: "charging",
+    stopped_at: null,
+    evidence: "SIMULATED_CSMS",
+    protocol: "2.0.1",
+    can_request_stop: true,
+  });
+  return value;
+}
+
+for (const ar of [false, true]) {
+  test("staff stop requires exact current grant and never replays a lost response " + ar, async () => {
+    const f = fixture(ar);
+    const calls = [];
+    f.open(async (...args) => {
+      calls.push(args);
+      if (args[1] === "POST") throw Object.assign(Error("PRIVATE OUTCOME"), {status: 409});
+      return stopPage();
+    });
+    await flush();
+    const action = byLabel(f, ar ? "طلب إيقاف جلسة محاكاة" : "Request a simulator stop");
+    action.onclick();
+    assert.equal(f.confirmations.length, 1);
+    assert.equal(calls.length, 1);
+    f.approve();
+    const retained = action.onclick;
+    retained();
+    retained();
+    await flush();
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1][0], "vendor-ops/companies/4/charging-sessions/27/stop");
+    assert.equal(calls[1][1], "POST");
+    assert.equal(JSON.stringify(calls[1][2]), JSON.stringify({ grant_id: 42, grant_version: 7, consent: true }));
+    assert.match(f.root.textContent, ar ? /تعذر تأكيد نتيجة/ : /outcome was not confirmed/);
+    assert.doesNotMatch(f.root.textContent, /PRIVATE OUTCOME/);
+    retained();
+    assert.equal(calls.length, 2);
+  });
+}
+
+test("a claimed stop action without a current grant has no control", async () => {
+  const f = fixture();
+  const value = stopPage();
+  delete value.staff_stop_grant;
+  f.open(async () => value);
+  await flush();
+  assert.equal(byLabel(f, "Request a simulator stop"), undefined);
 });

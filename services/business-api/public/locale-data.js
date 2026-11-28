@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "Simulator stop access requires recorded session read access.": {en: "Simulator stop access requires recorded session read access.", ar: "تتطلب صلاحية إيقاف المحاكاة صلاحية قراءة الجلسات المسجلة."},
+    "Request a simulator stop": {en: "Request a simulator stop", ar: "طلب إيقاف جلسة محاكاة"},
     "Read recorded charging sessions": {en: "Read recorded charging sessions", ar: "قراءة جلسات الشحن المسجلة"},
     "Recorded charging sessions": {en: "Recorded charging sessions", ar: "جلسات الشحن المسجلة"},
     "Sandbox reservation": {"en": "Sandbox reservation", "ar": "حجز تجريبي"},

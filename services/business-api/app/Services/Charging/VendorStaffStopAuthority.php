@@ -17,8 +17,7 @@ final class VendorStaffStopAuthority
 
     public function grant(User $actor, VendorCompany $company): ?VendorCompanyStaff
     {
-        if (! app()->environment(['local', 'testing']) || ! config('csms.simulator_enabled')
-            || ! config('csms.session_bridge_enabled') || $company->owner_id === $actor->id
+        if (! app()->environment(['local', 'testing']) || ! config('csms.session_bridge_enabled') || $company->owner_id === $actor->id
             || ! in_array($actor->role, ['customer', 'vendor'], true)
             || $actor->account_status !== 'active' || ! $actor->hasVerifiedEmail()
             || $company->status !== 'approved' || ! app(VendorAccess::class)->licenseValid($company)
