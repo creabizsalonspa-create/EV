@@ -9,6 +9,13 @@ import 'test_support.dart';
 class AgreementApi extends FixtureApi {
   bool consent = false, loseReply = false, active = true;
   int posts = 0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  void revoke() {
+    active = false;
+    changes.add(1);
+  }
   Completer<dynamic>? delayed;
   final body = {
     'id': 'version-1',
@@ -27,7 +34,7 @@ class AgreementApi extends FixtureApi {
     'version': body,
     'can_accept': !consent,
     'acceptance': consent
-        ? {'id': 'receipt-1', 'created_at': '2026-11-14'}
+        ? {'id': 'receipt-1', 'created_at': '2026-11-14T08:00:00+04:00'}
         : null,
     'history': {'data': [], 'current_page': 1, 'last_page': 1},
   };
@@ -125,6 +132,39 @@ void main() {
       expect(api.posts, 0);
     },
   );
+  testWidgets(
+    'retained consent callbacks cannot accept a later review generation',
+    (tester) async {
+      final api = AgreementApi();
+      await tester.pumpWidget(screen(api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pump();
+      final oldAccept = tester.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+      final oldCheck = tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).onChanged!;
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      oldCheck(true);
+      oldAccept();
+      await tester.pumpAndSettle();
+      expect(api.posts, 0);
+      expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value, false);
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    },
+  );
+  for (final ar in [false, true]) {
+    testWidgets('agreement clocks are localized and account revocation redacts immediately ($ar)', (tester) async {
+      final api = AgreementApi()..consent = true;
+      await tester.pumpWidget(screen(api, ar: ar));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('UTC'), findsOneWidget);
+      expect(find.textContaining('2026-11-14T08:00:00+04:00'), findsNothing);
+      api.revoke();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('receipt-1'), findsNothing);
+      expect(find.textContaining('UTC'), findsNothing);
+    });
+  }
   testWidgets(
     'retained owner screen cannot submit after the authenticated account changes',
     (tester) async {

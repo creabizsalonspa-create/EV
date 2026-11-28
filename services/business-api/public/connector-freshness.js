@@ -35,8 +35,12 @@ window.EvConnectorFreshness = (() => {
         const p = document.createElement('p'), received = performance.now() - requestAge;
         const render = () => {
             const {state: label, observedAt: observed} = observation(value, performance.now() - received);
-            p.dataset.en = `Simulated source status: ${label}. Physical availability is unverified. Observed: ${observed || 'unknown'}`;
-            p.dataset.ar = `حالة مصدر المحاكاة: ${arabic[label]}. التوفر الفعلي غير مؤكد. وقت الرصد: ${observed || 'غير معروف'}`;
+            const display = language => observed
+                ? window.EvStationTime?.serverEventTime(observed, language) ||
+                    (language === 'ar' ? 'وقت الحدث غير متاح' : 'Event time unavailable')
+                : language === 'ar' ? 'غير معروف' : 'unknown';
+            p.dataset.en = `Simulated source status: ${label}. Physical availability is unverified. Observed: ${display('en')}`;
+            p.dataset.ar = `حالة مصدر المحاكاة: ${arabic[label]}. التوفر الفعلي غير مؤكد. وقت الرصد: ${display('ar')}`;
             p.textContent = document.documentElement.lang === 'ar' ? p.dataset.ar : p.dataset.en;
         };
         root.append(p); render();

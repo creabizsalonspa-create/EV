@@ -55,15 +55,17 @@ function verifyRewardHistoryParser() {
 
 function verifyCustomerRewardPageParser() {
   const source = fs.readFileSync("services/business-api/public/loyalty.js", "utf8");
-  const start = source.indexOf("function verifyPartnerRewardPage(");
+  const start = source.indexOf("function validLoyaltyClock(");
   const end = source.indexOf("window.mountLoyalty", start);
   assert(start >= 0 && end > start);
-  const verify = new Function(source.slice(start, end) + "\nreturn verifyPartnerRewardPage;")();
+  const window = {};
+  new Function("window", fs.readFileSync("services/business-api/public/station-time.js","utf8"))(window);
+  const verify = new Function("window", source.slice(start, end) + "\nreturn verifyPartnerRewardPage;")(window);
   const evidence = {source:"RETAIL_PARTNER_REWARD", evidence:"SANDBOX_MANUAL_NONCASH",
     external_fulfillment_verified:false, cash_value:false, points_cost:0};
   const offer = {...evidence, review_id:9, name:"Offer", name_ar:"Offer", partner_name:"Partner",
-    partner_name_ar:"Partner", description:"Terms", description_ar:"Terms", ends_at:"2026-12-01"};
-  const claim = {...evidence, review_id:9, id:14, redemption_id:18, status:"pending", created_at:"2026-11-27"};
+    partner_name_ar:"Partner", description:"Terms", description_ar:"Terms", ends_at:"2026-12-01T04:00:00+04:00"};
+  const claim = {...evidence, review_id:9, id:14, redemption_id:18, status:"pending", created_at:"2026-11-27 09:00:00"};
   const page = data => ({data, total:data.length, per_page:25, current_page:1, last_page:1});
   assert.equal(verify(page([offer]), 1, "offers").total, 1);
   assert.equal(verify(page([claim]), 1, "claims").total, 1);
@@ -82,7 +84,12 @@ function verifyCustomerRewardPageParser() {
   }
   assert.throws(()=>verify(page([{...offer,ends_at:null}]),1,"offers"),/Invalid partner reward page/);
   assert.throws(()=>verify(page([offer,offer]),1,"offers"),/Invalid partner reward page/);
-  console.log("PASS customer reward page: 3 valid and "+(bad.length+2)+" rejected cases");
+  const invalidClocks = ["2026-02-30T09:00:00Z", "2026-11-27", "2026-11-27T09:00:00", "2026-11-27T09:00:00+14:01", " 2026-11-27T09:00:00Z"];
+  for (const invalid of invalidClocks) {
+    assert.throws(()=>verify(page([{...offer,ends_at:invalid}]),1,"offers"),/Invalid partner reward page/);
+    assert.throws(()=>verify(page([{...claim,created_at:invalid}]),1,"claims"),/Invalid partner reward page/);
+  }
+  console.log("PASS customer reward page: 3 valid and "+(bad.length+2+2*invalidClocks.length)+" rejected cases");
 }
 
 (async () => {

@@ -8,12 +8,16 @@ import 'test_support.dart';
 class FleetApi extends FixtureApi {
   int reads = 0;
   bool unsafe = false, navigation = false;
+  String snapshot = '2026-11-15T12:00:00Z';
+  int sourceStation = 7;
+  void Function(Map<String,dynamic>)? alter;
   int diagnosticsReads = 0;
   Completer<dynamic>? delayed;
   final queries = <Map<String, String>>[];
-  Map<String, dynamic> result(int page) => {
+  Map<String, dynamic> result(int page) {
+    final result = <String,dynamic>{
     'scope': 'recorded_connector_fleet',
-    'as_of': '2026-11-15T12:00:00Z',
+    'as_of': snapshot,
     'evidence': 'SIMULATED_SOURCE',
     'physical_availability_verified': unsafe,
     'remote_control': false,
@@ -24,7 +28,7 @@ class FleetApi extends FixtureApi {
       'data': [
         {
           'mapping_id': page,
-          'station_id': 7,
+          'station_id': sourceStation,
           'station_name': 'Private fleet $page',
           'protocol': '2.0.1',
           'inventory_eligible_at_read': true,
@@ -35,12 +39,18 @@ class FleetApi extends FixtureApi {
             'reported_status': page == 1 ? 'Charging' : null,
             'evidence': 'SIMULATED_SOURCE',
             'physical_availability_verified': false,
-            'observed_at': '2026-11-15T11:59:00Z',
+            'observed_at': page == 1 ? '2026-11-15T11:59:00Z' : '2026-11-15T11:50:00Z',
+            'checked_at': '2026-11-15T12:00:00Z',
+            'valid_until': page == 1 ? '2026-11-15T12:04:00Z' : '2026-11-15T11:55:00Z',
+            'max_age_seconds': 300,
           },
         },
       ],
     },
-  };
+    };
+    alter?.call(result);
+    return result;
+  }
   @override
   Future<dynamic> request(
     String path, {
@@ -65,6 +75,45 @@ Widget app(FleetApi api) => MaterialApp(
   home: ConnectorFleetView(api: api, onExpired: () {}),
 );
 void main() {
+  test('fleet snapshot uses exact microsecond source boundary', () {
+    final f = <String,dynamic>{
+      'state':'recent','reported_status':'Faulted',
+      'evidence':'SIMULATED_SOURCE','physical_availability_verified':false,
+      'max_age_seconds':300,'observed_at':'2026-11-15T11:55:00.000005Z',
+      'checked_at':'2026-11-15T11:59:59.999999Z',
+      'valid_until':'2026-11-15T12:00:00.000005Z',
+    };
+    expect(connectorFleetStateAtSnapshot(f,'2026-11-15T12:00:00.000004Z'),'Faulted');
+    expect(connectorFleetStateAtSnapshot(f,'2026-11-15T12:00:00.000005Z'),'stale');
+    expect(connectorFleetStateAtSnapshot(f,'2026-11-15T11:59:59.999998Z'),'unknown');
+    for(final clock in ['2026-02-30T12:00:00Z','2026-11-15 12:00:00','2026-11-15T12:00:00+00:00',null]) {
+      expect(connectorFleetStateAtSnapshot(f,clock),'unknown');
+    }
+  });
+  testWidgets('fleet rejects mismatched scope and retired navigation; expires during snapshot',(tester) async {
+    final api=FleetApi()..navigation=true;
+    await tester.pumpWidget(app(api));await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField),'7');
+    final read=find.text('Read connector snapshot');
+    await tester.tap(read);await tester.pumpAndSettle();
+    final retired=tester.widget<TextButton>(find.widgetWithText(TextButton,'Open source diagnostics')).onPressed!;
+    api.snapshot='2026-11-15T12:04:00Z';
+    await tester.tap(read);await tester.pumpAndSettle();
+    expect(find.text('Stale report; current state unknown'),findsOneWidget);
+    expect(find.textContaining('Recent report at snapshot'),findsNothing);
+    retired();await tester.pumpAndSettle();expect(api.diagnosticsReads,0);
+    api.sourceStation=999;
+    await tester.tap(read);await tester.pumpAndSettle();
+    expect(find.textContaining('Private fleet'),findsNothing);
+    expect(find.textContaining('snapshot unavailable'),findsOneWidget);
+    api.sourceStation=7;api.snapshot='2026-02-30T12:00:00Z';
+    await tester.tap(read);await tester.pumpAndSettle();
+    expect(find.textContaining('Private fleet'),findsNothing);
+    api.snapshot='2026-11-15T12:00:00Z';
+    api.alter=(r){final rows=r['connectors']['data'] as List;rows.add(rows.first);};
+    await tester.tap(read);await tester.pumpAndSettle();
+    expect(find.textContaining('Private fleet'),findsNothing);
+  });
   testWidgets(
     'diagnostics requires explicit navigation to the scoped existing workspace',
     (tester) async {
