@@ -39,6 +39,12 @@ def open_regular_archive(path):
         require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8 * 1024**3,
                 'Archive type or size invalid')
         yield stream
+        after = os.fstat(stream.fileno())
+        require((after.st_size, after.st_mode, after.st_uid, after.st_nlink,
+                 after.st_mtime_ns, after.st_ctime_ns) ==
+                (info.st_size, info.st_mode, info.st_uid, info.st_nlink,
+                 info.st_mtime_ns, info.st_ctime_ns),
+                'Archive changed during reading')
 
 def fingerprint(path, magic):
     with open_regular_archive(path) as stream:
@@ -46,8 +52,13 @@ def fingerprint(path, magic):
         h = hashlib.sha256()
         require(stream.read(len(magic)) == magic, 'Archive magic mismatch')
         stream.seek(0)
-        for block in iter(lambda: stream.read(1048576), b''):
+        remaining = info.st_size
+        while remaining:
+            block = stream.read(min(1048576, remaining))
+            require(block, 'Archive was truncated during reading')
             h.update(block)
+            remaining -= len(block)
+        require(not stream.read(1), 'Archive grew during reading')
     return {'sha256':h.hexdigest(),'bytes':info.st_size}
 
 def safe_tar(path):
