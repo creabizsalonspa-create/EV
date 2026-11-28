@@ -159,12 +159,36 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
     }
     return row;
   }
-  ApiPage<Map<String,dynamic>> validatedHistory(dynamic raw,int target){
+  ApiPage<Map<String,dynamic>> validatedHistory(dynamic raw,int target,
+      Map<String,dynamic> currentReport){
+    if(raw is! Map||raw['per_page']!=25||target<1||target>100000){
+      throw const FormatException('Invalid battery report page.');
+    }
     final result=ApiPage.fromJson(raw,(v)=>validatedReport(v,history:true));
-    if(result.current!=target||result.last<1||result.total<0||
-       result.items.length>25||result.items.length>result.total||
-       result.items.map((row)=>row['revision']).toSet().length!=result.items.length){
+    final expectedLast=result.total==0?1:((result.total-1)~/25)+1;
+    final remaining=result.total-(target-1)*25;
+    final expectedCount=remaining<0?0:(remaining>25?25:remaining);
+    if(result.current!=target||result.last!=expectedLast||target>result.last||
+       result.total<0||result.total>2147483647||
+       result.items.length!=expectedCount){
       throw const FormatException('Invalid battery report history.');
+    }
+    final currentRevision=currentReport['revision'] as int;
+    var previous=currentRevision+1;
+    for(final row in result.items){
+      final revision=row['revision'] as int;
+      if(revision>=previous||
+          (revision==currentRevision&&row['battery_percent']!=currentReport['battery_percent'])){
+        throw const FormatException('Inconsistent battery report history.');
+      }
+      previous=revision;
+    }
+    // These endpoints are separate reads: a concurrent report can invalidate
+    // the pair. Require a new read rather than exposing a mismatched form.
+    if(target==1&&(currentRevision==0
+        ?result.total!=0
+        :result.items.isEmpty||result.items.first['revision']!=currentRevision)){
+      throw const FormatException('Current battery report and history disagree.');
     }
     return result;
   }
@@ -178,7 +202,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
       final currentMap=validatedReport(response);
       final raw=await api.request(requestPath+'/history',query:{'page':target.toString()});
       if(!current(token,api))return;
-      final history=validatedHistory(raw,target);
+      final history=validatedHistory(raw,target,currentMap);
       final confirmation=pending==null?null:
         confirmationKind(pending!,currentMap,history.items);
       setState((){
@@ -224,7 +248,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
       final currentMap=validatedReport(response);
       final raw=await api.request(requestPath+'/history',query:{'page':'1'});
       if(!current(token,api))return;
-      final history=validatedHistory(raw,1);
+      final history=validatedHistory(raw,1,currentMap);
       // The exact observation must be in authoritative history. A newer
       // current revision is allowed only when that older row was confirmed.
       final confirmation=confirmationKind(body,currentMap,history.items);
@@ -323,11 +347,11 @@ class _VehicleManualSocState extends State<VehicleManualSocView> with WidgetsBin
               reportTime(report['reported_at'])+
               ' · #'+report['revision'].toString()),
           )),
-        Row(children:[
+        Wrap(crossAxisAlignment:WrapCrossAlignment.center,children:[
           TextButton(onPressed:loading||saving||page<=1?null:guard((){load(page-1);}),
             child:Text(t('Previous','السابق'))),
           Text('$page / $lastPage'),
-          TextButton(onPressed:loading||saving||page>=lastPage?null:guard((){load(page+1);}),
+          TextButton(onPressed:loading||saving||page>=lastPage||page>=100000?null:guard((){load(page+1);}),
             child:Text(t('Next','التالي'))),
         ]),
       ],

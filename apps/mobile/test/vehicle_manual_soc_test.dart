@@ -17,6 +17,7 @@ class _SocApi extends EvApi {
   bool failReadbackOnce = false;
   bool hideHistoryOnce = false;
   bool foreignHistory = false;
+  void Function(Map<String,dynamic>)? alterHistory;
   String reportClock = '2026-11-07 14:00:00';
   bool staleCurrentOnce = false;
   bool denyNewAccount = false;
@@ -47,7 +48,7 @@ class _SocApi extends EvApi {
     }
     if (path == 'vehicles/18/manual-soc/history' && method == 'GET') {
       return {
-        'current_page': 1, 'last_page': 1, 'total': 1,
+        'current_page': 1, 'last_page': 1, 'total': 1, 'per_page': 25,
         'data': [{
           'vehicle_id': 18, 'battery_percent': otherPercent,
           'revision': otherRevision, 'reported_at': '2026-11-07T14:00:00+00:00',
@@ -96,9 +97,10 @@ class _SocApi extends EvApi {
     if (path == 'vehicles/17/manual-soc/history' && method == 'GET') {
       final suppress = revision > 0 && hideHistoryOnce;
       if (suppress) hideHistoryOnce = false;
-      return {
-        'current_page': 1, 'last_page': 1, 'total': revision,
-        'data': revision == 0 || suppress ? [] : [
+      final result = <String,dynamic>{
+        'current_page': 1, 'last_page': 1, 'per_page':25,
+        'total': revision == 0 ? 0 : (earlierPercent == null ? 1 : 2),
+        'data': revision == 0 || suppress ? <Map<String,dynamic>>[] : <Map<String,dynamic>>[
           {'vehicle_id': foreignHistory ? 18 : 17, 'battery_percent': percent, 'revision': revision,
             'reported_at': reportClock,
             'source': 'CUSTOMER_MANUAL_SELF_REPORT',
@@ -110,6 +112,8 @@ class _SocApi extends EvApi {
               'measured_by_phone':false,'measured_by_vehicle_api':false,'charging_capability_verified':false},
         ],
       };
+      alterHistory?.call(result);
+      return result;
     }
     if (path == 'vehicles/17/manual-soc' && method == 'POST') {
       final submitted = Map<String, dynamic>.from(body!);
@@ -189,6 +193,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Latest estimate: 63%'),findsOneWidget);
     expect(find.byKey(const Key('manual-soc-save')),findsOneWidget);
+  });
+
+  testWidgets('malformed history metadata and inconsistent revisions revoke the previous form', (tester) async {
+    final api = _SocApi()..revision=1..percent=63;
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+      api:api,vehicleId:17,onExpired:(){},
+    )));
+    await tester.pumpAndSettle();
+    final save = find.byKey(const Key('manual-soc-save'));
+    final refresh = find.text('Refresh from server');
+    final oldSave = tester.widget<FilledButton>(save).onPressed!;
+    for (final change in <void Function(Map<String,dynamic>)>[
+      (p)=>p['per_page']=26,
+      (p)=>p['last_page']=2,
+      (p)=>p['total']=2,
+      (p)=>p['current_page']=2,
+      (p)=>p['data'][0]['revision']=2,
+      (p)=>p['data'][0]['battery_percent']=64,
+    ]) {
+      api.alterHistory=change;
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(save,findsNothing);
+      expect(find.textContaining('Latest estimate: 63%'),findsNothing);
+      expect(find.byKey(const Key('manual-soc-error')),findsOneWidget);
+      oldSave();
+      await tester.pumpAndSettle();
+      expect(api.writes,isEmpty);
+      api.alterHistory=null;
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(save,findsOneWidget);
+    }
   });
 
   testWidgets('exhausted manual SOC revision cannot create another report', (tester) async {
