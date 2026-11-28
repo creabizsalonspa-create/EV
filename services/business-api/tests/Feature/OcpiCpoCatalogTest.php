@@ -164,16 +164,30 @@ class OcpiCpoCatalogTest extends TestCase
         Http::assertNothingSent();
         $rows->update(['valid_until' => $review['valid_until']]);
         Http::swap(new Factory);
-        Http::fake(function () use ($rows) {
-            $rows->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $received = null;
+        Http::fake(function (Request $request) use ($rows, &$received) {
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+            if ($request->method() === 'PUT') {
+                $received = $request->data();
+                $rows->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+            }
 
-            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => null]);
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(),
+                'data' => $request->method() === 'GET' ? $received : null], 200, $trace);
         });
         $this->postJson($url.'/push', $push)->assertOk()->assertJsonPath('delivery', 'unknown');
         $this->postJson($url.'/push', $push)->assertOk()->assertJsonPath('delivery', 'unknown');
         Http::assertSentCount(1);
         // An unresolved delivery is never overwritten by a withdrawal.
         $this->publication($url, 'withdraw', $stamp)->assertConflict();
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])
+            ->assertOk()->assertJsonPath('delivery', 'reconciled');
+        $withdrawn = $this->publication($url, 'withdraw', $stamp)->assertOk()
+            ->assertJsonPath('withdrawn', true)->json('published_at');
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $withdrawn,
+            'operation_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('delivery', 'acknowledged');
+        Http::assertSentCount(3);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charger_commands', 0);
     }
