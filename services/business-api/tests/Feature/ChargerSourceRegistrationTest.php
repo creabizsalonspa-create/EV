@@ -91,6 +91,48 @@ class ChargerSourceRegistrationTest extends TestCase
         return $this->actingAs($f['admin'])->postJson($f['path'], ['identity' => 'CB-OWNED-001', 'idempotency_key' => 'prepare-source-once'])->assertCreated()->assertJsonPath('state', 'prepared')->assertJsonPath('device_commands_sent', 0)->json('registration_id');
     }
 
+    #[DataProvider('protocols')]
+    public function test_interrupted_registration_is_durably_flagged_without_an_upstream_retry(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $id = $this->prepare($f);
+        $attemptActor = User::factory()->create(['role' => 'admin']);
+        $attempt = now()->subMinute()->format('Y-m-d H:i:s.u');
+        DB::table('charger_source_registrations')->where('id', $id)
+            ->update(['state' => 'registering', 'attempted_at' => $attempt]);
+        DB::table('audit_events')->insert([
+            'actor_id' => $attemptActor->id,
+            'action' => 'charger.source_registration_attempted',
+            'subject' => (string) $id,
+            'created_at' => $attempt,
+        ]);
+        $registration = app(ChargerSourceRegistration::class);
+
+        $this->assertSame(0, $registration->recoverInterruptedAttempts());
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('state', 'registering');
+
+        $this->travel(4)->minutes();
+        $this->assertSame(1, $registration->recoverInterruptedAttempts());
+        $this->assertSame(0, $registration->recoverInterruptedAttempts());
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('state', 'requires_inspection')
+            ->assertJsonPath('can_register', false)->assertJsonPath('automatic_retry_allowed', false);
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'requires_inspection');
+
+        $this->assertDatabaseHas('charger_source_registrations', [
+            'id' => $id,
+            'attempted_at' => $attempt,
+            'source_station_id' => null,
+            'source_receipt_hash' => null,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $attemptActor->id,
+            'action' => 'charger.source_registration_interrupted',
+            'subject' => (string) $id,
+        ]);
+        $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
+        Http::assertNothingSent();
+    }
+
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];
@@ -106,6 +148,8 @@ class ChargerSourceRegistrationTest extends TestCase
         $this->assertFalse(app(AdmissionIdentity::class)->compatible($f['company'], $f['charger'], 'CB-OWNED-001', $protocol, true));
         $this->postJson($f['path'], ['identity' => 'CB-OWNED-001', 'idempotency_key' => 'prepare-source-once'])->assertOk()->assertJsonPath('created', false);
         $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered')->assertJsonPath('source_station_id', 401)->assertJsonPath('upstream_registration_verified', true)->assertJsonPath('charging_capability_granted', false)->assertJsonPath('charger_hardware_verified', false);
+        $this->travel(10)->minutes();
+        $this->assertSame(0, app(ChargerSourceRegistration::class)->recoverInterruptedAttempts());
         $this->postJson($f['path'].'/'.$id.'/register')->assertOk()->assertJsonPath('state', 'registered');
         Http::assertSentCount(3);
         $this->assertSame(1, $this->writes);

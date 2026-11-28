@@ -187,6 +187,37 @@ final class ChargerSourceRegistration
         }
     }
 
+    public function recoverInterruptedAttempts(): int
+    {
+        // The three source requests each have an eight-second timeout. Allow
+        // extra time for database locks before treating a claim as interrupted.
+        $cutoff = now()->subMinutes(5)->format('Y-m-d H:i:s.u');
+        $pending = DB::table('charger_source_registrations')
+            ->where('state', 'registering')
+            ->where('attempted_at', '<=', $cutoff);
+        $claims = (clone $pending)->orderBy('attempted_at')->orderBy('id')->limit(100)->get(['id', 'actor_id']);
+        $recovered = 0;
+
+        foreach ($claims as $claim) {
+            $changed = DB::transaction(function () use ($pending, $claim) {
+                // Recheck after waiting for any in-flight source transaction.
+                // A committed receipt always takes precedence over the scan.
+                $changed = (clone $pending)->where('id', $claim->id)
+                    ->update(['state' => 'requires_inspection', 'updated_at' => now()]);
+                if ($changed) {
+                    $attemptActor = DB::table('audit_events')->where('subject', (string) $claim->id)
+                        ->where('action', 'charger.source_registration_attempted')->latest('id')->value('actor_id');
+                    $this->event($attemptActor ?? $claim->actor_id, $claim->id, 'charger.source_registration_interrupted');
+                }
+
+                return $changed;
+            }, 3);
+            $recovered += $changed;
+        }
+
+        return $recovered;
+    }
+
     public function register(Request $request, VendorCompany $company, VendorCharger $charger, int $registration): array
     {
         $this->source();
