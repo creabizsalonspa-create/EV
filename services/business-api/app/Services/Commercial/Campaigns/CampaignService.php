@@ -137,7 +137,10 @@ class CampaignService
             }
             abort_unless(in_array($action, ['approve', 'reject', 'suspend', 'reinstate'], true) ? $admin : ! $admin, 403, 'Vendor controls and administrator review are separate.');
             if ($row->status === $to) {
-                abort_unless(DB::table('commercial_campaign_events')->where('campaign_id', $id)->where('action', $action)->where('reason', $reason)->exists(), 409, 'Repeated campaign decision reason changed.');
+                $currentEvent = DB::table('commercial_campaign_events')->where('campaign_id', $id)
+                    ->orderByDesc('id')->first(['action', 'reason']);
+                abort_unless($currentEvent && $currentEvent->action === $action && $currentEvent->reason === $reason,
+                    409, 'Repeated campaign decision does not match the current event.');
 
                 return $row;
             }

@@ -637,6 +637,22 @@ class CommercialCampaignTest extends TestCase
         $this->assertSame(5, DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id'])->count());
     }
 
+    public function test_repeated_campaign_decision_cannot_reuse_an_older_reason(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->approved($f);
+        $path = '/campaign-test/commercial/campaigns/'.$campaign['id'];
+        $this->actingAs($f['vendor']);
+        $this->postJson($path.'/pause', ['reason' => 'Pause for initial maintenance'])->assertOk();
+        $this->postJson($path.'/resume', ['reason' => 'Initial maintenance completed'])->assertOk();
+        $latest = $this->postJson($path.'/pause', ['reason' => 'Pause for new review'])->assertOk()->json('campaign');
+
+        $this->postJson($path.'/pause', ['reason' => 'Pause for initial maintenance'])->assertConflict();
+        $this->postJson($path.'/pause', ['reason' => 'Pause for new review'])
+            ->assertOk()->assertJsonPath('campaign.control_revision', $latest['control_revision']);
+        $this->assertSame(6, DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id'])->count());
+    }
+
     public function test_old_authenticated_actor_cannot_cancel_or_create_after_global_revocation(): void
     {
         $f = $this->fixture();
