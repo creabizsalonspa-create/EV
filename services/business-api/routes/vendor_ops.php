@@ -89,6 +89,7 @@ Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation
 Route::get('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'releases']);
 Route::post('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'approve']);
 Route::delete('/companies/{company}/firmware-releases/{release}', [ChargerFirmwareController::class, 'revoke'])->where('release', '[0-9]{1,18}');
+Route::get('/companies/{company}/chargers/{charger}/firmware-compatibility', [ChargerFirmwareController::class, 'compatibility'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
 Route::get('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'operations']);
 Route::post('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'deploy']);
 Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', [ChargerFirmwareController::class, 'review'])->where('operation', '[0-9]{1,18}');

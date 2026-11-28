@@ -6,6 +6,8 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FirmwareCompatibility;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
@@ -31,9 +33,28 @@ class ChargerFirmwareController extends Controller
         abort_unless(config('csms.firmware_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']), 503, 'Local signed firmware adapter is disabled.');
     }
 
+    /** Capture one local firmware authority across all reads and the dispatch boundary. */
+    private function sourceAuthority(?array $expected = null): array
+    {
+        $this->enabled();
+        $authority = [
+            app(CsmsGraphqlTransport::class)->requireApproved(),
+            (string) config('csms.graphql_secret'),
+            (string) config('csms.operations_base_url'),
+            (string) config('csms.rider_source_api_url'),
+            (string) config('csms.rider_client_secret'),
+            (string) config('csms.firmware_download_base'),
+        ];
+        abort_unless(strlen($authority[1]) >= 32 && ($expected === null || $authority === $expected), 503,
+            'Firmware source authority changed during inspection.');
+
+        return $authority;
+    }
+
     public function releases(Request $r, VendorCompany $company, SignedFirmwareCatalog $catalog)
     {
         app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         $filters = $r->validate(['manufacturer' => 'sometimes|string|max:100', 'model' => 'sometimes|string|max:100', 'active' => 'sometimes|in:true,false']);
         $page = DB::table('charger_firmware_releases')->where('company_id', $company->id)->when(isset($filters['manufacturer']), fn ($q) => $q->where('manufacturer', $filters['manufacturer']))->when(isset($filters['model']), fn ($q) => $q->where('model', $filters['model']))->when(($filters['active'] ?? null) === 'true', fn ($q) => $q->whereNull('revoked_at'))->select('id', 'catalog_key', 'version', 'manufacturer', 'model', 'sha256', 'size', 'signer_fingerprint', 'revoked_at', 'created_at', 'compatibility_protocols', 'compatibility_from_versions', 'compatibility_manifest_sha256')->orderByDesc('id')->paginate(25)->through(function ($row) {
@@ -58,6 +79,7 @@ class ChargerFirmwareController extends Controller
     {
         $this->enabled();
         app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['catalog_key' => ['required', 'string', 'max:80', 'regex:/^[a-zA-Z0-9_-]+$/D'], 'note' => 'required|string|min:10|max:2000']);
         $release = $catalog->verify($v['catalog_key']);
@@ -65,6 +87,7 @@ class ChargerFirmwareController extends Controller
         return DB::transaction(function () use ($r, $company, $release, $v) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             app(MaintenanceActor::class)->check($r->user());
+            app(MaintenanceActor::class)->checkBearer($r->user());
             $old = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('catalog_key', $v['catalog_key'])->first();
             if ($old) {
                 abort_unless($old->sha256 === $release['sha256'] && $old->signer_fingerprint === $release['signer_fingerprint'] && $old->version === $release['version'] && $old->manufacturer === $release['manufacturer'] && $old->model === $release['model'] && $old->compatibility_manifest_sha256 === $release['compatibility_manifest_sha256'] && $old->revoked_at === null, 409, 'Configured release identity changed or was revoked.');
@@ -82,12 +105,14 @@ class ChargerFirmwareController extends Controller
     {
         $this->enabled();
         app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['note' => 'required|string|min:10|max:2000']);
 
         return DB::transaction(function () use ($r, $company, $release, $v) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             app(MaintenanceActor::class)->check($r->user());
+            app(MaintenanceActor::class)->checkBearer($r->user());
             $row = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('id', $release)->lockForUpdate()->first();
             abort_unless($row, 404);
             if (! $row->revoked_at) {
@@ -111,13 +136,181 @@ class ChargerFirmwareController extends Controller
         return response()->json($page + ['can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'adapter_enabled' => (bool) config('csms.firmware_enabled'), 'physical_execution_verified' => false])->header('Cache-Control', 'private, no-store');
     }
 
+    /**
+     * Source-bound, read-only signed release matrix for one owned charger.
+     * It is never permission to dispatch firmware or proof of physical testing.
+     */
+    public function compatibility(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard, RemoteSessionAuthorization $source, FirmwareCompatibility $compatibility)
+    {
+        $this->enabled();
+        $sourceAuthority = [(string) config('csms.graphql_url'), (string) config('csms.graphql_secret')];
+        $requireAuthority = function () use ($sourceAuthority): void {
+            $this->enabled();
+            abort_unless(config('csms.graphql_url') === $sourceAuthority[0]
+                && hash_equals($sourceAuthority[1], (string) config('csms.graphql_secret')), 503,
+                'Firmware source authority changed during inspection.');
+        };
+        $binding = $guard->scope($r, $company, $charger);
+        $identityQuery = 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol chargePointVendor chargePointModel firmwareVersion latestOcppMessageTimestamp}}';
+        $requireAuthority();
+        $data = $source->graph($identityQuery, ['name' => $binding->identifier]);
+        $requireAuthority();
+        $stations = $data['ChargingStations'] ?? null;
+        abort_unless(is_array($stations) && array_is_list($stations) && count($stations) === 1 &&
+            is_array($stations[0]) && is_int($stations[0]['id'] ?? null) && $stations[0]['id'] > 0 &&
+            ($stations[0]['isOnline'] ?? null) === true &&
+            is_string($stations[0]['protocol'] ?? null) &&
+            is_string($stations[0]['chargePointVendor'] ?? null) &&
+            is_string($stations[0]['chargePointModel'] ?? null) &&
+            is_string($stations[0]['firmwareVersion'] ?? null) &&
+            strlen($stations[0]['firmwareVersion']) > 0 &&
+            strlen($stations[0]['firmwareVersion']) <= 80 &&
+            is_string($stations[0]['latestOcppMessageTimestamp'] ?? null), 409, 'A current typed source firmware identity is required.');
+        $observed = $stations[0];
+        // GraphQL's online flag can survive a silent disconnect; firmware
+        // eligibility must be based on a strictly parsed recent heartbeat.
+        $lastMessage = SourceStatusTime::parse($observed['latestOcppMessageTimestamp']);
+        abort_unless($lastMessage->gte(now()->subMinutes(5)) && $lastMessage->lte(now()), 409,
+            'Source firmware identity is stale; refresh before planning maintenance.');
+        abort_unless(in_array($observed['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true) &&
+            $observed['chargePointVendor'] === $charger->manufacturer &&
+            $observed['chargePointModel'] === $charger->model, 409, 'Source charger identity differs from the owned inventory.');
+        // A captured charger model/company is not a current ownership
+        // statement. A source read can overlap local model reassignment,
+        // owner changes or staff revocation; rehydrate both sides before
+        // showing a signed firmware recommendation.
+        $currentCompany = VendorCompany::findOrFail($company->id);
+        $currentCharger = VendorCharger::findOrFail($charger->id);
+        $fresh = $guard->scope($r, $currentCompany, $currentCharger);
+        abort_unless($currentCompany->owner_id === $company->owner_id &&
+            $currentCharger->company_id === $charger->company_id &&
+            $currentCharger->site_id === $charger->site_id &&
+            $currentCharger->manufacturer === $charger->manufacturer &&
+            $currentCharger->model === $charger->model &&
+            $currentCharger->ocpp_protocol === $charger->ocpp_protocol &&
+            (int) $fresh->id === (int) $binding->id &&
+            $fresh->identifier === $binding->identifier && $fresh->protocol === $binding->protocol,
+            409, 'Charger owner, model or source binding changed during inspection.');
+
+        // A source can disconnect, change firmware, or move between the
+        // first read and the private compatibility response. A second,
+        // independent authenticated observation must preserve its exact
+        // identity and monotonically recent heartbeat; a previous online
+        // flag is not proof of continuing firmware eligibility.
+        $requireAuthority();
+        $reviewRows = $source->graph($identityQuery, [
+            'name' => $binding->identifier,
+        ])['ChargingStations'] ?? null;
+        $requireAuthority();
+        abort_unless(is_array($reviewRows) && array_is_list($reviewRows) &&
+            count($reviewRows) === 1 && is_array($reviewRows[0]) &&
+            is_int($reviewRows[0]['id'] ?? null) &&
+            $reviewRows[0]['id'] === $observed['id'] &&
+            ($reviewRows[0]['isOnline'] ?? null) === true &&
+            ($reviewRows[0]['protocol'] ?? null) === $observed['protocol'] &&
+            ($reviewRows[0]['chargePointVendor'] ?? null) === $observed['chargePointVendor'] &&
+            ($reviewRows[0]['chargePointModel'] ?? null) === $observed['chargePointModel'] &&
+            ($reviewRows[0]['firmwareVersion'] ?? null) === $observed['firmwareVersion'] &&
+            is_string($reviewRows[0]['latestOcppMessageTimestamp'] ?? null), 409,
+            'Authenticated source firmware identity changed during inspection.');
+        $followupTime = SourceStatusTime::parse($reviewRows[0]['latestOcppMessageTimestamp']);
+        abort_unless($followupTime->gte($lastMessage) &&
+            $followupTime->gte(now()->subMinutes(5)) && $followupTime->lte(now()), 409,
+            'Firmware source heartbeat changed during inspection.');
+        $finalCompany = VendorCompany::findOrFail($company->id);
+        $finalCharger = VendorCharger::findOrFail($charger->id);
+        $finalBinding = $guard->scope($r, $finalCompany, $finalCharger);
+        abort_unless($finalCompany->owner_id === $company->owner_id &&
+            $finalCharger->manufacturer === $charger->manufacturer &&
+            $finalCharger->model === $charger->model &&
+            $finalCharger->site_id === $charger->site_id &&
+            (int) $finalBinding->id === (int) $binding->id &&
+            $finalBinding->identifier === $binding->identifier, 409,
+            'Owned firmware source changed after source recheck.');
+
+        $matrix = [];
+        $releases = DB::table('charger_firmware_releases')
+            ->where('company_id', $company->id)
+            ->where('manufacturer', $charger->manufacturer)
+            ->where('model', $charger->model)
+            ->orderByDesc('id')->limit(101)->get();
+        // Never label a truncated catalog as a complete compatibility matrix.
+        abort_if($releases->count() > 100, 409, 'Firmware matrix exceeds the bounded inspection limit; narrow the approved catalog before reviewing.');
+        foreach ($releases as $release) {
+            // Validate each stored manifest signature against its approved
+            // identity. Badly modified evidence blocks the entire projection.
+            $policy = $compatibility->approved($release);
+            $active = $release->revoked_at === null;
+            // A previously approved signed policy is not a current
+            // recommendation when its signer was unpinned or its certificate
+            // expired after approval. Firmware dispatch separately checks
+            // private artifact bytes and transport authority.
+            $certificate = openssl_x509_parse($release->signing_certificate);
+            $fingerprint = openssl_x509_fingerprint($release->signing_certificate, 'sha256');
+            $pins = array_map('strtolower', config('csms.firmware_signer_pins', []));
+            $signerTrusted = is_array($certificate) && is_string($fingerprint) &&
+                hash_equals((string) $release->signer_fingerprint, $fingerprint) &&
+                in_array(strtolower($fingerprint), $pins, true) &&
+                ($certificate['validFrom_time_t'] ?? PHP_INT_MAX) <= time() &&
+                ($certificate['validTo_time_t'] ?? 0) > time();
+            $matching = $active && $signerTrusted && $policy !== null &&
+                in_array($binding->protocol, $policy['protocols'], true) &&
+                in_array($observed['firmwareVersion'], $policy['from_versions'], true);
+            $matrix[] = [
+                'release_id' => $release->id,
+                'version' => $release->version,
+                'sha256' => $release->sha256,
+                'revoked' => $release->revoked_at !== null,
+                'signed_compatibility_policy' => $policy !== null,
+                'signer_currently_trusted' => $signerTrusted,
+                'protocols' => $policy['protocols'] ?? [],
+                'from_versions' => $policy['from_versions'] ?? [],
+                'matches_observed_source' => $matching,
+            ];
+        }
+
+        $requireAuthority();
+
+        return response()->json([
+            'charger_id' => $charger->id,
+            'protocol' => $binding->protocol,
+            'manufacturer' => $charger->manufacturer,
+            'model' => $charger->model,
+            'observed_source_firmware' => $observed['firmwareVersion'],
+            'source_last_message_at' => $followupTime->toISOString(),
+            'source_freshness_seconds' => 300,
+            'source_snapshot_verified' => true,
+            'physical_hardware_accepted' => false,
+            'firmware_dispatch_authorized' => false,
+            'releases' => $matrix,
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     private function sourceCapability(object $binding): void
     {
-        $nonce = (string) Str::uuid();
-        $reply = Http::timeout(8)->withoutRedirecting()->get(rtrim(config('csms.rider_source_api_url'), '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
-        $proof = $reply->json('proof');
+        $this->enabled();
+        $endpoint = (string) config('csms.rider_source_api_url');
         $secret = (string) config('csms.rider_client_secret');
-        abort_unless(strlen($secret) >= 32 && $reply->successful() && $reply->json('ready') === true && $reply->json('tenant_id') === 1 && in_array($binding->protocol, $reply->json('signed_firmware_protocols', []), true) && is_string($proof) && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, $secret), $proof), 503, 'Supported signed firmware source is not verified.');
+        $graphql = (string) config('csms.graphql_url');
+        $sourceKey = (string) config('csms.graphql_secret');
+        abort_unless(strlen($secret) >= 32 && strlen($sourceKey) >= 32, 503, 'Supported signed firmware source is not configured.');
+        $nonce = (string) Str::uuid();
+        $reply = Http::timeout(8)->withoutRedirecting()->get(rtrim($endpoint, '/').'/creabiz/rider-auth/capabilities', ['nonce' => $nonce]);
+        $this->enabled();
+        abort_unless(config('csms.rider_source_api_url') === $endpoint
+            && hash_equals($secret, (string) config('csms.rider_client_secret'))
+            && config('csms.graphql_url') === $graphql
+            && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 503,
+            'Firmware capability authority changed during inspection.');
+        $proof = $reply->json('firmware_proof');
+        $protocols = $reply->json('signed_firmware_protocols');
+        abort_unless($reply->successful() && $reply->json('ready') === true && $reply->json('tenant_id') === 1
+            && is_array($protocols) && array_is_list($protocols) && count($protocols) <= 2
+            && count(array_filter($protocols, fn ($protocol) => in_array($protocol, ['1.6', '2.0.1'], true))) === count($protocols)
+            && count(array_unique($protocols)) === count($protocols)
+            && in_array($binding->protocol, $protocols, true) && is_string($proof)
+            && hash_equals(hash_hmac('sha256', "creabiz-firmware-capability-v2\n".$nonce."\ntrue\n1\n".implode(',', $protocols), $secret), $proof), 503,
+            'Supported signed firmware source is not verified.');
     }
 
     private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
@@ -163,6 +356,17 @@ class ChargerFirmwareController extends Controller
         return ['requestId' => $id, 'retries' => 1, 'retryInterval' => 0, 'firmware' => ['location' => $location, 'retrieveDateTime' => now()->toISOString(), 'signingCertificate' => $release->signing_certificate, 'signature' => $release->signature]];
     }
 
+    private function requireCurrentDeployment(Request $r, VendorCompany $company, VendorCharger $charger, object $binding, object $release, ChargerResetController $guard): void
+    {
+        $guard->requireCurrentScope($r, $company, $charger, $binding);
+        $fresh = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+        abort_unless($fresh->manufacturer === $release->manufacturer && $fresh->model === $release->model, 409, 'Approved charger model changed.');
+        $current = DB::table('charger_firmware_releases')->where('id', $release->id)->where('company_id', $company->id)->whereNull('revoked_at')->lockForUpdate()->first();
+        abort_unless($current && $current == $release, 409, 'Approved firmware release changed.');
+        $this->bytes($current);
+        $guard->requireLocalIdle($binding);
+    }
+
     public function deploy(Request $r, VendorCompany $company, VendorCharger $charger, ChargerResetController $guard)
     {
         $this->enabled();
@@ -185,11 +389,16 @@ class ChargerFirmwareController extends Controller
             abort_unless($release && $release->manufacturer === $charger->manufacturer && $release->model === $charger->model, 409, 'An approved compatible release is required.');
             $this->bytes($release);
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists() || DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the existing maintenance operation first.');
+            $authority = $this->sourceAuthority();
             $guard->idle($b);
+            $this->sourceAuthority($authority);
             $this->compatibleSource($b, $charger, $release);
+            $this->sourceAuthority($authority);
             $this->sourceCapability($b);
+            $this->sourceAuthority($authority);
+            $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
             $raw = bin2hex(random_bytes(32));
-            $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('charger_firmware_operations')->insertGetId(['binding_id' => $b->id, 'source_generation' => FaultMonitor::generation($b), 'release_id' => $release->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'status' => 'requested', 'download_token_digest' => hash('sha256', $raw), 'download_token_ciphertext' => Crypt::encryptString($raw), 'download_expires_at' => now()->addHours(2), 'created_at' => now(), 'updated_at' => now()]);
             abort_unless($id <= 2147483647, 409, 'Firmware request range exhausted.');
             // Commit exact source provenance with the request before any delivery.
             // A process crash after send must not roll this capsule back.
@@ -198,7 +407,7 @@ class ChargerFirmwareController extends Controller
 
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.deployment_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
-            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true];
+            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true, 'authority' => $authority];
         });
         $row = $created['row'];
         if ($created['created'] && DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'requested')->update(['status' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()])) {
@@ -206,7 +415,7 @@ class ChargerFirmwareController extends Controller
             $wireAttempted = false;
             $blockedAt = null;
             try {
-                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row, &$wireAttempted) {
+                $state = DB::transaction(function () use ($r, $company, $charger, $guard, $b, $row, $created, &$wireAttempted) {
                     Station::whereKey($b->station_id)->lockForUpdate()->firstOrFail();
                     $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     $guard->scope($r, $company, $charger, true);
@@ -214,18 +423,25 @@ class ChargerFirmwareController extends Controller
                     $this->enabled();
                     $current = DB::table('charger_firmware_operations')->where('id', $row->id)->lockForUpdate()->firstOrFail();
                     abort_unless($current->status === 'dispatching' && $current->reviewed_at === null, 409);
+                    $guard->requireCurrentScope($r, $company, $charger, $b);
+                    $guard->requireOperationGeneration($current, $b);
                     $release = DB::table('charger_firmware_releases')->where('id', $row->release_id)->whereNull('revoked_at')->lockForUpdate()->firstOrFail();
                     $this->bytes($release);
+                    $authority = $this->sourceAuthority($created['authority']);
                     $guard->idle($b);
+                    $this->sourceAuthority($authority);
                     $this->compatibleSource($b, $charger, $release);
+                    $this->sourceAuthority($authority);
+                    $this->sourceCapability($b);
+                    $this->sourceAuthority($authority);
                     $serialized = Crypt::decryptString($current->source_payload_ciphertext);
                     abort_unless(hash_equals($current->source_payload_digest, hash('sha256', $serialized)), 409, 'Firmware source provenance changed.');
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                     abort_unless(($payload['requestId'] ?? null) === (int) $current->id && ($payload['firmware']['signature'] ?? null) === $release->signature && ($payload['firmware']['signingCertificate'] ?? null) === $release->signing_certificate, 409, 'Approved release lineage changed.');
-                    $operationsBase = config('csms.operations_base_url');
+                    $operationsBase = $authority[2];
                     $token = app(OperationsCredentials::class)->token($operationsBase);
-                    $this->enabled();
-                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before firmware dispatch.');
+                    $this->sourceAuthority($authority);
+                    $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
                     abort_unless(is_string($token) && $token !== '', 503);
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
@@ -283,6 +499,9 @@ class ChargerFirmwareController extends Controller
         $this->enabled();
         $op = DB::table('charger_firmware_operations')->where('download_token_digest', hash('sha256', $token))->whereNull('reviewed_at')->where('download_expires_at', '>', now())->whereIn('status', ['dispatching', 'transport_submitted', 'outcome_unknown'])->first();
         abort_unless($op, 404);
+        $binding = DB::table('csms_bindings')->where('id', $op->binding_id)->first();
+        abort_unless($binding && is_string($op->source_generation ?? null)
+            && hash_equals($op->source_generation, FaultMonitor::generation($binding)), 404);
         $release = DB::table('charger_firmware_releases')->where('id', $op->release_id)->whereNull('revoked_at')->first();
         abort_unless($release, 404);
         $path = $this->bytes($release);
@@ -304,10 +523,15 @@ class ChargerFirmwareController extends Controller
             $op = DB::table('charger_firmware_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($op, 404);
             if (! $op->reviewed_at) {
+                $guard->requireCurrentScope($r, $company, $charger, $b);
+                $guard->requireOperationGeneration($op, $b);
                 abort_unless(in_array($op->status, ['transport_submitted', 'outcome_unknown', 'dispatching'], true) && $op->attempted_at && ($op->status !== 'dispatching' || now()->gte(CarbonImmutable::parse($op->attempted_at)->addMinute())), 409, 'Firmware source outcome remains uncertain.');
+                $authority = $this->sourceAuthority();
                 $guard->idle($b, $op->attempted_at);
+                $this->sourceAuthority($authority);
                 $release = DB::table('charger_firmware_releases')->where('id', $op->release_id)->firstOrFail();
                 $stationData = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id firmwareVersion}}', ['name' => $b->identifier]);
+                $this->sourceAuthority($authority);
                 $station = $stationData['ChargingStations'] ?? null;
                 abort_unless(is_array($station) && array_is_list($station) && count($station) === 1
                     && is_array($station[0]) && is_int($station[0]['id'] ?? null) && $station[0]['id'] > 0
@@ -318,6 +542,7 @@ class ChargerFirmwareController extends Controller
                 $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                 $action = $b->protocol === '1.6' ? 'SignedUpdateFirmware' : 'UpdateFirmware';
                 $requestData = $source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"csms"},type:{_eq:2},action:{_eq:$action},createdAt:{_gte:$after},payload:{_contains:$match}},limit:2){id createdAt}}', ['station' => $station[0]['id'], 'action' => $action, 'after' => CarbonImmutable::parse($op->attempted_at)->toISOString(), 'match' => ['requestId' => (int) $op->id, 'firmware' => ['location' => $payload['firmware']['location'], 'signature' => $payload['firmware']['signature']]]]);
+                $this->sourceAuthority($authority);
                 $requests = $requestData['OCPPMessages'] ?? null;
                 abort_unless(is_array($requests) && array_is_list($requests) && count($requests) === 1
                     && is_array($requests[0]) && is_int($requests[0]['id'] ?? null)
@@ -325,24 +550,52 @@ class ChargerFirmwareController extends Controller
                     409, 'One typed owned firmware source request is required.');
                 $requestAt = SourceStatusTime::parse($requests[0]['createdAt'], 300);
                 abort_unless($requestAt->gte(CarbonImmutable::parse($op->attempted_at)), 409, 'Source firmware request predates its operation.');
-                $messageData = $source->graph('query($station:Int!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_in:["FirmwareStatusNotification","SignedFirmwareStatusNotification"]},payload:{_contains:$match}},order_by:{id:desc},limit:1){id createdAt payload}}', ['station' => $station[0]['id'], 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]]);
+                $statusAction = $b->protocol === '1.6' ? 'SignedFirmwareStatusNotification' : 'FirmwareStatusNotification';
+                $messageData = $source->graph('query($station:Int!,$action:String!,$after:timestamptz!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},createdAt:{_gte:$after},action:{_eq:$action},payload:{_contains:$match}},order_by:{id:asc},limit:51){id createdAt action payload}}', ['station' => $station[0]['id'], 'action' => $statusAction, 'after' => $requests[0]['createdAt'], 'match' => ['requestId' => (int) $op->id]]);
+                $this->sourceAuthority($authority);
                 $messages = $messageData['OCPPMessages'] ?? null;
-                abort_unless(is_array($messages) && array_is_list($messages) && count($messages) === 1 &&
-                    is_array($messages[0]) && is_int($messages[0]['id'] ?? null) &&
-                    $messages[0]['id'] > 0 && is_string($messages[0]['createdAt'] ?? null) &&
-                    is_array($messages[0]['payload'] ?? null) &&
-                    is_int($messages[0]['payload']['requestId'] ?? null) &&
-                    $messages[0]['payload']['requestId'] === (int) $op->id &&
-                    is_string($messages[0]['payload']['status'] ?? null),
-                    409, 'One typed correlated firmware status is required.');
-                abort_unless(SourceStatusTime::parse($messages[0]['createdAt'], 300)->gte($requestAt), 409,
-                    'Source firmware status predates the owned request.');
-                $status = $messages[0]['payload']['status'];
-                $installed = $status === 'Installed';
-                abort_unless($installed || in_array($status, ['DownloadFailed', 'InstallationFailed', 'InvalidSignature', 'InstallVerificationFailed', 'InvalidCertificate'], true), 409, 'A correlated terminal firmware report is required.');
-                if ($installed) {
-                    abort_unless($release->revoked_at === null && ($station[0]['firmwareVersion'] ?? null) === $release->version, 409, 'Installed version must match the approved release.');
+                abort_unless(is_array($messages) && array_is_list($messages) && count($messages) >= 1 && count($messages) <= 50, 409,
+                    'A complete bounded correlated firmware status history is required.');
+                $lastId = $requests[0]['id'];
+                $lastAt = $requestAt;
+                $terminal = null;
+                $terminalStates = ['Installed', 'DownloadFailed', 'InstallationFailed', 'InvalidSignature', 'InstallVerificationFailed', 'InvalidCertificate'];
+                foreach ($messages as $message) {
+                    abort_unless(is_array($message) && is_int($message['id'] ?? null)
+                        && $message['id'] > $lastId && is_string($message['createdAt'] ?? null)
+                        && ($message['action'] ?? null) === $statusAction
+                        && is_array($message['payload'] ?? null)
+                        && is_int($message['payload']['requestId'] ?? null)
+                        && $message['payload']['requestId'] === (int) $op->id
+                        && is_string($message['payload']['status'] ?? null), 409,
+                        'Typed protocol-specific firmware status provenance is required.');
+                    $at = SourceStatusTime::parse($message['createdAt'], 300);
+                    abort_unless($at->gte($lastAt), 409, 'Firmware source status chronology requires reconciliation.');
+                    $lastId = $message['id'];
+                    $lastAt = $at;
+                    $status = $message['payload']['status'];
+                    if ($terminal !== null) {
+                        abort_unless($status === $terminal, 409, 'Conflicting firmware status after terminal evidence requires review.');
+                    } elseif (in_array($status, $terminalStates, true)) {
+                        $terminal = $status;
+                    }
                 }
+                abort_unless($terminal !== null, 409, 'A correlated terminal firmware report is required.');
+                $installed = $terminal === 'Installed';
+                if ($installed) {
+                    // Re-read after status history; an earlier station snapshot
+                    // cannot certify a version which changed during review.
+                    $currentStation = $source->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id firmwareVersion}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
+                    $this->sourceAuthority($authority);
+                    abort_unless($release->revoked_at === null && ($station[0]['firmwareVersion'] ?? null) === $release->version
+                        && is_array($currentStation) && array_is_list($currentStation) && count($currentStation) === 1
+                        && is_array($currentStation[0]) && ($currentStation[0]['id'] ?? null) === $station[0]['id']
+                        && ($currentStation[0]['firmwareVersion'] ?? null) === $release->version, 409,
+                        'Installed version must match the approved release and current source identity.');
+                }
+                $this->sourceAuthority($authority);
+                $guard->requireCurrentScope($r, $company, $charger, $b);
+                $guard->requireLocalIdle($b);
                 DB::table('charger_firmware_operations')->where('id', $op->id)->update(['status' => $installed ? 'source_installed' : 'source_failed', 'reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'reviewed_at' => now(), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.source_reviewed', 'subject' => (string) $op->id, 'created_at' => now()]);
             }

@@ -10,6 +10,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\CsmsGraphqlTransport;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\SourceStatusTime;
@@ -28,6 +29,7 @@ class ChargerResetController extends Controller
     public function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
         app(MaintenanceActor::class)->check($r->user());
+        app(MaintenanceActor::class)->checkBearer($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         if ($write) {
             abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
@@ -44,24 +46,69 @@ class ChargerResetController extends Controller
         return $b;
     }
 
+    /** Shared maintenance guard; caller holds the station lock in a transaction. */
+    public function requireCurrentScope(Request $r, VendorCompany $company, VendorCharger $charger, object $expected): void
+    {
+        $currentCompany = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        $currentCharger = VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+        $current = $this->scope($r, $currentCompany, $currentCharger, true);
+        abort_unless($current->id === $expected->id
+            && $current->station_id === $expected->station_id
+            && $current->vendor_charger_id === $expected->vendor_charger_id
+            && $current->identifier === $expected->identifier
+            && $current->protocol === $expected->protocol, 409,
+            'Reset source mapping changed; retain the operation for review.');
+        app(VendorAccess::class)->operational($currentCompany);
+    }
+
+    /** No legacy backfill: current mapping cannot prove historical command lineage. */
+    public function requireOperationGeneration(object $operation, object $binding): void
+    {
+        abort_unless(is_string($operation->source_generation ?? null)
+            && hash_equals($operation->source_generation, FaultMonitor::generation($binding)), 409,
+            'Maintenance source generation is unverified or changed; retain the hold.');
+    }
+
     private function enabled(): void
     {
         abort_unless(config('csms.safe_reset_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'Local reset adapter is disabled.');
     }
 
-    public function idle(object $b, ?string $after = null): void
+    /** Recheck local holds after external reads, immediately before a maintenance write. */
+    public function requireLocalIdle(object $b): void
     {
-        $url = app(CsmsGraphqlTransport::class)->requireApproved();
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');
+        // Unresolved commands without session links also own this station.
+        abort_if(DB::table('charger_commands')->where('station_id', $b->station_id)
+            ->whereIn('status', ['pending', 'dispatching', 'submitted', 'outcome_unknown'])
+            ->exists(), 409, 'An unresolved charging command owns this station.');
+    }
+
+    public function idle(object $b, ?string $after = null): int
+    {
+        $this->requireLocalIdle($b);
+        $url = app(CsmsGraphqlTransport::class)->requireApproved();
+        $key = (string) config('csms.graphql_secret');
+        $requireAuthority = function () use ($url, $key): void {
+            abort_unless(strlen($key) >= 32
+                && app(CsmsGraphqlTransport::class)->requireApproved() === $url
+                && hash_equals($key, (string) config('csms.graphql_secret'))
+                && config('csms.session_bridge_enabled')
+                && app()->environment(['local', 'testing']), 503,
+                'Idle source authority changed during inspection.');
+        };
+        $requireAuthority();
         try {
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol} }', 'variables' => ['name' => $b->identifier]]);
+            $requireAuthority();
             $rows = $r->json('data.ChargingStations');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
                 is_array($rows[0]) && is_int($rows[0]['id'] ?? null) && $rows[0]['id'] > 0 &&
                 ($rows[0]['isOnline'] ?? null) === true &&
                 in_array($rows[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true), 409, 'A current typed online source is required.');
-            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
+            $r = Http::timeout(8)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])->post($url, ['query' => 'query($station:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},isActive:{_eq:true}},limit:1){id} Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:101){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1000){connectorDatabaseId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $rows[0]['id']]]);
+            $requireAuthority();
             $d = $r->json('data');
             abort_unless($r->successful() && ! $r->json('errors') && is_array($d) &&
                 ($d['Transactions'] ?? null) === [] &&
@@ -88,6 +135,8 @@ class ChargerResetController extends Controller
                     is_string($row['connectorStatus'] ?? null) &&
                     is_string($row['timestamp'] ?? null) &&
                     (! isset($row['errorCode']) || (is_string($row['errorCode']) && strlen($row['errorCode']) <= 80)), 409, 'Malformed source connector status.');
+                abort_unless(isset($known[$row['connectorDatabaseId']]), 409,
+                    'Source status references an unknown connector; manual review is required.');
                 $statusAt = SourceStatusTime::parse($row['timestamp']);
                 // Descending source event IDs must never carry increasing
                 // timestamps. Otherwise an earlier-clock Available report
@@ -116,6 +165,12 @@ class ChargerResetController extends Controller
                 $at = SourceStatusTime::parse($status['timestamp']);
                 abort_unless($at->gte(now()->subMinutes(2)) && $at->lte(now()) && ($after === null || $at->gt(CarbonImmutable::parse($after))), 409, 'Fresh connector evidence after the operation is required.');
             }
+            // The source reads can take seconds. Do not reuse a local
+            // idle decision if a charging hold appeared during observation.
+            $this->requireLocalIdle($b);
+            $requireAuthority();
+
+            return $rows[0]['id'];
         } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (Throwable) {
@@ -152,7 +207,9 @@ class ChargerResetController extends Controller
             abort_if(DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the previous operation before another reset.');
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the signed firmware operation before a reset.');
             $this->idle($b);
-            $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
+            $this->enabled();
+            $this->requireCurrentScope($r, $company, $charger, $b);
+            $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'source_generation' => FaultMonitor::generation($b), 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
             return ['row' => DB::table('charger_reset_operations')->find($id), 'created' => true];
@@ -168,15 +225,37 @@ class ChargerResetController extends Controller
                     $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     $current = DB::table('charger_reset_operations')->where('id', $row->id)->lockForUpdate()->first();
                     abort_unless($current && $current->status === 'dispatching' && $current->reviewed_at === null, 409, 'Operation is no longer dispatchable.');
-                    $this->scope($r, $company, $charger, true);
-                    app(VendorAccess::class)->operational($company);
+                    $this->requireCurrentScope($r, $company, $charger, $b);
+                    $this->requireOperationGeneration($current, $b);
                     $this->enabled();
-                    $this->idle($b);
+                    $sourceUrl = app(CsmsGraphqlTransport::class)->requireApproved();
+                    $sourceKey = (string) config('csms.graphql_secret');
+                    $sourceStation = $this->idle($b);
                     $operationsBase = config('csms.operations_base_url');
                     $auth = app(OperationsCredentials::class)->token($operationsBase);
                     $this->enabled();
-                    abort_unless(config('csms.operations_base_url') === $operationsBase, 409, 'Operations authority changed before reset dispatch.');
+                    abort_unless(config('csms.operations_base_url') === $operationsBase
+                        && app(CsmsGraphqlTransport::class)->requireApproved() === $sourceUrl
+                        && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 409,
+                        'Source or operations authority changed before reset dispatch.');
+                    $this->requireCurrentScope($r, $company, $charger, $b);
+                    $this->requireLocalIdle($b);
                     abort_unless(is_string($auth) && $auth !== '', 503);
+                    // Token acquisition is external I/O: the previously idle
+                    // charger can become occupied, faulted or reassigned.
+                    // Recheck the entire typed source inventory, not only the
+                    // local holds, before sending the single reset request.
+                    $freshSourceStation = $this->idle($b);
+                    abort_unless($freshSourceStation === $sourceStation, 409,
+                        'Reset source station changed during authorization.');
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase
+                        && app(CsmsGraphqlTransport::class)->requireApproved() === $sourceUrl
+                        && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 409,
+                        'Source or operations authority changed during final idle review.');
+                    $this->requireCurrentScope($r, $company, $charger, $b);
+                    $this->requireOperationGeneration($current, $b);
+                    $this->requireLocalIdle($b);
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 
                     return $reply->successful() && $reply->json() === [['success' => true]] ? 'transport_submitted' : 'outcome_unknown';
@@ -203,10 +282,14 @@ class ChargerResetController extends Controller
             $row = DB::table('charger_reset_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($row, 404);
             if (! $row->reviewed_at) {
+                $this->requireCurrentScope($r, $company, $charger, $b);
+                $this->requireOperationGeneration($row, $b);
                 $attempt = $row->attempted_at ?? $row->created_at;
                 $wait = in_array($row->status, ['requested', 'dispatching'], true) ? 60 : 20;
                 abort_unless(now()->gte(CarbonImmutable::parse($attempt)->addSeconds($wait)), 409, 'Wait for dispatch completion before source review.');
                 $this->idle($b, $attempt);
+                $this->enabled();
+                $this->requireCurrentScope($r, $company, $charger, $b);
                 DB::table('charger_reset_operations')->where('id', $row->id)->update(['reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'reviewed_at' => now(), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_source_reviewed', 'subject' => (string) $row->id, 'created_at' => now()]);
             }
