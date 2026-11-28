@@ -43,6 +43,9 @@ class RecordSynchronizer
                     ->where('account_status', 'active')->exists()) {
                 throw new OcpiException('Inactive operator owner cannot publish catalog source records.');
             }
+            if (in_array($module, ['locations', 'tariffs'], true)) {
+                ContractAuthorizationGate::negotiationAuthority($locked);
+            }
             // A bilateral managed connection approves one peer identity.
             // Apply the same party boundary to pulls and pushes, regardless
             // of which application entry point supplies the normalized batch.

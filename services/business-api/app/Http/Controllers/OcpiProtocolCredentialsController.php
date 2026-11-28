@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\CpoCatalogContract;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiMessageHeaders;
+use App\Services\Ocpi\SandboxRoaming;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -35,10 +37,45 @@ class OcpiProtocolCredentialsController extends Controller
             && DB::table('ocpi_credential_operations')->where('provider_id', $link->provider_id)->where('generation', $link->generation)->where('state', 'dispatching')->whereIn('action', ['register', 'rotate'])->where('attempted_at', '>=', now()->subSeconds(60))->exists();
         $enrolling = $link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture() && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
+        // All module requests share this authentication boundary. A digest
+        // without matching encrypted token material cannot grant data access.
+        // An authenticated DELETE is the sole reduction-only exception: it
+        // discloses no token and clears the corrupt generation under lock.
+        if ($link->state === 'active' && ! $this->revoking($r, $resource)) {
+            abort_unless(hash_equals($raw, $this->activeToken($link)), 401);
+        }
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
 
+        // Enrollment discovery must not advertise capability using a
+        // bootstrap prepared for retired contractual evidence.
+        if ($enrolling && $r->isMethod('GET')) {
+            try {
+                app(IncomingEnrollment::class)->assertPreparedReview($p, $link);
+            } catch (Throwable) {
+                abort(401);
+            }
+        }
+
         return [$p, $link];
+    }
+
+    private function revoking(Request $request, string $resource): bool
+    {
+        return $resource === 'credentials' && $request->isMethod('DELETE');
+    }
+
+    private function activeToken(object $link): string
+    {
+        try {
+            $token = Crypt::decryptString($link->local_token_ciphertext);
+        } catch (Throwable) {
+            abort(401);
+        }
+        abort_unless(preg_match('/^[\x21-\x7e]{1,64}$/D', $token)
+            && hash_equals($link->local_token_digest, hash('sha256', $token)), 401);
+
+        return $token;
     }
 
     private function reply(mixed $data, int $code = 1000, int $http = 200)
@@ -52,19 +89,8 @@ class OcpiProtocolCredentialsController extends Controller
     {
         try {
             [$p, $link] = $this->authenticate($r, $exchange, $resource);
-            $localToken = '';
-            if ($link->state === 'active') {
-                // The authenticated digest and encrypted local token must
-                // describe the same generation. A mismatched ciphertext must
-                // never disclose a different token to the previous peer.
-                try {
-                    $localToken = Crypt::decryptString($link->local_token_ciphertext);
-                } catch (Throwable) {
-                    abort(401);
-                }
-                abort_unless(preg_match('/^[\x21-\x7e]{1,64}$/D', $localToken)
-                    && hash_equals($link->local_token_digest, hash('sha256', $localToken)), 401);
-            }
+            $localToken = $link->state === 'active' && ! $this->revoking($r, $resource)
+                ? $this->activeToken($link) : '';
             $local = $exchange->localPayload($localToken, $p);
             if ($r->isMethod('POST') && $resource === 'credentials') {
                 if ($link->state !== 'awaiting_registration') {
@@ -77,8 +103,7 @@ class OcpiProtocolCredentialsController extends Controller
             $base = substr($local['url'], 0, -strlen('versions'));
             if ($r->isMethod('GET')) {
                 $sandbox = [];
-                $configured = config('ocpi.connections.'.$p->connection_key);
-                if (app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && ($configured['test_commands'] ?? false) === true) {
+                if (app(SandboxRoaming::class)->configuredTokenSender($p)) {
                     $sandbox[] = ['identifier' => 'tokens', 'role' => 'SENDER', 'url' => $base.'2.2.1/tokens'];
                 }
                 $senders = app(CpoCatalogContract::class)->approved($p)
@@ -95,10 +120,16 @@ class OcpiProtocolCredentialsController extends Controller
             abort_unless($resource === 'credentials' && in_array($r->method(), ['PUT', 'DELETE'], true) && strlen($r->getContent()) <= 65536, 405);
             $body = $r->isMethod('DELETE') ? null : $r->json()->all();
             $peer = $body === null ? null : $exchange->validatePeer($p, $body);
+            $reviewAuthority = $peer ? ContractAuthorizationGate::credentialAuthority($p, 'peer_rotate') : null;
             if ($peer) {
-                $exchange->endpoint($p, base64_encode($peer['token']), $link);
+                $guard = function () use ($p, $reviewAuthority) {
+                    ContractAuthorizationGate::assertCredentialAuthority(
+                        OcpiProvider::findOrFail($p->id), 'peer_rotate', $reviewAuthority
+                    );
+                };
+                $exchange->endpoint($p, base64_encode($peer['token']), $link, $guard);
             }
-            $data = DB::transaction(function () use ($p, $link, $exchange, $peer, $body) {
+            $data = DB::transaction(function () use ($p, $link, $exchange, $peer, $body, $reviewAuthority) {
                 $owner = User::whereKey($p->owner_id)->lockForUpdate()->first(['id', 'role', 'account_status']);
                 abort_unless($owner?->role === 'vendor' && ($peer === null || $owner->account_status === 'active'), 401);
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
@@ -109,6 +140,7 @@ class OcpiProtocolCredentialsController extends Controller
                     && hash_equals($link->configuration_hash, $active->configuration_hash)
                     && hash_equals($active->configuration_hash, $exchange->configurationHash($current)), 401);
                 if ($peer) {
+                    ContractAuthorizationGate::assertCredentialAuthority($current, 'peer_rotate', $reviewAuthority);
                     abort_unless($active->generation < 2147483647 && $current->authorization_revision < PHP_INT_MAX, 409);
                 }
                 $generation = min(2147483647, $active->generation + 1);

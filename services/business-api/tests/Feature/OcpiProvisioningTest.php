@@ -2,10 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OcpiProvisioningController;
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Tests\TestCase;
 
 class OcpiProvisioningTest extends TestCase
@@ -59,6 +64,55 @@ class OcpiProvisioningTest extends TestCase
         $this->getJson('/api/ocpi/owner-options?q=Scoped&page=2')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/ocpi/owner-options?q=customer')->assertOk()->assertJsonPath('total', 0);
         $this->getJson('/api/ocpi/owner-options?q='.str_repeat('x', 81))->assertUnprocessable();
+    }
+
+    public function test_owner_selector_only_returns_active_vendor_literal_matches_on_both_mounts(): void
+    {
+        $active = User::factory()->create(['role' => 'vendor', 'account_status' => 'active', 'name' => 'Literal %_! owner']);
+        User::factory()->create(['role' => 'vendor', 'account_status' => 'active', 'name' => 'Literal ABC owner']);
+        User::factory()->create(['role' => 'customer', 'name' => 'Literal %_! customer']);
+        $inactive = User::factory()->create(['role' => 'vendor', 'name' => 'Literal %_! inactive']);
+        DB::table('users')->where('id', $inactive->id)->update(['account_status' => 'suspended']);
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        foreach (['/api/ocpi', '/api/v1/ocpi'] as $mount) {
+            $this->getJson($mount.'/owner-options?q='.rawurlencode('%_!'))->assertOk()
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $active->id)
+                ->assertHeader('Cache-Control', 'no-store, private');
+            $this->getJson($mount.'/owner-options?page=100001')->assertUnprocessable();
+            $this->getJson($mount.'/owner-options?page=0')->assertUnprocessable();
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_captured_admin_request_cannot_read_private_onboarding_after_authority_changes(): void
+    {
+        $this->connection();
+        $controller = app(OcpiProvisioningController::class);
+        foreach ([
+            ['account_status' => 'suspended', 'expected' => 403],
+            ['role' => 'vendor', 'expected' => 403],
+            ['auth_epoch' => 21, 'expected' => 409],
+            ['password' => 'changed-hash-fixture', 'expected' => 409],
+        ] as $change) {
+            $admin = User::factory()->create(['role' => 'admin', 'auth_epoch' => 20]);
+            $request = Request::create('/api/ocpi/owner-options');
+            $request->setUserResolver(fn () => $admin);
+            $expected = $change['expected'];
+            unset($change['expected']);
+            DB::table('users')->where('id', $admin->id)->update($change);
+            foreach ([
+                fn () => $controller->owners($request),
+                fn () => $controller->connections($request, app(PartnerClient::class)),
+            ] as $read) {
+                try {
+                    $read();
+                    $this->fail('Retired admin read should be rejected.');
+                } catch (HttpExceptionInterface $e) {
+                    $this->assertSame($expected, $e->getStatusCode());
+                }
+            }
+        }
+        Http::assertNothingSent();
     }
 
     public function test_admin_can_register_only_server_configured_connections_and_role_valid_owner_without_authorizing_partner(): void

@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Charging\MaintenanceActor;
 use App\Services\Ocpi\CdrReconciler;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\PartnerBillingReconciliation;
@@ -54,6 +55,18 @@ class OcpiController extends Controller
         return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
+    // Match the review ledger's lock order: current actor, owner, provider.
+    private function currentProvisioningAdmin(Request $r): void
+    {
+        $snapshot = $r->user();
+        abort_unless($snapshot instanceof User && $snapshot->role === 'admin', 403);
+        $actor = User::whereKey($snapshot->id)->lockForUpdate()->first();
+        abort_unless($actor && $actor->role === 'admin' && $actor->account_status === 'active', 403);
+        abort_unless((int) $actor->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $actor->password, (string) $snapshot->password), 409,
+            'Account credentials changed. Sign in again.');
+    }
+
     public function create(Request $r, PartnerClient $client)
     {
         abort_unless($r->user()->role === 'admin', 403);
@@ -64,6 +77,9 @@ class OcpiController extends Controller
         abort_unless(is_array(config('ocpi.connections.'.$v['connection_key'])), 422, 'Connection must first be provisioned in secure server configuration.');
 
         return DB::transaction(function () use ($r, $v, $client) {
+            $this->currentProvisioningAdmin($r);
+            abort_if($v['authorized'] && ContractAuthorizationGate::required(), 409,
+                'Create a pending provider and record internal contract review before authorization.');
             // Recheck after request validation and lock the owner before
             // creating an authorized provider. A suspended/transferred owner
             // cannot race an administrative create into a public catalog.
@@ -90,9 +106,19 @@ class OcpiController extends Controller
         $v = $r->validate(['authorized' => 'required|boolean']);
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
+            $this->currentProvisioningAdmin($r);
+            $owner = User::whereKey($provider->owner_id)->lockForUpdate()->first();
+            $snapshot = $provider;
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            abort_if($v['authorized'] && ! User::whereKey($provider->owner_id)->where('role', 'vendor')
-                ->where('account_status', 'active')->exists(), 409, 'Partner owner is not active.');
+            abort_unless((int) $snapshot->owner_id === (int) $provider->owner_id
+                && $snapshot->connection_key === $provider->connection_key, 409,
+                'Provider ownership or connection changed. Reload before authorization.');
+            if ($v['authorized']) {
+                abort_unless($owner && $owner->role === 'vendor' && $owner->account_status === 'active', 409,
+                    'Partner owner is not active.');
+                abort_unless(ContractAuthorizationGate::permits($provider, $owner), 409,
+                    'A current internal contract review is required for authorization.');
+            }
             $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
             // Revocation must remain available at the terminal generation.
             // Reauthorization is permanently blocked, so that generation cannot recur.
