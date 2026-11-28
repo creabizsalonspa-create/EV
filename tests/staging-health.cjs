@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { parseArgs, run, fqdn } = require('../scripts/staging-health.cjs');
+const { parseArgs, run, fqdn, receive } = require('../scripts/staging-health.cjs');
 
 function responseFor(path) {
   if (path === '/up') return { status: 200, body: 'up' };
@@ -87,4 +87,62 @@ test('TLS tunnel requires valid hostname and certificate verification', () => {
 });
 test('unrecognized flags cannot change safety mode', () => {
   assert.throws(() => parseArgs(['--url','http://127.0.0.1:8080/','--insecure']));
+});
+
+test('private denial status alone cannot conceal leaked account or debug fields', async () => {
+  for (const body of [
+    '{"message":"Unauthenticated.","id":42}',
+    '{"message":"PRIVATE-SOURCE-TOKEN"}',
+    '{"message":"Unauthenticated.","trace":[]}',
+    '<html>private profile</html>',
+  ]) {
+    await liveServer(async config => {
+      const report = await run(config);
+      assert.equal(report.ok, false);
+      assert.ok(report.results.some(row => row.path === '/api/me' && !row.ok));
+      assert.equal(JSON.stringify(report).includes('PRIVATE-SOURCE-TOKEN'), false);
+    }, {'/api/me': {status:401, headers:{'content-type':'application/json'}, body}});
+  }
+});
+test('generic 403 is accepted but arbitrary denial content is not', async () => {
+  await liveServer(async config => {
+    assert.equal((await run(config)).ok,true);
+  }, {'/api/admin/overview':{status:403,headers:{'content-type':'application/json'},body:'{"message":"This action is unauthorized."}'}});
+});
+test('absolute deadline closes trickling response even without an idle timeout', async () => {
+  const server = http.createServer((_req,res)=>{
+    res.writeHead(200,{'content-type':'text/plain'});
+    res.write('x');
+    const drip = setInterval(()=>res.write('x'),10);
+    res.on('close',()=>clearInterval(drip));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const config=parseArgs(['--url','http://127.0.0.1:'+server.address().port+'/']);
+    await assert.rejects(receive(config,'/up',150),/Absolute request deadline exceeded/);
+  } finally { await new Promise(resolve=>server.close(resolve)); }
+});
+test('truncated HTTP response is not accepted as complete evidence', async () => {
+  const server = http.createServer((_req,res)=>{
+    res.writeHead(200,{'content-length':100});
+    res.write('short');
+    setTimeout(()=>res.destroy(),20);
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const config=parseArgs(['--url','http://127.0.0.1:'+server.address().port+'/']);
+    await assert.rejects(receive(config,'/up',1000));
+  } finally { await new Promise(resolve=>server.close(resolve)); }
+});
+test('localhost resolves only to pinned IPv4 loopback', async () => {
+  await liveServer(async config => {
+    const local=parseArgs(['--url','http://localhost:'+config.url.port+'/']);
+    assert.equal((await run(local)).ok,true);
+  });
+});
+test('catalog rejects an unsafe integer total and impossible row count', async () => {
+  for (const body of ['{"data":[],"total":9007199254740992}','{"data":[{}],"total":0}']) {
+    await liveServer(async config=>assert.equal((await run(config)).ok,false),
+      {'/api/stations':{status:200,headers:{'content-type':'application/json'},body}});
+  }
 });
