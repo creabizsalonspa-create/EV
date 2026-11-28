@@ -332,8 +332,18 @@ export function mountHostedCheckout({
                 "p",
                 `${row.currency} ${EvMoney.format(row.amount_minor, row.minor_units)}`,
             ),
-            n("p", `${row.evidence} · ${row.expires_at || "—"}`),
+            n("p", row.evidence),
         );
+        const expiry = n("p", "");
+        expiry.dataset.hostedExpiry = "";
+        for (const language of ["en", "ar"]) {
+            const label = language === "ar" ? "انتهاء جلسة المزود" : "Provider session expiry";
+            const clock = window.EvStationTime?.serverEventTime(row.expires_at, language) ??
+                (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
+            expiry.dataset[language] = label + ": " + clock;
+        }
+        expiry.textContent = document.documentElement.lang === "ar" ? expiry.dataset.ar : expiry.dataset.en;
+        card.append(expiry);
         const activity = n("section", "");
         activity.dataset.checkoutActivity = "";
         activityButton(card, "View checkout activity", "عرض نشاط عملية الدفع", () => loadEvents(activity, row.id, 1));
