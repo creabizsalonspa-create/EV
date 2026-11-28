@@ -28,6 +28,7 @@ use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\PrivacyAccessExportController;
+use App\Http\Controllers\PrivacyErasurePreparationController;
 use App\Http\Controllers\ReferralController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RetailPartnerController;
@@ -101,6 +102,7 @@ Route::post('/api/account/privacy-requests/{privacyCase}/withdraw', [AccountPriv
 Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
 Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/erasure-assessment', [AccountPrivacyController::class, 'erasureAssessment'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/security-denials', [AdminSecurityDenialSummaryController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/command-secret-storage', [AdminCommandSecretStorageController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
@@ -247,6 +249,8 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
 });
 
 Route::post('/api/admin/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'prepare'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/erasure-preparation', [PrivacyErasurePreparationController::class, 'show'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::post('/api/admin/privacy-requests/{privacyCase}/erasure-preparation', [PrivacyErasurePreparationController::class, 'record'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
 Route::post('/api/account/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'read'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
 Route::post('/api/account/privacy-requests/{privacyCase}/access-copy/revoke', [PrivacyAccessExportController::class, 'revoke'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'index'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
