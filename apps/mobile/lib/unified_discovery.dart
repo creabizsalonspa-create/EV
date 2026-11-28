@@ -451,7 +451,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         final rawName=raw['name'];
         final label=rawName is String&&rawName.trim().isNotEmpty
             ?rawName:tr('Unnamed platform station','محطة منصة بلا اسم');
-        return Card(key:ValueKey(row['key']),child:Padding(
+        return Card(key:ValueKey<String>(row['key'] as String),child:Padding(
           padding:const EdgeInsets.all(12),
           child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text(label),
@@ -461,7 +461,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
         ));
       }
       final station=Station.fromJson(raw);
-      return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()&&!busy&&!writing?guard((){if(rows.any((v)=>identical(v,row)))openCatalog(station);}):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
+      return Card(key:ValueKey<String>(row['key'] as String),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()&&!busy&&!writing?guard((){if(rows.any((v)=>identical(v,row)))openCatalog(station);}):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
     final nameRaw=location['name'];
@@ -476,7 +476,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     final address=[location['address'],location['city'],location['country']]
       .whereType<String>().where((value)=>value.trim().isNotEmpty).join(' · ');
     final locationCanMap=PartnerMapPoint.fromPublishedLocation(location)!=null;
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
+    return Card(key:ValueKey<String>(row['key'] as String),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(safeName),if(widget.customer&&trustedPartner(row))favoriteButton(row),Text(provider),Text(address.isNotEmpty?address:tr('Address details unavailable','تفاصيل العنوان غير متاحة')),if(!locationCanMap)Text(tr('Map coordinates unavailable; this record can only be inspected in the list.','إحداثيات الخريطة غير متاحة؛ يمكن عرض هذا السجل في القائمة فقط.')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(partnerCatalogPolicyText(row['catalog_age_policy'],Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),
