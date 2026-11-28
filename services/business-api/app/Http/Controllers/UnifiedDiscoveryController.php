@@ -36,7 +36,7 @@ final class UnifiedDiscoveryController extends Controller
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
-        $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
+        $partner = OcpiRecord::query()->where('module', 'locations')->explicitlyPublished()
             ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'));
         // Explicit market filter uses the charging location's country,
         // never the OCPI partner party's country code.
@@ -147,7 +147,7 @@ final class UnifiedDiscoveryController extends Controller
         $page = DB::query()->fromSub($union, 'discovery')->orderByDesc('id')->orderBy('kind')->paginate(25)->appends($v);
         $rows = $page->getCollection();
         $stations = app(StationCatalog::class)->present(Station::whereIn('id', $rows->where('kind', 'catalog')->pluck('id'))->get(), $customer)->keyBy('id');
-        $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->where('normalized->publish', true)
+        $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->explicitlyPublished()
             ->whereIn('ocpi_provider_id', OcpiProvider::publiclyDiscoverable()->select('id'))
             ->get(['id', 'ocpi_provider_id', 'normalized', 'source_updated_at', 'received_at'])->keyBy('id');
         $labels = OcpiProvider::publiclyDiscoverable()->whereIn('id', $partners->pluck('ocpi_provider_id'))->pluck('name', 'id');

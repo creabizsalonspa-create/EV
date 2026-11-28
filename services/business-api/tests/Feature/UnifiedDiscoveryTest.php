@@ -33,6 +33,38 @@ class UnifiedDiscoveryTest extends TestCase
         return compact('station', 'provider', 'record');
     }
 
+    public function test_only_explicit_boolean_publication_is_visible_before_pagination(): void
+    {
+        $fixture = $this->fixtures();
+        $original = $fixture['record'];
+        $this->putJson('/api/roaming/favorites/'.$original->id)->assertOk();
+        $values = [1, 1.0, '1', 'true', false, null, ['value' => true], [true]];
+        for ($i = 0; $i < 27; $i++) {
+            $copy = $original->replicate();
+            $copy->external_id = 'malformed-publication-'.$i;
+            $copy->normalized = array_replace($original->normalized, ['publish' => $values[$i % count($values)]]);
+            $copy->save();
+            $this->putJson('/api/roaming/favorites/'.$copy->id)->assertNotFound();
+        }
+        $missing = $original->replicate();
+        $missing->external_id = 'missing-publication';
+        $normalized = $original->normalized;
+        unset($normalized['publish']);
+        $missing->normalized = $normalized;
+        $missing->save();
+        foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonPath('total', 1)->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.location.publish', true);
+        }
+        $original->update(['normalized' => array_replace($original->normalized, ['publish' => 1])]);
+        foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations'] as $path) {
+            $this->getJson($path)->assertOk()->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+        }
+        $this->getJson('/api/roaming/favorites')->assertOk()->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null)->assertJsonPath('data.0.provider_label', null);
+        Http::assertNothingSent();
+    }
+
     public function test_catalog_age_is_consistent_without_fabricating_freshness_or_authority(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
@@ -554,6 +586,13 @@ class UnifiedDiscoveryTest extends TestCase
             'normalized' => ['name' => 'Malformed location', 'publish' => true, 'latitude' => 'not-a-number', 'longitude' => '0'],
             'source_updated_at' => now(), 'received_at' => now(),
         ]);
+        $boolean = OcpiRecord::create([
+            'ocpi_provider_id' => $f['provider']->id, 'module' => 'locations',
+            'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'boolean-coordinates',
+            'payload' => ['secret' => 'never project'], 'content_hash' => str_repeat('d', 64),
+            'normalized' => ['name' => 'Boolean location', 'publish' => true, 'latitude' => '10', 'longitude' => false],
+            'source_updated_at' => now(), 'received_at' => now(),
+        ]);
         foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
             $url = $route.'?south=9&north=11&west=179&east=-179';
             $response = $this->getJson($url)->assertOk()->assertJsonPath('total', 2);
@@ -565,8 +604,9 @@ class UnifiedDiscoveryTest extends TestCase
             $this->assertNotContains('partner:'.$malformed->id, array_column($response->json('data'), 'key'));
             $this->getJson($route.'?south=9&north=11&west=-180&east=180')
                 ->assertJsonPath('total', 3);
-            $this->getJson($route.'?south=9&north=11&west=-1&east=1')
-                ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+            $greenwich = $this->getJson($route.'?south=9&north=11&west=-1&east=1')
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+            $this->assertNotContains('partner:'.$boolean->id, array_column($greenwich->json('data'), 'key'));
         }
         Http::assertNothingSent();
     }
