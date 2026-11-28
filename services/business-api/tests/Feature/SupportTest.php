@@ -95,6 +95,39 @@ class SupportTest extends TestCase
         $this->assertDatabaseCount('support_tickets', 3);
     }
 
+    public function test_requester_view_is_admin_only_ticket_scoped_audited_and_keeps_the_admin_identity(): void
+    {
+        $owner = User::factory()->create();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create();
+        $this->actingAs($owner)->postJson('/api/support', [
+            'subject' => 'Requester view fixture', 'body' => 'Requester-visible question',
+        ])->assertCreated();
+        $ticket = SupportTicket::where('user_id', $owner->id)->firstOrFail();
+        $url = '/api/support/'.$ticket->id;
+        $this->getJson($url.'?view=requester')->assertForbidden();
+        $this->actingAs($other)->getJson($url.'?view=requester')->assertNotFound();
+
+        $this->actingAs($admin)->postJson($url.'/messages', [
+            'body' => 'Private staff note', 'internal' => true,
+        ])->assertCreated();
+        $this->getJson($url.'?view=requester')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('view', 'requester')->assertJsonPath('messages.total', 1)
+            ->assertJsonPath('messages.first_page_url', fn (string $url) => str_contains($url, 'view=requester'))
+            ->assertSee('Requester-visible question')->assertDontSee('Private staff note');
+        $this->getJson('/api/me')->assertOk()->assertJsonPath('id', $admin->id)->assertJsonPath('role', 'admin');
+        $this->getJson($url)->assertOk()->assertSee('Private staff note')->assertJsonMissingPath('view');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id, 'action' => 'support.requester_view_previewed', 'subject' => (string) $ticket->id,
+        ]);
+        $this->assertDatabaseCount('ticket_messages', 2);
+
+        config(['admin_security.enforce_in_local_tests' => true]);
+        $this->getJson($url.'?view=requester')->assertForbidden()->assertJsonPath('admin_second_factor_required', true);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'support.requester_view_previewed')->count());
+    }
+
     public function test_ticket_and_internal_notes_are_private_and_notifications_are_scoped(): void
     {
         $u = User::factory()->create();

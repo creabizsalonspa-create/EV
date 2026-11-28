@@ -131,14 +131,24 @@ class SupportController extends Controller
                 ->lockForUpdate()->firstOrFail();
             abort_unless($role === 'admin'
                 || $currentTicket->user_id === $r->user()->id, 404);
-            $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+            $values = $r->validate([
+                'page' => 'sometimes|integer|min:1|max:100000',
+                'view' => 'sometimes|required|in:requester',
+            ]);
+            $requesterView = ($values['view'] ?? null) === 'requester';
+            if ($requesterView) {
+                abort_unless($role === 'admin', 403);
+                // Preview the ticket's requester-visible conversation while
+                // preserving the actual operator identity for access and audit.
+                $this->audit($r, 'support.requester_view_previewed', $currentTicket->id);
+            }
 
             return response()->json([
                 'ticket' => $currentTicket,
                 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)
-                    ->when($role !== 'admin', fn ($q) => $q->where('internal', false))
-                    ->orderBy('id')->paginate(50),
-            ])->header('Cache-Control', 'no-store, private');
+                    ->when($role !== 'admin' || $requesterView, fn ($q) => $q->where('internal', false))
+                    ->orderBy('id')->paginate(50)->appends($requesterView ? ['view' => 'requester'] : []),
+            ] + ($requesterView ? ['view' => 'requester'] : []))->header('Cache-Control', 'no-store, private');
         });
     }
 
