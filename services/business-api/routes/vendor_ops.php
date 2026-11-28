@@ -27,6 +27,8 @@ Route::get('/companies', [V::class, 'companies']);
 Route::post('/companies', [V::class, 'createCompany']);
 Route::get('/companies/{company}', [V::class, 'company']);
 Route::get('/companies/{company}/charging-sessions/{session}/meter-history', [VendorStaffChargingReadController::class, 'meters'])->where('company', '[0-9]{1,18}')->where('session', '[0-9]{1,18}');
+Route::post('/companies/{company}/charging-sessions/{session}/stop', [VendorStaffChargingReadController::class, 'stop'])
+    ->where('company', '[0-9]{1,18}')->where('session', '[0-9]{1,18}')->middleware('throttle:charger-commands');
 Route::get('/companies/{company}/charging-sessions', [VendorStaffChargingReadController::class, 'index'])->where('company', '[0-9]{1,18}');
 Route::get('/companies/{company}/agreement', [VendorAgreementController::class, 'show']);
 Route::post('/companies/{company}/agreement/publish', [VendorAgreementController::class, 'publish'])->middleware('throttle:authentication');

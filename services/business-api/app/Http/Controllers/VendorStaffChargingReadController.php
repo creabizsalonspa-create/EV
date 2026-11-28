@@ -6,6 +6,8 @@ use App\Models\ChargingSession;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Security\AdminTransactionAuthority;
+use App\Services\Charging\SessionBridge;
+use App\Services\Charging\VendorStaffStopAuthority;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -20,6 +22,7 @@ final class VendorStaffChargingReadController extends Controller
     {
         return DB::transaction(function () use ($request, $company) {
             $current = $this->authorizedCompany($request, $company);
+            $staffStop = app(VendorStaffStopAuthority::class)->grant($request->user(), $current);
             $v = $request->validate(['page' => 'sometimes|integer|between:1,100000', 'status' => ['sometimes', 'required', Rule::in([...self::STATUSES, 'unknown'])]]);
             $status = $v['status'] ?? null;
             // The site/station relation is unique. Recheck current station
@@ -30,15 +33,22 @@ final class VendorStaffChargingReadController extends Controller
                 ->join('stations as station', 'station.id', '=', 'booking.station_id')
                 ->join('vendor_sites as site', 'site.station_id', '=', 'station.id')
                 ->leftJoin('csms_session_links as source', 'source.charging_session_id', '=', 'charging_sessions.id')
+                ->leftJoin('csms_bindings as stop_binding', 'stop_binding.id', '=', 'source.binding_id')
                 ->where('site.company_id', $current->id)->where('station.vendor_id', $current->owner_id)
                 ->select(['charging_sessions.id', 'charging_sessions.status', 'charging_sessions.energy_wh', 'charging_sessions.created_at', 'charging_sessions.updated_at', 'charging_sessions.stopped_at',
-                    'station.id as station_id', 'station.name as station_name', 'station.source as station_source', 'source.protocol as source_protocol']);
+                    'station.id as station_id', 'station.name as station_name', 'station.source as station_source', 'source.protocol as source_protocol'])
+                ->selectRaw('CASE WHEN source.started_at IS NOT NULL AND source.transaction_id IS NOT NULL
+                    AND source.connector_mapping_id = booking.connector_mapping_id AND source.stop_command_id IS NULL
+                    AND source.ended_at IS NULL AND source.closed_without_dispatch_at IS NULL
+                    AND stop_binding.station_id = station.id AND stop_binding.identifier = source.identifier
+                    AND stop_binding.protocol = source.protocol AND stop_binding.vendor_charger_id IS NOT NULL
+                    AND site.country = station.country AND station.country = ? THEN 1 ELSE 0 END AS staff_stop_ready', [$current->country]);
             if ($status === 'unknown') {
                 $query->whereNotIn('charging_sessions.status', self::STATUSES);
             } elseif ($status !== null) {
                 $query->where('charging_sessions.status', $status);
             }
-            $page = $query->orderByDesc('charging_sessions.id')->paginate(25)->through(function ($row): array {
+            $page = $query->orderByDesc('charging_sessions.id')->paginate(25)->through(function ($row) use ($staffStop): array {
                 $energy = $row->energy_wh;
                 $readable = is_int($energy) && $energy >= 0 && $energy <= 9007199254740991;
                 $protocol = in_array($row->source_protocol, ['1.6', '2.0.1'], true) ? $row->source_protocol : null;
@@ -52,6 +62,8 @@ final class VendorStaffChargingReadController extends Controller
                     'protocol' => $protocol,
                     'evidence' => $row->station_source === 'simulator' ? ($protocol === null ? 'SIMULATED' : 'SIMULATED_CSMS') : 'RECORDED_SOURCE_UNVERIFIED',
                     'physical_charging_verified' => false, 'live_availability_verified' => false,
+                    'can_request_stop' => $staffStop !== null && $row->status === 'charging'
+                        && $row->station_source === 'simulator' && $protocol !== null && (bool) $row->staff_stop_ready,
                 ];
             });
 
@@ -64,8 +76,34 @@ final class VendorStaffChargingReadController extends Controller
                 'status_filter' => $status, 'as_of' => now()->toISOString(), 'inventory_station_scope' => 'current_owned_unique_site_links',
                 'customer_identity_fields_included' => false, 'financial_fields_included' => false,
                 'control_actions_exposed' => false, 'physical_charging_verified' => false, 'live_availability_verified' => false,
-            ])->header('Cache-Control', 'no-store, private');
+            ] + ($staffStop ? ['staff_stop_grant' => ['id' => $staffStop->id, 'version' => $staffStop->invitation_version]] : []))
+                ->header('Cache-Control', 'no-store, private');
         });
+    }
+
+    public function stop(Request $request, VendorCompany $company, int $session, SessionBridge $bridge)
+    {
+        $bridge->enabled();
+        $v = $request->validate(['grant_id' => 'required|integer|min:1', 'grant_version' => 'required|integer|min:1', 'consent' => 'required|accepted']);
+        $actor = $request->user();
+        $summary = $bridge->stop(ChargingSession::findOrFail($session), $actor->id, $actor->role, $actor, [
+            'company_id' => $company->id,
+            'grant_id' => (int) $v['grant_id'],
+            'grant_version' => (int) $v['grant_version'],
+        ]);
+        $command = $summary['stop_command'];
+        abort_unless($command, 409, 'The simulator session can no longer be stopped.');
+
+        return response()->json([
+            'scope' => 'company_simulator_session_stop',
+            'company_id' => $company->id,
+            'session_id' => $session,
+            'command_id' => $command->id,
+            'command_status' => $command->status,
+            'session_status' => $summary['session']->status,
+            'evidence' => 'SIMULATED_CSMS',
+            'physical_charging_verified' => false,
+        ], 202)->header('Cache-Control', 'no-store, private');
     }
 
     /** Both callers hold this authority through the private projection. */

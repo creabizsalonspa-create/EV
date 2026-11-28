@@ -35,9 +35,9 @@ class SessionBridge
         DB::table('audit_events')->insert(['actor_id' => $actor, 'action' => $action, 'subject' => (string) $id, 'created_at' => now()]);
     }
 
-    private function command(int $actor, int $station, string $action, array $payload, string $key, ?int $epoch = null): ChargerCommand
+    private function command(int $actor, int $station, string $action, array $payload, string $key, ?int $epoch = null, ?array $staffStop = null): ChargerCommand
     {
-        return ChargerCommand::create(['consent_auth_epoch' => $action === 'start' ? $epoch : null, 'actor_id' => $actor, 'station_id' => $station, 'action' => $action, 'payload' => $payload, 'idempotency_key' => $key, 'payload_hash' => hash('sha256', json_encode([$station, $action, $payload], JSON_THROW_ON_ERROR))]);
+        return ChargerCommand::create(['consent_auth_epoch' => $action === 'start' || $staffStop !== null ? $epoch : null, 'staff_stop_authority' => $staffStop, 'actor_id' => $actor, 'station_id' => $station, 'action' => $action, 'payload' => $payload, 'idempotency_key' => $key, 'payload_hash' => hash('sha256', json_encode([$station, $action, $payload], JSON_THROW_ON_ERROR))]);
     }
 
     public function start(Reservation $reservation, int $actor, ?RiderAccessToken $rider = null, ?int $grantId = null, ?User $consentingActor = null): array
@@ -142,11 +142,11 @@ class SessionBridge
         $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => $reason]);
     }
 
-    public function stop(ChargingSession $session, int $actor, string $role, ?User $consentingActor = null): array
+    public function stop(ChargingSession $session, int $actor, string $role, ?User $consentingActor = null, ?array $staffStop = null): array
     {
         $this->enabled();
 
-        return DB::transaction(function () use ($session, $actor, $role, $consentingActor) {
+        return DB::transaction(function () use ($session, $actor, $role, $consentingActor, $staffStop) {
             // Current credentials and station ownership are the actual stop
             // authority, not the route-bound request's stale user snapshot.
             $current = $consentingActor
@@ -158,21 +158,44 @@ class SessionBridge
             $reservation = Reservation::findOrFail($sourceSession->reservation_id);
             $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
-            abort_unless(($role === 'customer' && $actor === $r->user_id)
-                || ($role === 'vendor' && $actor === $station->vendor_id)
-                || $role === 'admin', 404);
+            if ($staffStop !== null) {
+                abort_unless($consentingActor, 404);
+                $authority = app(VendorStaffStopAuthority::class);
+                $staffStop = $authority->snapshot($consentingActor, $staffStop);
+                abort_unless($authority->permits($current, $station, $staffStop, $current->auth_epoch), 404);
+            } else {
+                abort_unless(($role === 'customer' && $actor === $r->user_id)
+                    || ($role === 'vendor' && $actor === $station->vendor_id)
+                    || $role === 'admin', 404);
+            }
             $link = SessionLink::where('charging_session_id', $session->id)->lockForUpdate()->firstOrFail();
             $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
             abort_unless($s->reservation_id === $r->id && $r->station_id === $station->id,
                 409, 'Source session ownership changed during stop.');
+            if ($staffStop !== null) {
+                $binding = app(ConnectorTopology::class)->binding($r, true);
+                abort_unless($r->connector_mapping_id && $link->connector_mapping_id === $r->connector_mapping_id
+                    && $binding && $binding->id === $link->binding_id && $binding->identifier === $link->identifier
+                    && $binding->protocol === $link->protocol && $binding->vendor_charger_id !== null,
+                    409, 'The session is no longer linked to this simulator inventory.');
+                abort_unless($link->stop_command_id || ($s->status === 'charging' && $link->started_at !== null
+                    && $link->ended_at === null && $link->closed_without_dispatch_at === null
+                    && OcppTransactionId::matchesStop($link->protocol, $link->transaction_id, $link->transaction_id)),
+                    409, 'The simulator session can no longer be stopped.');
+            }
             if ($link->stop_command_id || $s->status === 'stopped') {
                 return $this->summary($link);
             }
             abort_unless($s->status === 'charging' && $link->transaction_id !== null, 409, 'Wait for the authoritative simulator transaction before stopping.');
-            $c = $this->command($actor, $station->id, 'stop', ['session_id' => $s->id, 'transaction_id' => $link->transaction_id], 'csms-session:'.$s->id.':stop');
+            // The locked session link makes concurrent and repeated stops
+            // one-shot. A cancelled, provably unsent delegated command releases
+            // only its own link and cannot collide with a later explicit stop.
+            $key = 'csms-session:'.$s->id.':stop'.($staffStop === null ? '' : ':'.Str::uuid());
+            $c = $this->command($actor, $station->id, 'stop', ['session_id' => $s->id, 'transaction_id' => $link->transaction_id], $key,
+                $current->auth_epoch, $staffStop);
             $link->update(['stop_command_id' => $c->id]);
             $s->update(['status' => 'stopping']);
-            $this->audit($actor, 'csms.stop_requested', $s->id);
+            $this->audit($actor, $staffStop === null ? 'csms.stop_requested' : 'csms.staff_stop_requested', $s->id);
 
             return $this->summary($link);
         }, 3);

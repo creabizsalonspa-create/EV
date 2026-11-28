@@ -19,6 +19,7 @@ use App\Services\Charging\OcppTransactionId;
 use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\OperationsCredentials;
 use App\Services\Charging\StationGate;
+use App\Services\Charging\VendorStaffStopAuthority;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -146,6 +147,31 @@ class CsmsDispatcher
         return $blocked;
     }
 
+    private function delegatedStopAllowed(User $actor, Station $station, ChargerCommand $command): bool
+    {
+        return $command->getRawOriginal('staff_stop_authority') === null
+            || ($command->action === 'stop' && app(VendorStaffStopAuthority::class)
+                ->permits($actor, $station, $command->staff_stop_authority, $command->consent_auth_epoch));
+    }
+
+    /** Caller holds the station and command locks and has never entered the device transport. */
+    private function cancelUnsentDelegatedStop(ChargerCommand $command): void
+    {
+        $command->update(['status' => 'cancelled', 'failure_code' => 'pre_dispatch_staff_stop_revoked']);
+        DB::table('audit_events')->insert(['actor_id' => $command->actor_id, 'action' => 'csms.staff_stop_cancelled_before_dispatch',
+            'subject' => (string) $command->id, 'created_at' => now()]);
+        $sessionId = $command->payload['session_id'] ?? null;
+        if ($command->action !== 'stop' || ! is_int($sessionId)) {
+            return;
+        }
+        $link = SessionLink::where('charging_session_id', $sessionId)->where('stop_command_id', $command->id)
+            ->lockForUpdate()->first();
+        if ($link && $link->ended_at === null) {
+            $link->update(['stop_command_id' => null]);
+            ChargingSession::whereKey($sessionId)->where('status', 'stopping')->update(['status' => 'charging']);
+        }
+    }
+
     public function dispatch(int $id): ChargerCommand
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
@@ -181,6 +207,11 @@ class CsmsDispatcher
                 if (! $this->sourceLineage($c)) {
                     $c->failure_code = 'pre_dispatch_source_lineage_changed';
                     $c->save();
+
+                    return null;
+                }
+                if (! $this->delegatedStopAllowed($actor, $station, $c)) {
+                    $this->cancelUnsentDelegatedStop($c);
 
                     return null;
                 }
@@ -298,6 +329,7 @@ class CsmsDispatcher
                     || $current->actor_id !== $command->actor_id || $current->station_id !== $command->station_id
                     || $current->action !== $command->action || $current->payload !== $command->payload
                     || $current->consent_auth_epoch !== $command->consent_auth_epoch
+                    || $current->staff_stop_authority !== $command->staff_stop_authority
                     || ! $this->sourceLineage($current)) {
                     return false;
                 }
@@ -321,6 +353,12 @@ class CsmsDispatcher
                             return false;
                         }
                     }
+                }
+
+                if (! $this->delegatedStopAllowed($actor, $station, $current)) {
+                    $this->cancelUnsentDelegatedStop($current);
+
+                    return false;
                 }
 
                 return $current->action !== 'start' || $this->startBlocked($actor, $station, $current) === null;

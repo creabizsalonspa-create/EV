@@ -5,12 +5,13 @@ namespace App\Services\VendorOps;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
+use App\Services\Charging\VendorStaffStopAuthority;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 class VendorAccess
 {
-    public const PERMISSIONS = ['company.read', 'inventory.read', 'inventory.write', 'charging.read'];
+    public const PERMISSIONS = ['company.read', 'inventory.read', 'inventory.write', 'charging.read', VendorStaffStopAuthority::PERMISSION];
 
     /** UI hints only; mutation handlers still enforce current permissions. */
     public function capabilities(User $actor, VendorCompany $company): array
