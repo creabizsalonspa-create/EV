@@ -10,7 +10,7 @@ class EmailNoticeHistoryTest extends TestCase
     public function test_projection_preserves_known_states_and_redacts_corrupt_evidence(): void
     {
         $row = ['id' => '12345678-1234-4234-8234-123456789abc', 'state' => 'queued',
-            'evidence' => 'SIMULATED_EMAIL_HANDOFF', 'failure_code' => null,
+            'failure_code' => null, 'evidence' => 'SIMULATED_EMAIL_HANDOFF',
             'created_at' => '2026-11-28 04:00:00', 'claimed_at' => null, 'completed_at' => null];
         foreach ([
             [],
