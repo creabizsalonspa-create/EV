@@ -23,14 +23,20 @@ class ReconcilePayments extends Command
         $count = $recovery->scan($limit);
         $failed = 0;
         if ($this->option('provider')) {
-            DB::table('payment_recovery_intents')->where('status', 'needs_review')->orderBy('id')->limit($limit)->pluck('id')->each(function ($id) use ($recovery, &$failed) {
+            $ids = DB::table('payment_recovery_intents')->where('status', 'needs_review')
+                ->orderByRaw('CASE WHEN last_provider_scan_at IS NULL THEN 0 ELSE 1 END')
+                ->orderBy('last_provider_scan_at')->orderBy('id')->limit($limit)->pluck('id');
+            foreach ($ids as $id) {
                 try {
                     $recovery->reconcileProvider($id);
                 } catch (\Throwable $error) {
                     $failed++;
                     $this->warn('Intent '.$id.' remains unresolved.');
+                } finally {
+                    DB::table('payment_recovery_intents')->where('id', $id)
+                        ->update(['last_provider_scan_at' => now('UTC')->format('Y-m-d H:i:s.u')]);
                 }
-            });
+            }
         }
         $this->info('Checked '.$count.' recovery intents. No provider payment mutation was sent.');
 
