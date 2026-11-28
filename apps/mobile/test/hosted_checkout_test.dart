@@ -195,6 +195,27 @@ void main() {
       }
     },
   );
+  test('checkout expiry accepts authoritative UTC/offset and rejects malformed clocks', () {
+    final utc = DateTime.utc(2026, 11, 28, 8, 0, 0, 123, 456);
+    for (final value in [
+      '2026-11-28T08:00:00.123456Z',
+      '2026-11-28 08:00:00.123456',
+      '2026-11-28T12:00:00.123456+04:00',
+    ]) {
+      expect(HostedCheckoutRecord({...hostedFixture(), 'expires_at': value}).expiry, utc);
+    }
+    for (final value in [
+      '2026-02-30T08:00:00Z',
+      '2026-11-28T08:00:00',
+      '2026-11-28T08:00:00+14:30',
+      '2026-11-28T08:00:00Z\n',
+      '0000-11-28T08:00:00Z',
+      42,
+    ]) {
+      expect(() => HostedCheckoutRecord({...hostedFixture(), 'expires_at': value}), throwsFormatException);
+    }
+    expect(HostedCheckoutRecord({...hostedFixture(), 'expires_at': null}).expiry, isNull);
+  });
   test('checkout immutable identity includes canonical payment and subscription', () {
     final row = hostedFixture()
       ..['scope'] = 'subscription'
