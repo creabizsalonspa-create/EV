@@ -504,6 +504,67 @@ class OcpiCpoCatalogTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[TestWith(['endpoint'])]
+    #[TestWith(['credential'])]
+    public function test_cpo_delivery_requires_unchanged_receiver_and_exact_credential_bytes_during_transport(string $change): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [$provider, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        $originalEndpoints = $provider->endpoints;
+        $credential = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $originalToken = (clone $credential)->value('remote_token_ciphertext');
+        $alter = function () use ($provider, $change, $originalEndpoints, $credential) {
+            if ($change === 'endpoint') {
+                $provider->fresh()->update(['endpoints' => array_replace($originalEndpoints, ['tariffs_receiver' => 'https://emsp.example/replacement-tariffs'])]);
+            } else {
+                (clone $credential)->update(['remote_token_ciphertext' => Crypt::encryptString('replacement-peer-token')]);
+            }
+        };
+        $restore = function () use ($provider, $originalEndpoints, $credential, $originalToken) {
+            $provider->fresh()->update(['endpoints' => $originalEndpoints]);
+            (clone $credential)->update(['remote_token_ciphertext' => $originalToken]);
+        };
+        $sent = null;
+        $mutate = true;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($alter, &$mutate, &$sent, $tariff) {
+            $this->assertSame('https://emsp.example/tariffs/AE/EVX/T'.$tariff, $request->url());
+            if ($request->method() === 'PUT') {
+                $this->assertNull($sent);
+                $sent = $request->data();
+            } else {
+                $this->assertSame('GET', $request->method());
+                $this->assertNotNull($sent);
+            }
+            if ($mutate) {
+                $alter();
+            }
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0], 'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'GET' ? $sent : null], 200, $trace);
+        });
+
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])
+            ->assertOk()->assertJsonPath('delivery', 'unknown');
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        $restore();
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        $restore();
+        $mutate = false;
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])
+            ->assertOk()->assertJsonPath('delivery', 'reconciled');
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertSentCount(3);
+    }
+
     public function test_cpo_reconciliation_can_read_the_full_size_of_a_published_location(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
