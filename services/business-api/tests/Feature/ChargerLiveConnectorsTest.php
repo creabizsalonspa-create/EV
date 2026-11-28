@@ -731,6 +731,7 @@ class ChargerLiveConnectorsTest extends TestCase
                     'id' => 21, 'timestamp' => now()->subSeconds(5)->toISOString(),
                 ]));
             }
+
             return Http::response(['data' => [
                 'Connectors' => [['id' => $case === 'replacement_source_connector' ? 9 : 7], ['id' => 8]],
                 'StatusNotifications' => $events,
