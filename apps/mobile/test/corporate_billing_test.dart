@@ -9,6 +9,8 @@ import 'vendor_finance_test.dart' show VendorOperationStore;
 class CorporateApi extends FixtureApi {
   bool manager = true, lost = false, deny = false;
   int posts = 0;
+  String dueAt = '2026-11-30T01:00:00+04:00';
+  String receiptAt = '2026-12-01 09:15:00';
   final bodies = <Map<String, dynamic>>[];
   Map<String, dynamic> get agreement => {
     'id': 6,
@@ -54,6 +56,28 @@ class CorporateApi extends FixtureApi {
         };
       return {
         'statement': {'id': 11, 'agreement_id': 6},
+      };
+    }
+    if (path == 'commercial/corporate/statements/11') {
+      return {
+        'statement': {
+          'id': 11,
+          'number': 'TEST-CORP-11',
+          'total_minor': 1250,
+          'currency': 'KWD',
+          'minor_units': 3,
+          'due_at': dueAt,
+        },
+        'receipt': {
+          'statement_id': 11,
+          'amount_minor': 1250,
+          'number': 'TEST-CORP-RECEIPT-11',
+          'evidence': 'TEST_SIMULATION',
+          'created_at': receiptAt,
+        },
+        'lines': [],
+        'state': 'paid',
+        'real_payment_processed': false,
       };
     }
     if (path == 'commercial/corporate')
@@ -122,6 +146,42 @@ Future<void> corporateConfirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets('company statement and receipt display the source instants in UTC', (
+    t,
+  ) async {
+    final api = CorporateApi();
+    await t.pumpWidget(
+      corporateApp(CorporateStatementView(api: api, onExpired: () {}, id: 11)),
+    );
+    await t.pumpAndSettle();
+    expect(find.textContaining('11/29/2026'), findsOneWidget);
+    expect(find.textContaining('12/1/2026'), findsOneWidget);
+    expect(find.textContaining('UTC'), findsNWidgets(2));
+    expect(find.textContaining(api.dueAt), findsNothing);
+    expect(find.textContaining(api.receiptAt), findsNothing);
+    expect(api.posts, 0);
+  });
+
+  testWidgets('Arabic statement preserves the receipt and hides invalid clocks', (
+    t,
+  ) async {
+    final api = CorporateApi()
+      ..dueAt = '2026-11-31T00:00:00Z'
+      ..receiptAt = '2026-12-01T09:15:00';
+    await t.pumpWidget(
+      corporateApp(
+        CorporateStatementView(api: api, onExpired: () {}, id: 11),
+        ar: true,
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(find.textContaining('وقت الحدث غير متاح'), findsNWidgets(2));
+    expect(find.textContaining(api.dueAt), findsNothing);
+    expect(find.textContaining(api.receiptAt), findsNothing);
+    expect(find.text('TEST-CORP-11'), findsOneWidget);
+    expect(api.posts, 0);
+  });
+
   testWidgets(
     'company membership hides owner acceptance and company-wide statements from drivers',
     (t) async {

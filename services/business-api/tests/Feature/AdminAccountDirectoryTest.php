@@ -204,7 +204,8 @@ class AdminAccountDirectoryTest extends TestCase
             $this->getJson($history.'?page='.$page)->assertUnprocessable();
         }
         $this->assertSame($before, DB::table('audit_events')->count());
-        $this->getJson($history.'?page=1')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($history.'?page=1')->assertOk()->assertJsonPath('total', 0)
+            ->assertJsonPath('target_user_id', $target->id);
     }
 
     public function test_business_name_search_is_case_insensitive_and_escapes_like_wildcards(): void

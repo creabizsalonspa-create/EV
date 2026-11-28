@@ -247,7 +247,7 @@ class AdminAccountDirectoryController extends Controller
                 'created_at' => now(),
             ]);
 
-            return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history->toArray() + ['target_user_id' => $target->id])->header('Cache-Control', 'no-store, private');
         });
     }
 }

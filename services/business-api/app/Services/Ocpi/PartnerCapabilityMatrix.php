@@ -74,9 +74,16 @@ final class PartnerCapabilityMatrix
         foreach (self::MODULES as $module) {
             $modules[] = [
                 'module' => $module,
-                'partner_sender_negotiated' => $outbound && $this->approvedEndpoint($provider, $module),
+                'partner_sender_negotiated' => $outbound && PartnerReadProfile::allows($connection, $module)
+                    && $this->approvedEndpoint($provider, $module),
                 'local_receiver_configured' => in_array($module, $configuredReceivers, true),
                 'local_receiver_active' => in_array($module, $activeReceivers, true),
+                // Active credential reception can precede version negotiation.
+                // Keep that backward-compatible flag distinct from request readiness.
+                'local_receiver_request_ready' => $configured && $provider->authorized
+                    && $provider->version === '2.2.1' && in_array($module, $activeReceivers, true)
+                    && in_array($module, $configuredReceivers, true)
+                    && $this->approvedEndpoint($provider, $module),
                 'local_sender_configured' => in_array($module, $cpoModules, true),
                 'local_sender_active' => $senderCurrent && in_array($module, $cpoModules, true),
                 'sandbox_delivery_software_enabled' => $sandbox && $senderCurrent
@@ -86,12 +93,28 @@ final class PartnerCapabilityMatrix
             ];
         }
 
+        // Read the existing sandbox policies; never dispatch a command or
+        // infer target, customer consent, physical availability or billing.
+        $commandPolicyReady = false;
+        $reservationPolicyReady = false;
+        if ($sandbox && $configured && $senderCurrent) {
+            try {
+                app(SandboxRoaming::class)->newWorkPolicy($provider);
+                $commandPolicyReady = true;
+                $reservationPolicyReady = app(ReservationRoaming::class)->supported($provider);
+            } catch (Throwable) {
+                // Missing, stale or invalid policy evidence stays unavailable.
+            }
+        }
+
         return [
             'evidence' => 'NEGOTIATED_AND_CONFIGURED_SOFTWARE_ONLY',
             'peer_role' => $configured && in_array($connection['party_role'] ?? null, ['CPO', 'EMSP'], true)
                 ? $connection['party_role'] : null,
             'credentials_current' => $credentialsCurrent,
             'modules' => $modules,
+            'sandbox_command_policy_ready' => $commandPolicyReady,
+            'sandbox_reservation_policy_ready' => $reservationPolicyReady,
             'live_roaming_verified' => false,
             'physical_availability_verified' => false,
             'partner_conformance_verified' => false,

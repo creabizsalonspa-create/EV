@@ -71,6 +71,12 @@ window.EvAdminAccounts = (() => {
         try {
             const response = await request("admin/accounts?" + params.toString(), "GET", undefined, controller.signal);
             if (!active(expected, controller.signal) || currentRequest !== controller) return;
+            if (response?.current_page !== page || !Number.isSafeInteger(response.last_page) || response.last_page < page ||
+                !Number.isSafeInteger(response.total) || response.total < 0 || !Array.isArray(response.data) || response.data.length > 25 ||
+                new Set(response.data.map(account => account?.id)).size !== response.data.length ||
+                !response.data.every(account => Number.isSafeInteger(account?.id) && account.id > 0 &&
+                    ['customer','vendor','admin'].includes(account.role) && ['active','suspended'].includes(account.account_status) &&
+                    typeof account.email_verified === 'boolean' && Array.isArray(account.companies))) throw Error('Invalid account directory');
             currentPage = response.current_page;
             const table = element("table");
             table.className = "audit-table";
@@ -104,12 +110,13 @@ window.EvAdminAccounts = (() => {
                 const actionCell = element("td");
                 const current = () => active(expected, controller.signal) && currentRequest === controller;
                 let actionRevision = 0;
+                let decisionUnconfirmed = false;
                 if (account.role === "admin") {
                     actionCell.textContent = "Protected Admin account";
                 } else {
                     const nextStatus = currentStatus === "active" ? "suspended" : "active";
                     const action = button(nextStatus === "suspended" ? "Suspend / إيقاف" : "Restore / استعادة", () => {
-                        if (!current()) return;
+                        if (!current() || decisionUnconfirmed) return;
                         const own = ++actionRevision;
                         const form = element("form");
                         const reason = element("textarea");
@@ -128,8 +135,8 @@ window.EvAdminAccounts = (() => {
                         form.onsubmit = async (event) => {
                             event.preventDefault();
                             if (!current() || own !== actionRevision || submit.disabled) return;
-                            if (reason.value.trim().length < 10) {
-                                state.textContent = "Enter a review reason of at least 10 characters.";
+                            if (reason.value.trim().length < 10 || reason.value.trim().length > 2000) {
+                                state.textContent = "Enter a review reason of 10–2000 characters.";
                                 return;
                             }
                             submit.disabled = true;
@@ -147,6 +154,7 @@ window.EvAdminAccounts = (() => {
                                 }
                             } catch {
                                 if (current() && own === actionRevision) {
+                                    decisionUnconfirmed = true;
                                     actionRevision++;
                                     actionCell.replaceChildren(history);
                                     state.textContent = "Moderation outcome unconfirmed. Refresh before another decision.";
@@ -165,10 +173,11 @@ window.EvAdminAccounts = (() => {
                             const response = await request("admin/accounts/" + account.id + "/moderations" +
                                 (historyPage === 1 ? "" : "?page=" + historyPage), "GET", undefined, controller.signal);
                             if (!current() || own !== actionRevision) return;
-                            if (!Array.isArray(response?.data) || response.data.length > 25 ||
+                            if (response?.target_user_id !== account.id || !Array.isArray(response.data) || response.data.length > 25 ||
                                 !Number.isSafeInteger(response.current_page) || response.current_page !== historyPage ||
                                 !Number.isSafeInteger(response.last_page) || response.last_page < historyPage || response.last_page > 100000 ||
-                                !response.data.every(event => event && ["active","suspended"].includes(event.from_status) &&
+                                new Set(response.data.map(event => event?.id)).size !== response.data.length ||
+                                !response.data.every(event => event && Number.isSafeInteger(event.id) && event.id > 0 && ["active","suspended"].includes(event.from_status) &&
                                     ["active","suspended"].includes(event.to_status) && event.from_status !== event.to_status &&
                                     typeof event.created_at === "string" && typeof event.reason === "string" && event.reason.length <= 2000))
                                 throw Error("Unexpected private history");
@@ -188,10 +197,10 @@ window.EvAdminAccounts = (() => {
                             previous.disabled = historyPage <= 1;
                             next.disabled = historyPage >= response.last_page;
                             nav.append(previous, element("span", "Page " + historyPage + " / " + response.last_page), next);
-                            actionCell.replaceChildren(action, history, list, nav);
+                            actionCell.replaceChildren(...(decisionUnconfirmed ? [history, list, nav] : [action, history, list, nav]));
                         } catch {
                             if (current() && own === actionRevision) {
-                                actionCell.replaceChildren(action, history);
+                                actionCell.replaceChildren(...(decisionUnconfirmed ? [history] : [action, history]));
                                 state.textContent = "Private moderation history unavailable.";
                             }
                         }
@@ -214,7 +223,7 @@ window.EvAdminAccounts = (() => {
             const prev = button("Previous / السابق", () => load(currentPage - 1));
             const next = button("Next / التالي", () => load(currentPage + 1));
             prev.disabled = currentPage <= 1;
-            next.disabled = currentPage >= response.last_page;
+            next.disabled = currentPage >= Math.min(response.last_page, 100000);
             nav.append(prev, element("span", "Page " + currentPage + " / " + response.last_page), next);
             output.replaceChildren(scroller, nav);
             state.textContent = response.total + " matching accounts / حساب مطابق. Admin review actions are audited.";
@@ -271,6 +280,12 @@ window.EvAdminAccounts = (() => {
             field("Business name / اسم الشركة", companySearch),
             field("Business country / الدولة", companyCountry),
             field("Business review / حالة الشركة", companyStatus), submit);
+        form.oninput = () => {
+            currentRequest?.abort();
+            currentRequest = null;
+            output.replaceChildren();
+            state.textContent = 'Search to apply the filters.';
+        };
         form.onsubmit = event => {
             event.preventDefault();
             load(1);

@@ -14,6 +14,46 @@ void main() {
       }
     });
   }
+  test('policy status agrees with source and ingestion clocks at exact cutoff', () {
+    final row=<String,dynamic>{
+      'evidence':'PARTNER_REPORTED_UNVERIFIED',
+      'source_timestamp_evidence':'PARTNER_REPORTED_ONLY',
+      'source_clock_evidence':'PARTNER_REPORTED_TIME',
+      'source_updated_at':'2026-11-15T11:59:00.000001Z',
+      'catalog_checked_at':'2026-11-15T12:00:00.000000Z',
+      'reported_source_age_minutes':0,
+      'received_at':'2026-11-15T11:59:30Z',
+      'received_timestamp_evidence':'LOCAL_INGESTION_TIME',
+      'received_age_minutes':0,
+      'catalog_age_policy':base,
+    };
+    expect(verifiedPartnerCatalogPolicy(row)?['state'],'within_policy');
+    final sourceStale={...row,'source_updated_at':'2026-11-15T11:59:00Z',
+      'reported_source_age_minutes':1};
+    final receiptStale={...row,'received_at':'2026-11-15T11:59:00Z',
+      'received_age_minutes':1};
+    for(final stale in [sourceStale,receiptStale]){
+      expect(verifiedPartnerCatalogPolicy(stale),isNull);
+      expect(verifiedPartnerCatalogPolicy({...stale,'catalog_age_policy':{...base,'state':'stale'}})?['state'],'stale');
+    }
+    for(final change in <Map<String,dynamic>>[
+      {'received_at':'2026-11-15T12:00:00.000001Z'},
+      {'received_age_minutes':1},
+      {'received_timestamp_evidence':'PARTNER_REPORTED_ONLY'},
+      {'source_updated_at':'2026-02-30T11:59:00Z'},
+      {'catalog_age_policy':{...base,'checked_at':'2026-11-15T12:00:01Z'}},
+    ]){
+      expect(verifiedPartnerCatalogPolicy({...row,...change}),isNull,reason:'$change');
+    }
+    final unknown={...row,'source_updated_at':null,'reported_source_age_minutes':null,
+      'source_clock_evidence':'SOURCE_TIMESTAMP_UNKNOWN',
+      'catalog_age_policy':{...base,'state':'unknown'}};
+    expect(verifiedPartnerCatalogPolicy(unknown)?['state'],'unknown');
+    for(final ar in [false,true]){
+      expect(partnerCatalogPolicyText({...base,'checked_at':'2026-02-30T12:00:00Z'},ar),
+        contains(ar?'غير متاحة':'policy unavailable'));
+    }
+  });
   test('Unavailable saved-partner models discard catalog policy metadata', () {
     final row=RoamingLocation.fromJson({'id':1,'location_available':false,'is_favorite':true,'location':null,'received_at':null,'catalog_age_policy':base,'evidence':'PARTNER_REPORTED_UNVERIFIED','availability':'unknown','remote_control':false,'reservable':false});
     expect(row.catalogAgePolicy,isNull);
