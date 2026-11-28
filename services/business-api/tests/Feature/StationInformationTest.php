@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\StationAvailabilityBlockController;
 use App\Http\Controllers\StationInformationController;
 use App\Models\Station;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\TestWith;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -177,6 +180,78 @@ class StationInformationTest extends TestCase
         $this->getJson($route)->assertOk()->assertJsonPath('notice_active', false);
         $this->travelBack();
         $this->assertSame('simulator', $station->fresh()->source);
+    }
+
+    public function test_public_notice_does_not_block_booking_and_can_be_cleared(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-17T08:00:00Z'));
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $customer = User::factory()->create();
+        $station = $this->station($vendor);
+        $route = '/api/stations/'.$station->id.'/information';
+        $notice = ['notice_en' => 'Use the rear gate', 'notice_ar' => 'استخدم المدخل الخلفي', 'notice_until' => '2026-11-17'];
+
+        $this->actingAs($vendor)->putJson($route, $this->details() + $notice)
+            ->assertOk()->assertJsonPath('notice_active', true)
+            ->assertJsonPath('enforce_operating_hours', false)
+            ->assertJsonCount(0, 'availability_blocks');
+
+        $this->actingAs($customer)->postJson('/api/reservations', [
+            'station_id' => $station->id, 'starts_at' => '2026-11-17T09:00:00Z', 'idempotency_key' => 'during-operator-notice',
+        ])->assertCreated();
+        $this->getJson('/api/v1/stations/'.$station->id.'/information')->assertOk()
+            ->assertJsonPath('notice_en', $notice['notice_en'])->assertJsonPath('notice_ar', $notice['notice_ar']);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-17T23:59:59.999999Z'));
+        $this->getJson($route)->assertOk()->assertJsonPath('notice_active', true);
+        $this->travelTo(CarbonImmutable::parse('2026-11-18T00:00:00Z'));
+        $this->getJson($route)->assertOk()->assertJsonPath('notice_active', false);
+
+        $clear = $this->details(1) + ['notice_en' => null, 'notice_ar' => null, 'notice_until' => null];
+        $this->putJson($route, $clear)->assertNotFound();
+        $this->actingAs($vendor)->putJson($route, $clear)->assertOk()
+            ->assertJsonPath('revision', 2)->assertJsonPath('notice_active', false);
+        $this->getJson($route)->assertOk()
+            ->assertJsonPath('notice_en', null)->assertJsonPath('notice_ar', null)->assertJsonPath('notice_until', null);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_revoked_bearer_cannot_publish_a_notice_or_an_availability_block(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($owner);
+        $token = $owner->createToken('mobile')->accessToken;
+        $owner->withAccessToken($token);
+        $route = '/api/v1/stations/'.$station->id;
+        $notice = Request::create($route.'/information', 'PUT', $this->details() + [
+            'notice_en' => 'Use the rear gate',
+            'notice_ar' => 'استخدم المدخل الخلفي',
+            'notice_until' => now('UTC')->toDateString(),
+        ]);
+        $notice->setUserResolver(fn () => $owner);
+        $block = Request::create($route.'/availability-blocks', 'POST', [
+            'idempotency_key' => (string) Str::uuid(),
+            'starts_at' => now('UTC')->addHour()->format('Y-m-d\TH:i:s\Z'),
+            'ends_at' => now('UTC')->addHours(2)->format('Y-m-d\TH:i:s\Z'),
+            'reason_en' => 'Scheduled maintenance',
+            'reason_ar' => 'صيانة مجدولة',
+        ]);
+        $block->setUserResolver(fn () => $owner);
+        $token->delete();
+
+        foreach ([
+            fn () => app(StationInformationController::class)->save($notice, $station),
+            fn () => app(StationAvailabilityBlockController::class)->store($block, $station),
+        ] as $publish) {
+            try {
+                $publish();
+                $this->fail('The revoked bearer published station policy.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('station_information', 0);
+        $this->assertDatabaseCount('station_availability_blocks', 0);
     }
 
     #[TestWith(['auth_epoch', 3, 409])]

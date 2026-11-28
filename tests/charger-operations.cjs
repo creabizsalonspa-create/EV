@@ -3,6 +3,73 @@ const { chromium } = require("playwright"),
   { randomBytes } = require("node:crypto"),
   assert = require("node:assert/strict"),
   { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
+async function verifyPublicOperationalNotice(browser, vendorPage, fixture) {
+  const editor = vendorPage.locator(
+    "#station-information-vendor form.station-information-form",
+  );
+  await editor.getByRole("heading", {
+    name: "Edit information for " + fixture.name,
+    exact: true,
+  }).waitFor();
+
+  const english = "Use the rear gate during deliveries";
+  const arabic = "استخدم المدخل الخلفي أثناء التسليم";
+  const until = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const saveNotice = async (noticeEnglish, noticeArabic, endDate) => {
+    await editor.locator("[name=notice_en]").fill(noticeEnglish);
+    await editor.locator("[name=notice_ar]").fill(noticeArabic);
+    await editor.locator("[name=notice_until]").fill(endDate);
+    const pending = vendorPage.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/stations/${fixture.station_id}/information` &&
+      response.request().method() === "PUT");
+    await editor.getByRole("button", { name: "Save station information" }).click();
+    const response = await pending;
+    assert.equal(response.status(), 200);
+    await vendorPage.locator("#station-information-vendor")
+      .getByText("Saved", { exact: true }).waitFor();
+    return response.json();
+  };
+
+  const published = await saveNotice(english, arabic, until);
+  assert.equal(published.notice_active, true);
+  assert.equal(published.enforce_operating_hours, false);
+  assert.deepEqual(published.availability_blocks, []);
+
+  const visitor = await browser.newPage();
+  try {
+    await visitor.goto("http://127.0.0.1:8000");
+    const details = visitor.locator(
+      `#stations [data-station-id="${fixture.station_id}"] details.station-information`,
+    );
+    const openDetails = async () => {
+      await visitor.locator("#filters [name=q]").fill(fixture.name);
+      const pending = visitor.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname === "/api/stations" && url.searchParams.get("q") === fixture.name;
+      });
+      await visitor.locator("#filters button").click();
+      assert.equal((await pending).status(), 200);
+      await details.locator("summary").click();
+    };
+    await openDetails();
+    await details.getByText("Operator access notice: " + english, { exact: true }).waitFor();
+    await visitor.locator("#language").click();
+    await details.getByText("تنبيه دخول من المشغل: " + arabic, { exact: true }).waitFor();
+
+    const cleared = await saveNotice("", "", "");
+    assert.equal(cleared.notice_active, false);
+    assert.equal(cleared.notice_en, null);
+    assert.equal(cleared.notice_ar, null);
+    assert.equal(cleared.notice_until, null);
+    await visitor.reload();
+    await openDetails();
+    assert.equal(await details.getByText(arabic, { exact: false }).count(), 0);
+    assert.equal(await details.getByText(english, { exact: false }).count(), 0);
+  } finally {
+    await visitor.close();
+  }
+}
+
 (async () => {
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
@@ -60,6 +127,7 @@ const { chromium } = require("playwright"),
       .getByText(/^المحطات: /)
       .waitFor();
     await page.locator("#language").click();
+    await verifyPublicOperationalNotice(browser, page, f);
     const ops = page.locator("#vendor-operations");
     await ops
       .locator("article")
@@ -330,7 +398,7 @@ const { chromium } = require("playwright"),
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS real Laravel EN/AR390px vendor station-wide availability publish/cancel, owner-linked site navigation; charger identity, credential hide/revoke, unknown-command recovery, negative unbooted CSMS and positive authenticated 2.0.1 typed connector source status; no device commands, forced capacity release or physical acceptance.",
+      "PASS real Laravel EN/AR operator notice publish/display/clear, 390px vendor station-wide availability publish/cancel, owner-linked site navigation; charger identity, credential hide/revoke, unknown-command recovery, negative unbooted CSMS and positive authenticated 2.0.1 typed connector source status; no device commands, forced capacity release or physical acceptance.",
     );
   } finally {
     await simulator?.close();
