@@ -102,6 +102,72 @@ class ChargerCertificateAuthorityTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public static function bearerChanges(): array
+    {
+        return [
+            ['deleted'],
+            ['expired'],
+            ['maximum_age'],
+        ];
+    }
+
+    #[DataProvider('bearerChanges')]
+    public function test_revoked_or_expired_individual_bearer_cannot_read_or_mutate_certificate_authority(string $change): void
+    {
+        $f = $this->fixture();
+        $issued = $f['owner']->createToken('certificate-authority-fixture');
+        $actor = $f['owner']->fresh()->withAccessToken($issued->accessToken);
+        match ($change) {
+            'deleted' => $issued->accessToken->delete(),
+            'expired' => $issued->accessToken->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'maximum_age' => $issued->accessToken->forceFill(['created_at' => now()->subMinutes(2)])->save(),
+        };
+        if ($change === 'maximum_age') {
+            config(['sanctum.expiration' => 1]);
+        }
+        $service = app(ChargerCertificates::class);
+        $this->denied(fn () => $service->scope($actor, $f['company'], $f['charger']), 403);
+        $this->denied(fn () => $service->apply($actor, $f['company'], $f['charger'], 'enroll', [
+            'idempotency_key' => (string) Str::uuid(),
+            'expected_actor_id' => $actor->id,
+            'expected_profile_id' => $f['profile']['id'],
+            'expected_version' => 0,
+            'consent' => true,
+            'reason' => 'Expired individual bearer must not enroll a certificate',
+            'public_certificate' => 'not-a-certificate',
+        ]), 403);
+        $this->denied(fn () => $service->apply($actor, $f['company'], $f['charger'], 'revoke', [
+            'idempotency_key' => (string) Str::uuid(),
+            'expected_actor_id' => $actor->id,
+            'expected_profile_id' => $f['profile']['id'],
+            'expected_version' => 0,
+            'consent' => true,
+            'reason' => 'Expired individual bearer must not revoke a certificate',
+            'certificate_id' => 1,
+        ]), 403);
+        $this->denied(fn () => $service->resolve($actor, $f['company'], $f['charger'], [
+            'idempotency_key' => (string) Str::uuid(),
+            'expected_actor_id' => $actor->id,
+            'expected_profile_id' => $f['profile']['id'],
+            'expected_action' => 'enroll',
+            'cancel_unissued' => true,
+        ]), 403);
+        $request = Request::create('/private-certificate-history', 'GET');
+        $request->setUserResolver(fn () => $actor);
+        $this->denied(fn () => app(ChargerCertificateController::class)
+            ->index($request, $f['company'], $f['charger'], $service), 403);
+        $this->assertDatabaseCount('charger_certificates', 0);
+        $this->assertDatabaseCount('charger_certificate_actions', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        // The account itself remains valid; a different current credential
+        // must still be able to read its own private certificate history.
+        $replacement = $f['owner']->fresh()->createToken('current-certificate-fixture');
+        $request->setUserResolver(fn () => $f['owner']->fresh()->withAccessToken($replacement->accessToken));
+        $this->assertSame(200, app(ChargerCertificateController::class)
+            ->index($request, $f['company'], $f['charger'], $service)->getStatusCode());
+    }
+
     public function test_current_authenticated_owner_retains_private_certificate_list_after_new_login(): void
     {
         $f = $this->fixture();

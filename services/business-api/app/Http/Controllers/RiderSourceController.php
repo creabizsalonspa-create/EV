@@ -9,6 +9,7 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Charging\CsmsGraphqlTransport;
 use App\Services\Charging\RiderServiceAuth;
+use App\Services\Charging\RiderSourceTarget;
 use App\Services\Charging\RiderTokenRegistry;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceStatusTime;
@@ -22,26 +23,54 @@ class RiderSourceController extends Controller
 {
     public function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
     {
+        return $this->matchesSourceTarget($binding, $map, $evse, $v, false);
+    }
+
+    // Only the existing verified, session-bound remote token callback uses
+    // this projection. It does not authorize a new rider or start command.
+    public function remoteSessionTargetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
+    {
+        return $this->matchesSourceTarget($binding, $map, $evse, $v, true);
+    }
+
+    private function matchesSourceTarget(object $binding, ConnectorMapping $map, Evse $evse, array $v, bool $existingRemoteSession): bool
+    {
         $url = config('csms.graphql_url');
-        if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32
+        $secret = (string) config('csms.graphql_secret');
+        if (empty($v['connectorId']) || (int) $v['connectorId'] < 1 || (int) $v['connectorId'] > 2147483647 || strlen($secret) < 32
             || ! app(CsmsGraphqlTransport::class)->approved($url)) {
             return false;
         }
         try {
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
-            $stations = $reply->json('data.ChargingStations');
-            if (! $reply->successful() || $reply->json('errors') || ! is_array($stations) || count($stations) !== 1 || $stations[0]['isOnline'] !== true || ! in_array($stations[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true)) {
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, ['query' => 'query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id isOnline protocol}}', 'variables' => ['name' => $binding->identifier]]);
+            if (config('csms.graphql_url') !== $url || ! hash_equals($secret, (string) config('csms.graphql_secret'))
+                || ! app(CsmsGraphqlTransport::class)->approved($url)) {
                 return false;
             }
-            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => config('csms.graphql_secret')])->post($url, ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station}},limit:2){id} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus timestamp}}', 'variables' => ['station' => $stations[0]['id'], 'connector' => (int) $v['connectorId']]]);
-            $connectors = $reply->json('data.Connectors');
-            $status = $reply->json('data.StatusNotifications.0');
-            if (! $reply->successful() || $reply->json('errors') || ! is_array($connectors) || count($connectors) !== 1 || (int) $connectors[0]['id'] !== (int) $v['connectorId'] || ! is_array($status)) {
+            $stationId = RiderSourceTarget::stationId($reply->json('data.ChargingStations'), $binding->protocol);
+            if (! $reply->successful() || $reply->json('errors') || $stationId === null) {
                 return false;
             }
-            $at = SourceStatusTime::parse($status['timestamp'] ?? null);
+            $reply = Http::timeout(10)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $secret])->post($url, ['query' => 'query($station:Int!,$connector:Int!){Connectors(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_eq:$connector}},limit:2){id evseId} StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},connectorDatabaseId:{_eq:$connector}},order_by:{id:desc},limit:1){evseId connectorId connectorStatus errorCode timestamp}}', 'variables' => ['station' => $stationId, 'connector' => (int) $v['connectorId']]]);
+            if (config('csms.graphql_url') !== $url || ! hash_equals($secret, (string) config('csms.graphql_secret'))
+                || ! app(CsmsGraphqlTransport::class)->approved($url)) {
+                return false;
+            }
+            if (! $reply->successful() || $reply->json('errors')
+                || ! is_int($evse->source_evse_number) || ! is_int($map->source_connector_number)) {
+                return false;
+            }
+            $status = RiderSourceTarget::receipt(
+                $reply->json('data.Connectors'), $reply->json('data.StatusNotifications'),
+                (int) $v['connectorId'], isset($v['evseId']) ? (int) $v['evseId'] : null,
+                $evse->source_evse_number, $map->source_connector_number, $binding->protocol, $existingRemoteSession
+            );
+            if ($status === null) {
+                return false;
+            }
+            $at = SourceStatusTime::parse($status['timestamp']);
 
-            return (int) ($status['evseId'] ?? 0) === (int) $evse->source_evse_number && (int) $status['connectorId'] === (int) $map->source_connector_number && ! in_array($status['connectorStatus'], ['Faulted', 'Unavailable'], true) && $at->lte(now()) && $at->gte(now()->subMinutes(5));
+            return $at->lte(now()) && $at->gte(now()->subMinutes(5));
         } catch (Throwable) {
             return false;
         }

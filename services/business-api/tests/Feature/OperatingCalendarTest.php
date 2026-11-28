@@ -243,7 +243,8 @@ class OperatingCalendarTest extends TestCase
         $link = SessionLink::firstOrFail();
         // This is a controlled GraphQL protocol contract, not a source observation.
         $link->update(['remote_authorization_id' => 42]);
-        Http::fake(function ($request) use ($protocol, $command, $link) {
+        $sourceStatus = 'Available';
+        Http::fake(function ($request) use ($protocol, $command, $link, &$sourceStatus) {
             if (str_contains($request['query'], 'Authorizations')) {
                 return Http::response(['data' => ['Authorizations' => [['id' => 42, 'idToken' => $command->payload['id_token'], 'idTokenType' => 'Central', 'status' => 'Accepted', 'additionalInfo' => [['type' => 'CREABIZ_REMOTE', 'additionalIdToken' => $link->remote_registration_nonce]], 'realTimeAuth' => 'Never', 'realTimeAuthUrl' => RemoteSessionAuthorization::CALLBACK, 'realTimeAuthTimeout' => 0, 'cacheExpiryDateTime' => now()->addMinutes(30)->toISOString(), 'concurrentTransaction' => false, 'isPrepaid' => false]]]]);
             }
@@ -251,7 +252,7 @@ class OperatingCalendarTest extends TestCase
                 return Http::response(['data' => ['ChargingStations' => [['id' => 10, 'isOnline' => true, 'protocol' => $protocol]]]]);
             }
 
-            return Http::response(['data' => ['Connectors' => [['id' => 7]], 'StatusNotifications' => [['evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()]]]]);
+            return Http::response(['data' => ['Connectors' => [['id' => 7, 'evseId' => 77]], 'StatusNotifications' => [['evseId' => $protocol === '1.6' ? 0 : 1, 'connectorId' => 1, 'connectorStatus' => $sourceStatus, 'errorCode' => $protocol === '1.6' ? 'NoError' : null, 'timestamp' => now()->toISOString()]]]]);
         });
         $token = $this->postJson('/api/internal/rider-oauth/token', ['grant_type' => 'client_credentials', 'client_id' => 'calendar-source', 'client_secret' => str_repeat('s', 64), 'audience' => 'creabiz-rider-authorize'])->assertOk()->json('access_token');
         $body = ['idToken' => $command->payload['id_token'], 'idTokenType' => 'Central', 'ocppConnectionName' => $link->identifier, 'connectorId' => 7];
@@ -263,9 +264,12 @@ class OperatingCalendarTest extends TestCase
         $session = ChargingSession::findOrFail($link->charging_session_id);
         $this->assertSame('pending_start', $session->status);
         foreach (['charging', 'stopping'] as $state) {
+            $sourceStatus = $protocol === '1.6' ? ($state === 'charging' ? 'Charging' : 'Finishing') : 'Occupied';
             $session->update(['status' => $state]);
             $this->withToken($token)->postJson('/api/internal/remote-session-authorize', $body)->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
         }
+        $sourceStatus = 'Faulted';
+        $this->withToken($token)->postJson('/api/internal/remote-session-authorize', $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         $this->assertSame('submitted', $command->fresh()->status);
         $this->assertDatabaseCount('command_source_observations', 0);
         $this->assertDatabaseCount('finance_invoices', 0);

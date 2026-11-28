@@ -41,6 +41,24 @@ void main() {
           f['expected_inventory_matches'] ?? true,
         );
         expect(projected.verifiedAt, isNotNull);
+        if (f['authenticated_source_readback'] == true) {
+          expect(f['synthetic_retained_receipt'], isNot(true));
+          expect(raw['upstream_registration_verified'], isTrue);
+          expect(projected.inventoryMatches, isTrue);
+          final expected = row['verified_receipt'] as Map;
+          for (final field in [
+            'registration_id',
+            'binding_id',
+            'profile_id',
+            'source_station_id',
+          ]) {
+            expect(expected[field], isA<int>());
+            expect(expected[field], greaterThan(0));
+            expect(raw[field], expected[field]);
+          }
+          expect(expected['verified_at'], isA<String>());
+          expect(raw['verified_at'], expected['verified_at']);
+        }
         expect(raw['can_prepare'], isFalse);
         expect(raw['can_register'], isFalse);
         expect(raw['device_commands_sent'], 0);
@@ -49,6 +67,7 @@ void main() {
         expect(raw['charger_hardware_verified'], isFalse);
       }
       expect(protocols, {'1.6', '2.0.1'});
+      await api.signOut();
       f.clear();
     },
     skip: path == null
