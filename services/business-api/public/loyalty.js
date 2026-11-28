@@ -166,41 +166,11 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         parent.append(p);
     }
     function time(parent, en, ar, value) {
-        if (!value) return;
-        const p = node("p"),
-            date = new Date(
-                typeof value === "string" &&
-                    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(
-                        value,
-                    )
-                    ? value.replace(" ", "T") + "Z"
-                    : value,
-            ),
-            n = node("time");
-        if (Number.isNaN(date.getTime())) n.textContent = value;
-        else {
-            n.dateTime = date.toISOString();
-            n.dataset.loyaltyDate = "true";
-            n.textContent = date.toLocaleString(
-                document.documentElement.lang === "ar" ? "ar" : "en",
-            );
-        }
-        p.append(t("span", en, ar), node("span", " · "), n);
-        parent.append(p);
+        const line = node("p");
+        const clock = window.EvStationTime.bindServerEventTime(node("span"), value);
+        line.append(t("span", en, ar), node("span", " · "), clock);
+        parent.append(line);
     }
-    window.addEventListener(
-        "ev:locale",
-        () => {
-            if (alive())
-                for (const n of container.querySelectorAll(
-                    "time[data-loyalty-date]",
-                ))
-                    n.textContent = new Date(n.dateTime).toLocaleString(
-                        document.documentElement.lang === "ar" ? "ar" : "en",
-                    );
-        },
-        { signal: controller.signal },
-    );
     function card(parent, en, ar, id) {
         const n = node("article");
         n.className = "finance-row";
