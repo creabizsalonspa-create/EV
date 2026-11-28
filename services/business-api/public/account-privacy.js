@@ -82,7 +82,7 @@ window.EvPrivacyRequests = (() => {
         );
     }
 
-    function setSelfActor(user, api) {
+    function setSelfActor(user, api, onSecurityPrepared) {
         const state = states.mine;
         clear(state);
         if (!user?.id) return;
@@ -378,6 +378,54 @@ window.EvPrivacyRequests = (() => {
                             },
                         );
                         card.append(withdraw);
+                        if (row.kind === "erasure" && ["customer", "vendor"].includes(user.role) &&
+                            typeof onSecurityPrepared === "function") {
+                            const host = el("div");
+                            const open = button("Secure account before erasure / تأمين الحساب قبل الحذف", () => {
+                                if (!active(state, generation, controller) || open.disabled) return;
+                                open.disabled = true;
+                                const securityForm = el("form");
+                                securityForm.setAttribute("aria-label", "Optional erasure security preparation");
+                                const password = el("input");
+                                password.type = "password"; password.autocomplete = "current-password"; password.required = true;
+                                const factor = el("input");
+                                factor.autocomplete = "one-time-code"; factor.maxLength = 64;
+                                const consent = el("input"); consent.type = "checkbox"; consent.required = true;
+                                state.secrets.add(password); state.secrets.add(factor);
+                                const submit = button("Confirm security step / تأكيد خطوة الأمان", () => {});
+                                submit.type = "submit";
+                                securityForm.append(el("p", "Optional: discard all your prepared private account copies and end all sessions. Your account and retained source records remain; you must sign in again. / اختياري: إتلاف نسخ حسابك الخاصة وإنهاء جميع الجلسات. يبقى الحساب والسجلات الأصلية؛ يلزم تسجيل الدخول مجدداً."),
+                                    field("Current password / كلمة المرور الحالية", password),
+                                    field("Authenticator or recovery code if enabled / رمز المصادقة أو الاسترداد إن فُعّل", factor),
+                                    field("I agree to discard copies and revoke sessions / أوافق على إتلاف النسخ وإلغاء الجلسات", consent), submit);
+                                securityForm.onsubmit = async event => {
+                                    event.preventDefault();
+                                    if (!active(state, generation, controller) || submit.disabled || !consent.checked || !password.value) return;
+                                    const body = {confirmation:"discard_copies_and_revoke_sessions", password:password.value, second_factor_code:factor.value};
+                                    password.value = ""; factor.value = ""; consent.checked = false;
+                                    submit.disabled = true;
+                                    try {
+                                        // Do not abort a committed security mutation merely because the tab hides.
+                                        const receipt = await state.request("account/privacy-requests/" + row.id + "/secure-account", "POST", body);
+                                        if (state.generation !== generation || !state.request) return;
+                                        if (receipt?.request_id !== row.id || receipt.case_status !== row.status ||
+                                            !Number.isSafeInteger(receipt.derived_copies_discarded) || receipt.derived_copies_discarded < 0 ||
+                                            receipt.derived_copies_discarded > 250 || receipt.sessions_revoked !== true ||
+                                            receipt.sign_in_required !== true || receipt.automated_erasure_performed !== false ||
+                                            receipt.source_records_deleted !== false || receipt.manual_processing_required !== true)
+                                            throw Error("Unverified security receipt");
+                                        clear(state);
+                                        onSecurityPrepared();
+                                    } catch {
+                                        if (active(state, generation, controller)) {
+                                            host.replaceChildren(el("p", "Security step unconfirmed. Sign in again or refresh to check; do not automatically repeat. / لم تتأكد خطوة الأمان؛ سجّل الدخول أو حدّث للتحقق."));
+                                        }
+                                    }
+                                };
+                                host.replaceChildren(securityForm);
+                            });
+                            card.append(open, host);
+                        }
                     }
                     results.append(card);
                 }
