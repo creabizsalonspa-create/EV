@@ -14,6 +14,17 @@ window.EvVendorAgreements = {
             if (text !== undefined) n.textContent = text;
             return n;
         };
+        function receiptSummary(before, createdAt, after) {
+            const summary = node('p');
+            summary.append(...before, window.EvStationTime.bindServerEventTime(node('span'), createdAt), ...after);
+            return summary;
+        }
+        function translated(tag, en, arabic) {
+            const element = node(tag, t(en, arabic));
+            element.dataset.en = en;
+            element.dataset.ar = arabic;
+            return element;
+        }
         const base = `vendor-ops/companies/${company.id}/agreement`;
         const error = () => root.append(node('p', t('Unable to complete this request. Refresh the recorded state before continuing.', 'تعذر إكمال الطلب. حدّث الحالة المسجلة قبل المتابعة.')));
         function button(label, action) {
@@ -40,7 +51,13 @@ window.EvVendorAgreements = {
             button(t('Refresh', 'تحديث'), () => load(page));
             if (data.version) {
                 version(data.version);
-                if (data.acceptance) root.append(node('p', `${t('Accepted', 'تمت الموافقة')} · ${data.acceptance.created_at} · ${data.acceptance.id}`));
+                if (data.acceptance) {
+                    root.append(receiptSummary(
+                        [translated('span', 'Accepted', 'تمت الموافقة'), ' · '],
+                        data.acceptance.created_at,
+                        [' · ', node('bdi', data.acceptance.id)]
+                    ));
+                }
                 if (data.can_accept) {
                     const label = node('label'), consent = node('input'); consent.type = 'checkbox';
                     label.append(consent, document.createTextNode(t('I reviewed this exact version and am authorized to accept for this company.', 'راجعت هذه النسخة بالتحديد وأنا مخول بالموافقة عن هذه الشركة.')));
@@ -56,13 +73,21 @@ window.EvVendorAgreements = {
             } else root.append(node('p', t('No agreement is published for this country. Contact the administrator.', 'لا توجد اتفاقية منشورة لهذا البلد. تواصل مع المسؤول.')));
             root.append(node('h4', t('Acceptance history', 'سجل الموافقات')));
             for (const record of data.history.data) {
-                root.append(node('p', `${record.country} · ${record.revision} · ${record.created_at}`));
+                root.append(receiptSummary(
+                    [node('bdi', `${record.country} · ${record.revision}`), ' · '],
+                    record.created_at,
+                    []
+                ));
                 button(t('Read immutable receipt', 'قراءة الإيصال الثابت'), async () => {
                     const receipt = await api(`${base}/receipts/${record.id}`);
                     if (!valid(epoch)) return;
                     root.replaceChildren(node('h3', t('Agreement receipt', 'إيصال الاتفاقية')));
                     version(receipt.version);
-                    root.append(node('p', `${receipt.receipt.id} · ${receipt.receipt.created_at} · ${receipt.receipt.version_sha256}`));
+                    root.append(receiptSummary(
+                        [node('bdi', receipt.receipt.id), ' · '],
+                        receipt.receipt.created_at,
+                        [' · ', node('bdi', receipt.receipt.version_sha256)]
+                    ));
                     button(t('Back', 'رجوع'), () => load(page));
                 });
             }

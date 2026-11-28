@@ -72,6 +72,11 @@ const assert = require("node:assert/strict");
     await detail
       .getByText("Literal <img src=x onerror=alert(1)>", { exact: true })
       .waitFor();
+    const clocks = root.locator("p[data-en][data-ar]").filter({ hasText: /\(UTC\)$/ });
+    assert.equal(await clocks.count(), 4);
+    assert.equal(await detail.locator("p[data-en][data-ar]").filter({ hasText: /\(UTC\)$/ }).count(), 3);
+    const englishClocks = await clocks.allTextContents();
+    assert(englishClocks.every((clock) => !/\d{4}-\d{2}-\d{2}T/.test(clock)));
     assert.equal(await detail.locator("img").count(), 0);
     assert.equal(
       await detail.getByRole("button", { name: /pay|refund|capture/i }).count(),
@@ -86,6 +91,10 @@ const assert = require("node:assert/strict");
     await root
       .getByRole("heading", { name: "سجل الفواتير", exact: true })
       .waitFor();
+    assert.deepEqual(await clocks.allTextContents(), await clocks.evaluateAll(
+      nodes => nodes.map(node => node.dataset.ar),
+    ));
+    assert.notDeepEqual(await clocks.allTextContents(), englishClocks);
     assert(
       await customer.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth + 1,
