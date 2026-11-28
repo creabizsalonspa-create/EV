@@ -17,6 +17,18 @@ class ReservationLifecycle
         return $reservation->status === 'confirmed' && $reservation->checked_in_at === null && now()->gte($start->subMinutes(15)) && now()->lt($start->addMinutes(30));
     }
 
+    /** A recorded expiry does not determine whether anyone arrived physically. */
+    public function expiryOutcome(Reservation $reservation): ?string
+    {
+        return match ($reservation->status) {
+            'expired_unused' => $reservation->checked_in_at === null
+                ? 'unused_without_reported_arrival'
+                : 'unused_after_reported_arrival',
+            'expired_unstarted' => 'expired_before_dispatch',
+            default => null,
+        };
+    }
+
     public function checkIn(Reservation $reservation, int $actor): array
     {
         abort_unless($reservation->user_id === $actor, 404);

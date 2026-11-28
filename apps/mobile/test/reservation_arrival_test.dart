@@ -83,6 +83,23 @@ Widget app(Widget child, {bool arabic = false}) => MaterialApp(
   home: Scaffold(body: child),
 );
 void main() {
+  test('recorded expiry distinguishes no report, self-reported arrival, and unsent start', () {
+    expect(
+      reservationExpiryText('unused_without_reported_arrival', arabic: false),
+      contains('no recorded arrival report'),
+    );
+    expect(
+      reservationExpiryText('unused_after_reported_arrival', arabic: false),
+      contains('after a self-reported arrival'),
+    );
+    expect(
+      reservationExpiryText('expired_before_dispatch', arabic: true),
+      contains('قبل إرسال'),
+    );
+    expect(reservationExpiryText('outcome_unknown', arabic: false), isNull);
+    expect(reservationExpiryText(null, arabic: true), isNull);
+  });
+
   test(
     'arrival translations have equal keys and explicit physical-presence limits',
     () {

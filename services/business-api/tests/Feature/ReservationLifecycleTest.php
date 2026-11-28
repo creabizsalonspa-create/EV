@@ -71,11 +71,15 @@ class ReservationLifecycleTest extends TestCase
         $service = app(ReservationLifecycle::class);
         $this->travelTo($end->subSecond());
         $this->assertSame(0, $service->expire()['expired']);
+        $this->getJson('/api/reservations')->assertJsonPath('data.0.expiry_outcome', null);
         $this->travelTo($end);
         $this->assertSame(1, $service->expire()['expired']);
         $this->assertSame(0, $service->expire()['expired']);
         $this->assertSame('expired_unused', $r->fresh()->status);
         $this->assertSame($arrived, $r->fresh()->checked_in_at !== null);
+        $this->getJson('/api/reservations')
+            ->assertJsonPath('data.0.expiry_outcome', $arrived ? 'unused_after_reported_arrival' : 'unused_without_reported_arrival')
+            ->assertJsonPath('data.0.physical_presence_verified', false);
         $event = DB::table('reservation_lifecycle_events')->where('event_type', 'expired_unused')->sole();
         $this->assertNull($event->actor_id);
         $e = json_decode($event->evidence, true);
@@ -100,6 +104,7 @@ class ReservationLifecycleTest extends TestCase
         $this->assertSame(0, $service->expire()['examined']);
         $this->assertSame('confirmed', $r->fresh()->status);
         $this->assertDatabaseCount('reservation_lifecycle_events', 0);
+        $this->getJson('/api/reservations')->assertJsonPath('data.0.expiry_outcome', null);
     }
 
     public function test_scheduled_scan_is_bounded_and_resumes_past_reconciliation_records(): void

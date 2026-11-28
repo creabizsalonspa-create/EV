@@ -200,7 +200,9 @@ class PlatformController extends Controller
         // Station timezone is published location metadata, not private rider data.
         $zones = Station::whereIn('id', $page->getCollection()->pluck('station_id'))->pluck('timezone', 'id');
 
-        return response()->json($page->through(function ($reservation) use ($bound, $names, $zones, $r) {
+        $lifecycle = app(ReservationLifecycle::class);
+
+        return response()->json($page->through(function ($reservation) use ($bound, $names, $zones, $r, $lifecycle) {
             $csms = $bound->has($reservation->station_id);
             if ($reservation->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($reservation->connector_mapping_id);
@@ -232,7 +234,8 @@ class PlatformController extends Controller
             }
 
             return $data + ['station_timezone' => $timezone, 'station_times' => $localTimes,
-                'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+                'csms_bound' => $csms, 'can_check_in' => $lifecycle->eligible($reservation),
+                'physical_presence_verified' => false, 'expiry_outcome' => $lifecycle->expiryOutcome($reservation)];
         }))->header('Cache-Control', 'private, no-store');
     }
 

@@ -83,6 +83,16 @@ const assert = require("node:assert/strict");
         .innerText()
         .then((t) => t.includes("Reservation window ended")),
     );
+    const noArrival = page.locator("#reservation-list").getByText(
+      "Reservation expired unused with no recorded arrival report. The no-show fee is zero.",
+      { exact: true },
+    );
+    await noArrival.waitFor();
+    await page.locator("#language").click();
+    await page.locator("#reservation-list").getByText(
+      "انتهى الحجز دون استخدام ولم يُسجّل وصول ذاتي. رسوم عدم الحضور صفر.",
+      { exact: true },
+    ).waitFor();
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth,
