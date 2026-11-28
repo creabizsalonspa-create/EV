@@ -116,6 +116,15 @@ class _PrivacyApi extends EvApi {
   }
 }
 
+// The consolidated history card sits below the viewport at 800x600.
+// Wait for the scroll/layout update, then require the actual control to be
+// hit-testable before dispatching a tap or entering private credentials.
+Future<void> _visiblePrivacyControl(WidgetTester tester, Finder target) async {
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  expect(target.hitTestable(), findsOneWidget);
+}
+
 void main() {
   for (final forged in [false, true]) {
     testWidgets('optional contact receipt requires consent and exact evidence (forged=$forged)', (tester) async {
@@ -127,22 +136,22 @@ void main() {
       ));
       await tester.pumpAndSettle();
       final open = find.byKey(const ValueKey('privacy-contact-open-22'));
-      await tester.ensureVisible(open);
+      await _visiblePrivacyControl(tester, open);
       await tester.tap(open);
       await tester.pumpAndSettle();
       final password = find.byKey(const Key('privacy-contact-password'));
       final factor = find.byKey(const Key('privacy-contact-factor'));
       final consent = find.byKey(const Key('privacy-contact-consent'));
       final submit = find.byKey(const Key('privacy-contact-submit'));
-      await tester.ensureVisible(password);
+      await _visiblePrivacyControl(tester, password);
       await tester.enterText(password, 'password');
-      await tester.ensureVisible(factor);
+      await _visiblePrivacyControl(tester, factor);
       await tester.enterText(factor, '123456');
       expect(tester.widget<FilledButton>(submit).onPressed, isNull);
-      await tester.ensureVisible(consent);
+      await _visiblePrivacyControl(tester, consent);
       await tester.tap(consent);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(submit);
+      await _visiblePrivacyControl(tester, submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
       expect(api.contactWrites.single['confirmation'], 'remove_optional_phone');
@@ -166,18 +175,18 @@ void main() {
     ));
     await tester.pumpAndSettle();
     final open = find.byKey(const ValueKey('privacy-contact-open-22'));
-    await tester.ensureVisible(open);
+    await _visiblePrivacyControl(tester, open);
     await tester.tap(open);
     await tester.pumpAndSettle();
     final password = find.byKey(const Key('privacy-contact-password'));
-    await tester.ensureVisible(password);
+    await _visiblePrivacyControl(tester, password);
     await tester.enterText(password, 'password');
     final consent = find.byKey(const Key('privacy-contact-consent'));
-    await tester.ensureVisible(consent);
+    await _visiblePrivacyControl(tester, consent);
     await tester.tap(consent);
     await tester.pumpAndSettle();
     final submit = find.byKey(const Key('privacy-contact-submit'));
-    await tester.ensureVisible(submit);
+    await _visiblePrivacyControl(tester, submit);
     await tester.tap(submit);
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -203,22 +212,22 @@ void main() {
       ));
       await tester.pumpAndSettle();
       final open = find.byKey(const ValueKey('privacy-security-open-22'));
-      await tester.ensureVisible(open);
+      await _visiblePrivacyControl(tester, open);
       await tester.tap(open);
       await tester.pumpAndSettle();
       final password = find.byKey(const Key('privacy-security-password'));
       final factor = find.byKey(const Key('privacy-security-factor'));
       final consent = find.byKey(const Key('privacy-security-consent'));
       final submit = find.byKey(const Key('privacy-security-submit'));
-      await tester.ensureVisible(password);
+      await _visiblePrivacyControl(tester, password);
       await tester.enterText(password, 'password');
-      await tester.ensureVisible(factor);
+      await _visiblePrivacyControl(tester, factor);
       await tester.enterText(factor, '123456');
       expect(tester.widget<FilledButton>(submit).onPressed, isNull);
-      await tester.ensureVisible(consent);
+      await _visiblePrivacyControl(tester, consent);
       await tester.tap(consent);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(submit);
+      await _visiblePrivacyControl(tester, submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
       expect(api.securityWrites.single['confirmation'], 'discard_copies_and_revoke_sessions');
@@ -244,18 +253,18 @@ void main() {
     ));
     await tester.pumpAndSettle();
     final open = find.byKey(const ValueKey('privacy-security-open-22'));
-    await tester.ensureVisible(open);
+    await _visiblePrivacyControl(tester, open);
     await tester.tap(open);
     await tester.pumpAndSettle();
     final password = find.byKey(const Key('privacy-security-password'));
-    await tester.ensureVisible(password);
+    await _visiblePrivacyControl(tester, password);
     await tester.enterText(password, 'password');
     final consent = find.byKey(const Key('privacy-security-consent'));
-    await tester.ensureVisible(consent);
+    await _visiblePrivacyControl(tester, consent);
     await tester.tap(consent);
     await tester.pumpAndSettle();
     final submit = find.byKey(const Key('privacy-security-submit'));
-    await tester.ensureVisible(submit);
+    await _visiblePrivacyControl(tester, submit);
     await tester.tap(submit);
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
