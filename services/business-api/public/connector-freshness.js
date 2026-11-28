@@ -19,22 +19,32 @@ window.EvConnectorFreshness = (() => {
         const unknown = {state: 'unknown', observedAt: null};
         if (!value || value.evidence !== 'SIMULATED_SOURCE' || value.physical_availability_verified !== false
             || value.max_age_seconds !== 300 || !Number.isFinite(elapsed) || elapsed < 0) return unknown;
-        if (value.state !== 'stale' && (value.state !== 'recent' || !statuses.includes(value.reported_status))) return unknown;
+        if (value.state === 'stale' ? value.reported_status !== null :
+            (value.state !== 'recent' || !statuses.includes(value.reported_status))) return unknown;
         const checked = strictUtc(value.checked_at), observed = strictUtc(value.observed_at), until = strictUtc(value.valid_until);
         if (!checked || !observed || !until || difference(observed, checked) > 0 || difference(until, observed) !== 300000) return unknown;
         const remaining = difference(until, checked);
-        if (value.state === 'stale' && remaining > 0) return unknown;
+        if (value.state === 'stale' ? remaining > 0 : remaining <= 0) return unknown;
         return {state: remaining <= elapsed ? 'stale' : value.reported_status, observedAt: value.observed_at};
     }
     const state = (value, elapsed = 0) => observation(value, elapsed).state;
     const arabic = {Available:'متاح بحسب المصدر', Occupied:'مشغول', Preparing:'قيد التحضير', Charging:'جارٍ الشحن', SuspendedEV:'معلق من المركبة', SuspendedEVSE:'معلق من الشاحن', Finishing:'قيد الإنهاء', Reserved:'محجوز', Unavailable:'غير متاح', Faulted:'عطل', stale:'قديم', unknown:'غير معروف'};
     function attach(root, value, requestAge = 0) {
         const p = document.createElement('p'), received = performance.now() - requestAge;
+        p.setAttribute('role', 'status');
+        p.setAttribute('aria-atomic', 'true');
+        let previousLabel;
         const render = () => {
             const {state: label, observedAt: observed} = observation(value, performance.now() - received);
-            p.dataset.en = `Simulated source status: ${label}. Physical availability is unverified. Observed: ${observed || 'unknown'}`;
-            p.dataset.ar = `حالة مصدر المحاكاة: ${arabic[label]}. التوفر الفعلي غير مؤكد. وقت الرصد: ${observed || 'غير معروف'}`;
-            p.textContent = document.documentElement.lang === 'ar' ? p.dataset.ar : p.dataset.en;
+            if (label !== previousLabel) {
+                const enTime = observed ? window.EvStationTime.serverEventTime(observed, 'en') : 'unknown';
+                const arTime = observed ? window.EvStationTime.serverEventTime(observed, 'ar') : 'غير معروف';
+                p.dataset.en = `Simulated source status: ${label}. Physical availability is unverified. Observed: ${enTime}`;
+                p.dataset.ar = `حالة مصدر المحاكاة: ${arabic[label]}. التوفر الفعلي غير مؤكد. وقت الرصد: ${arTime}`;
+                previousLabel = label;
+            }
+            const text = document.documentElement.lang === 'ar' ? p.dataset.ar : p.dataset.en;
+            if (p.textContent !== text) p.textContent = text;
         };
         root.append(p); render();
         const timer = setInterval(() => { if (!p.isConnected) clearInterval(timer); else render(); }, 1000);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'connector_freshness.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 import 'topology_strings.dart';
 
@@ -159,11 +160,11 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> with Widget
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           Text(topologyText(context, 'disclaimer')),
-          if (busy) const LinearProgressIndicator(),
+          if (busy) LinearProgressIndicator(semanticsLabel: s.t('loading')),
           if (p == null && error == null && !busy)
             OutlinedButton(onPressed:guard(() { load(); }),child:Text(s.t('refresh'))),
           if (error != null) ...[
-            Text(s.t(errorKey(error!))),
+            Semantics(liveRegion: true, child: Text(s.t(errorKey(error!)))),
             TextButton(
               onPressed: busy ? null : guard(() { load(page: target); }),
               child: Text(s.t('retry')),
@@ -184,7 +185,15 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> with Widget
                     Text(
                       '${row['connector_type']} · ${row['max_power_kw']} kW',
                     ),
-                    Text(connectorFreshnessText(row['status_freshness'], age.elapsed, s.arabic)),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(connectorFreshnessText(
+                        row['status_freshness'],
+                        age.elapsed,
+                        s.arabic,
+                        formatObservedAt: (value) => serverEventTime(context, value),
+                      )),
+                    ),
                     if (row['reservable'] == true && widget.station.source == 'SIMULATED')
                       FilledButton(
                         onPressed: busy
