@@ -126,8 +126,6 @@ void main() {
       (tester) async {
     final api = _ModelsApi()..holdVehicleSave = Completer<void>();
     addTearDown(api.close);
-    final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     await tester.pumpWidget(MaterialApp(
       home: VehicleModelAssociationView(
         api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
