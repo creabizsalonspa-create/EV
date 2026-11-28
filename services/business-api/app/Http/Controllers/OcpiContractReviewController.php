@@ -130,7 +130,7 @@ final class OcpiContractReviewController extends Controller
             return [
                 'scope' => 'private_ocpi_contract_review_history',
                 'operational_enforcement_available' => false,
-            'administrative_authorization_review_required' => ContractAuthorizationGate::required(),
+                'administrative_authorization_review_required' => ContractAuthorizationGate::required(),
                 'current_revision' => (int) (self::last($current)->revision ?? 0),
                 'history' => $rows,
                 'external_partner_acceptance_verified' => false,
