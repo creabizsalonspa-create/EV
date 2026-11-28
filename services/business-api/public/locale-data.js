@@ -838,6 +838,10 @@ window.EV_MESSAGES = {
         en: "Assign vehicle",
         ar: "تعيين مركبة",
     },
+    "Choose a valid time zone for the selected country.": {
+        en: "Choose a valid time zone for the selected country.",
+        ar: "اختر منطقة زمنية صالحة للبلد المحدد.",
+    },
     "Configuration saved. Commercial activation remains disabled.": {
         en: "Configuration saved. Commercial activation remains disabled.",
         ar: "حُفظت الإعدادات. تفعيل التجارة ما زال معطلاً.",

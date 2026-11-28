@@ -1960,7 +1960,9 @@ el("region-config").onsubmit = async (e) => {
         delete form.dataset.expectedCountry;
         delete form.dataset.expectedEpoch;
         delete form.dataset.expectedValues;
-        notice(error);
+        if (error.status === 422 && Array.isArray(error.errors?.timezone))
+            notice("Choose a valid time zone for the selected country.");
+        else notice(error);
         if (error.status === 409) await regions().catch(notice);
     } finally {
         if (regionalConfigBusy === ticket) {
