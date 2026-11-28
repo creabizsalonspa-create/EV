@@ -1,7 +1,8 @@
 /* Authenticated recovery records; no client assertion or blind charge/refund retry. */
 window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
-    const identity = actor().id,
-        alive = () => container.isConnected && actor()?.id === identity;
+    const identity = actor(),
+        alive = () => container.isConnected && actor() === identity;
+    let generation = 0;
     function t(tag, en, ar) {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
@@ -25,20 +26,27 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
     container.append(state);
     const list = document.createElement("div");
     container.append(list);
-    function button(parent, en, ar, fn) {
+    function button(parent, en, ar, fn, valid = alive) {
         const b = t("button", en, ar);
         b.type = "button";
         parent.append(b);
         b.onclick = async () => {
+            if (b.disabled || !b.isConnected || !valid()) return;
             b.disabled = true;
             try {
                 await fn();
             } catch (e) {
                 if (
-                    alive() &&
+                    b.isConnected && valid() &&
                     !["SessionChangedError", "AbortError"].includes(e.name)
-                )
-                    state.textContent = e.message;
+                ) {
+                    state.replaceChildren(t(
+                        "span",
+                        "Could not confirm the current recovery state. Reload the records before continuing.",
+                        "تعذر تأكيد حالة الاسترداد الحالية. أعد تحميل السجلات قبل المتابعة.",
+                    ));
+                    list.replaceChildren();
+                }
             } finally {
                 b.disabled = false;
             }
@@ -46,9 +54,23 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
         return b;
     }
     async function load(page = 1) {
-        state.replaceChildren(t("span", "Loading…", "جار التحميل…"));
-        const rows = await api("commercial/payment-recovery?page=" + page);
         if (!alive()) return;
+        const epoch = ++generation;
+        const current = () => alive() && epoch === generation;
+        state.replaceChildren(t("span", "Loading…", "جار التحميل…"));
+        list.replaceChildren();
+        let rows;
+        try {
+            rows = await api("commercial/payment-recovery?page=" + page);
+        } catch (error) {
+            if (current()) state.replaceChildren(t(
+                "span",
+                "Could not load payment recovery records.",
+                "تعذر تحميل سجلات استرداد حالة الدفع.",
+            ));
+            return;
+        }
+        if (!current()) return;
         state.textContent = "";
         list.replaceChildren();
         if (!rows.data.length)
@@ -74,13 +96,17 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
             ],
             completed: ["Operation recorded", "تم تسجيل العملية"],
             rejected: ["Operation not sent", "لم ترسل العملية"],
+            prepared: ["Operation prepared", "العملية مهيأة"],
         };
+        const status = value => Object.hasOwn(labels, value)
+            ? labels[value]
+            : ["Recorded status unavailable", "الحالة المسجلة غير متاحة"];
         for (const row of rows.data) {
             const card = document.createElement("article");
             card.className = "finance-row";
             card.append(
                 literal("h4", "#" + row.id),
-                t("p", ...(labels[row.status] || [row.status, row.status])),
+                t("p", ...status(row.status)),
                 literal(
                     "p",
                     row.currency +
@@ -112,8 +138,9 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                             "POST",
                             {},
                         );
-                        await load(page);
+                        if (current()) await load(page);
                     },
+                    current,
                 );
             button(
                 card,
@@ -123,26 +150,28 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
                     const history = await api(
                         "commercial/payment-recovery/" + row.id + "/events",
                     );
-                    if (!alive()) return;
+                    if (!current() || !card.isConnected) return;
                     card.querySelector("[data-recovery-history]")?.remove();
                     const ul = document.createElement("ul");
                     ul.dataset.recoveryHistory = "";
-                    for (const event of history.data)
-                        ul.append(
-                            literal(
-                                "li",
-                                event.created_at + " · " + event.status,
-                            ),
+                    for (const event of history.data) {
+                        const row = document.createElement("li");
+                        const clock = window.EvStationTime.bindServerEventTime(
+                            document.createElement("span"), event.created_at,
                         );
+                        row.append(clock, " · ", t("span", ...status(event.status)));
+                        ul.append(row);
+                    }
                     card.append(ul);
                 },
+                current,
             );
             list.append(card);
         }
         if (rows.current_page > 1)
-            button(list, "Previous", "السابق", () => load(page - 1));
+            button(list, "Previous", "السابق", () => load(page - 1), current);
         if (rows.current_page < rows.last_page)
-            button(list, "Next", "التالي", () => load(page + 1));
+            button(list, "Next", "التالي", () => load(page + 1), current);
     }
     button(
         container,
@@ -155,9 +184,9 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
 // Scheduled in-app notices share canonical invoices; no payment action here.
 window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
     container.dataset.subscriptionNotices = "true";
-    const identity = actor().id;
+    const identity = actor();
     let generation = 0;
-    const alive = () => container.isConnected && actor()?.id === identity;
+    const alive = () => container.isConnected && actor() === identity;
     const text = (tag, en, ar) => {
         window.EV_MESSAGES[en] ||= { en, ar };
         return ui(tag, en);
@@ -178,13 +207,15 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
     const list = document.createElement("div");
     container.append(list);
     async function load(page = 1) {
+        if (!alive()) return;
         const epoch = ++generation;
+        const current = () => alive() && epoch === generation;
         list.replaceChildren(text("p", "Loading…", "جار التحميل…"));
         try {
             const result = await api(
                 "commercial/subscription-notices?page=" + page,
             );
-            if (!alive() || epoch !== generation) return;
+            if (!current()) return;
             list.replaceChildren();
             if (!result.data.length)
                 list.append(
@@ -220,14 +251,16 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
                                 Number(row.minor_units),
                             ),
                     ),
-                    literal("p", row.created_at),
+                    window.EvStationTime.bindServerEventTime(
+                        document.createElement("p"), row.created_at,
+                    ),
                 );
                 list.append(card);
             }
             function button(en, ar, next) {
                 const b = text("button", en, ar);
                 b.type = "button";
-                b.onclick = () => load(next);
+                b.onclick = () => { if (current() && b.isConnected) load(next); };
                 list.append(b);
             }
             if (result.current_page > 1)
@@ -244,7 +277,7 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
                 );
             button("Refresh notices", "تحديث التنبيهات", page);
         } catch (_) {
-            if (!alive() || epoch !== generation) return;
+            if (!current()) return;
             list.replaceChildren(
                 text(
                     "p",
@@ -254,7 +287,7 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
             );
             const retry = text("button", "Retry", "إعادة المحاولة");
             retry.type = "button";
-            retry.onclick = () => load(page);
+            retry.onclick = () => { if (current() && retry.isConnected) load(page); };
             list.append(retry);
         }
     }
