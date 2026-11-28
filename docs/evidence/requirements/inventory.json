@@ -196,6 +196,12 @@
       "test_result": "passed",
       "merge_sha": "9285aa1646b91c6d47b72d047285510edf1ab530",
       "evidence": "docs/evidence/integrated-checkpoints-20261128/pr432-precharge-consent.json"
+    },
+    "pr559-reservation-freshness": {
+      "source_sha": "1df43d8e750f7fa8adfa1ea6e363adaaf812c547",
+      "merge_sha": "0d488e3a22ef14db88cbf46e329290afdb716c82",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr559-reservation-freshness.json"
     }
   },
   "production_acceptance": null,
@@ -405,9 +411,9 @@
     {
       "prd": "2.4",
       "requirement": "Location/connector details and pricing terms",
-      "implemented_code_scope": "Source/capability labels, reported connector/status timestamps, versioned tariff and invoice snapshots; vendor-edited hours, amenities and accessibility consumed by public web and canonical native station details. Customer web and Flutter use a shared server-authoritative pre-charge quote and fee acceptance.",
+      "implemented_code_scope": "Source/capability labels, reported connector/status timestamps, versioned tariff and invoice snapshots; vendor-edited hours, amenities and accessibility consumed by public web and canonical native station details. Customer web and Flutter use a shared server-authoritative pre-charge quote and fee acceptance. Reservation terms and connector-level source freshness are integrated on web and Flutter.",
       "automated_evidence_scope": "FinanceTest, ConnectorTopologyTest, OcpiIntegrationTest; tariffs/topology clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity.",
+      "remaining_scope": "Broader partner metadata and external operating acceptance.",
       "atoms": [
         {
           "id": "2.4.1",
@@ -461,9 +467,9 @@
         {
           "id": "2.4.8",
           "software_atom": "Reservation terms and per-connector freshness",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr559-reservation-freshness",
+          "note": "Versioned reservation terms and per-connector source freshness verified across Laravel, web and Flutter."
         }
       ]
     },
