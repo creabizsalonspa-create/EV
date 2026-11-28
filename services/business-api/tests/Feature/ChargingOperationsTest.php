@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargingOperationsController;
 use App\Models\ChargerCommand;
 use App\Models\ChargingSession;
 use App\Models\InboxNotification;
@@ -12,9 +13,11 @@ use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargingOperationsTest extends TestCase
@@ -400,7 +403,7 @@ class ChargingOperationsTest extends TestCase
         ])->assertCreated();
         $token = $vendor->createToken('operator-recovery')->accessToken;
         $snapshot = $vendor->fresh()->withAccessToken($token);
-        $request = \Illuminate\Http\Request::create($uri.'/inspect-source', 'POST');
+        $request = Request::create($uri.'/inspect-source', 'POST');
         $request->setUserResolver(fn () => $snapshot);
         $consumer = \Mockery::mock(SourceConsumer::class);
         $consumer->shouldReceive('consume')->once()->andReturnUsing(function () use ($token): int {
@@ -411,9 +414,9 @@ class ChargingOperationsTest extends TestCase
         $reconciler = \Mockery::mock(CommandReconciler::class);
         $reconciler->shouldNotReceive('forSession');
         try {
-            app(\App\Http\Controllers\ChargingOperationsController::class)->inspect($request, $command, $consumer, $reconciler);
+            app(ChargingOperationsController::class)->inspect($request, $command, $consumer, $reconciler);
             $this->fail('Revoked bearer was allowed to continue inspecting a recovery case.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+        } catch (HttpException $error) {
             $this->assertSame(403, $error->getStatusCode());
         }
         $this->assertDatabaseCount('charging_operational_case_events', 1);
