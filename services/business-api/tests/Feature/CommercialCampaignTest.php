@@ -131,6 +131,32 @@ class CommercialCampaignTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_private_campaign_history_rejects_foreign_delivery_lineage(): void
+    {
+        $first = $this->fixture();
+        $second = $this->fixture();
+        $one = $this->approved($first);
+        $two = $this->approved($second);
+        $this->delivery($one['id'], 'lineage-first')->assertOk();
+        $this->delivery($two['id'], 'lineage-second')->assertOk();
+        $parent = DB::table('commercial_campaign_deliveries')->where('campaign_id', $one['id'])->first();
+        DB::table('commercial_campaign_deliveries')->insert([
+            'campaign_id' => $two['id'], 'event_id' => 'corrupt-lineage-test',
+            'fingerprint' => hash('sha256', 'corrupt-lineage-test'),
+            'parent_delivery_id' => $parent->id, 'kind' => 'click',
+            'occurred_at' => now(), 'created_at' => now(),
+        ]);
+        $before = DB::table('commercial_campaign_deliveries')->count();
+        $base = '/campaign-test/commercial/campaigns/';
+        $this->actingAs($second['admin'])->getJson($base.$two['id'])->assertConflict();
+        $this->actingAs($second['vendor'])->getJson($base.$two['id'])->assertConflict();
+        $this->actingAs($first['vendor'])->getJson($base.$one['id'])->assertOk()
+            ->assertJsonPath('deliveries.data.0.parent_delivery_id', null)
+            ->assertJsonMissingPath('deliveries.data.0.fingerprint')
+            ->assertJsonMissingPath('deliveries.data.0.event_id');
+        $this->assertSame($before, DB::table('commercial_campaign_deliveries')->count());
+    }
+
     public function test_campaign_private_review_filters_narrow_authorized_scope_and_bound_pages(): void
     {
         $first = $this->fixture();
@@ -160,8 +186,13 @@ class CommercialCampaignTest extends TestCase
                 $this->getJson($path.'?'.$invalid)->assertUnprocessable();
             }
         }
-        foreach (['status=paid', 'vendor_id=0001', 'country=ae', 'invoice_id=0'] as $invalid) {
+        foreach (['status=paid', 'vendor_id=0001', 'country=ae', 'invoice_id=0',
+            'vendor_id=9007199254740992', 'station_id=9007199254740992', 'invoice_id=9007199254740992'] as $invalid) {
             $this->getJson($base.'?'.$invalid)->assertUnprocessable();
+        }
+        foreach (['vendor_id', 'station_id', 'invoice_id'] as $field) {
+            $this->getJson($base.'?'.$field.'=9007199254740991')->assertOk()
+                ->assertJsonPath('scope.'.$field, 9007199254740991)->assertJsonPath('total', 0);
         }
         $this->actingAs($first['customer'])->getJson($base)->assertForbidden();
         $this->assertSame($before, DB::table('commercial_campaign_events')->count());
