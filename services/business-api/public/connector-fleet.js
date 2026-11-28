@@ -104,7 +104,8 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 card.append(node('p', !row.inventory_eligible_at_read ? t('Inventory unavailable or maintenance blocked', 'المخزون غير متاح أو محظور للصيانة') :
                     f.state === 'recent' && sourceState === f.reported_status ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + window.EvConnectorFreshness.label(f.reported_status, document.documentElement.lang === 'ar') :
                     sourceState === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
-                if (f.observed_at != null) card.append(clockLine('Source timestamp','وقت المصدر',f.observed_at));
+                if (f.observed_at != null) card.append(clockLine('Source timestamp','وقت المصدر',
+                    sourceState === 'unknown' ? null : f.observed_at));
                 if (row.operations_target && typeof openDiagnostics === 'function') {
                     const b = node('button', t('Open source diagnostics', 'فتح تشخيص المصدر')); b.type = 'button';
                     b.onclick = async () => {
