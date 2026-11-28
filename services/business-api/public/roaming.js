@@ -1235,7 +1235,7 @@ window.createRoamingWorkspace = ({
             let attempted = false;
             form.onsubmit = async event => {
                 event.preventDefault();
-                if (!current() || busy || attempted || !form.reportValidity() ||
+                if (!current() || !form.isConnected || busy || attempted || !form.reportValidity() ||
                     !confirm(t('Record a manual internal decision? This does not activate a roaming partner.', 'تسجيل قرار داخلي يدوي؟ هذا لا يفعّل شريك تجوال.'))) return;
                 // A strong fresh identity prevents accidental replay after an
                 // ambiguous transport response; never auto-retry a mutation.
@@ -1264,7 +1264,7 @@ window.createRoamingWorkspace = ({
                     if (current()) await contractReview(provider, host);
                 } catch (error) {
                     if (current()) {
-                        busy = false; retired = false; attempted = true;
+                        busy = false;
                         host.replaceChildren(raw('p', t('Contract review outcome uncertain. Refresh before any further decision.', 'نتيجة مراجعة العقد غير مؤكدة. حدّث قبل اتخاذ أي قرار آخر.')));
                         button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => { if (current() && !busy) return contractReview(provider, host); });
                         notice(error);
