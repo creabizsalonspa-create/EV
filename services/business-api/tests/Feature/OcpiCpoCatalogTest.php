@@ -504,6 +504,105 @@ class OcpiCpoCatalogTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    #[TestWith(['endpoint'])]
+    #[TestWith(['credential'])]
+    public function test_cpo_delivery_requires_unchanged_receiver_and_exact_credential_bytes_during_transport(string $change): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [$provider, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        $originalEndpoints = $provider->endpoints;
+        $credential = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $originalToken = (clone $credential)->value('remote_token_ciphertext');
+        $alter = function () use ($provider, $change, $originalEndpoints, $credential) {
+            if ($change === 'endpoint') {
+                $provider->fresh()->update(['endpoints' => array_replace($originalEndpoints, ['tariffs_receiver' => 'https://emsp.example/replacement-tariffs'])]);
+            } else {
+                (clone $credential)->update(['remote_token_ciphertext' => Crypt::encryptString('replacement-peer-token')]);
+            }
+        };
+        $restore = function () use ($provider, $originalEndpoints, $credential, $originalToken) {
+            $provider->fresh()->update(['endpoints' => $originalEndpoints]);
+            (clone $credential)->update(['remote_token_ciphertext' => $originalToken]);
+        };
+        $sent = null;
+        $mutate = true;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($alter, &$mutate, &$sent, $tariff) {
+            $this->assertSame('https://emsp.example/tariffs/AE/EVX/T'.$tariff, $request->url());
+            if ($request->method() === 'PUT') {
+                $this->assertNull($sent);
+                $sent = $request->data();
+            } else {
+                $this->assertSame('GET', $request->method());
+                $this->assertNotNull($sent);
+            }
+            if ($mutate) {
+                $alter();
+            }
+            $trace = ['X-Request-ID' => $request->header('X-Request-ID')[0], 'X-Correlation-ID' => $request->header('X-Correlation-ID')[0]];
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'GET' ? $sent : null], 200, $trace);
+        });
+
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])
+            ->assertOk()->assertJsonPath('delivery', 'unknown');
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        // A new request must not adopt the substituted authority, even when
+        // its generation and publication bytes have not changed.
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        Http::assertSentCount(1);
+        $restore();
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        $restore();
+        $mutate = false;
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])
+            ->assertOk()->assertJsonPath('delivery', 'reconciled');
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertSentCount(3);
+    }
+
+    public function test_payload_only_legacy_delivery_digest_cannot_certify_an_original_receiver(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sources = $this->source($owner);
+        [, $tariff] = $sources;
+        [, , $operations] = $this->peer($owner, 'owner', $sources);
+        config(['ocpi.cpo_push_enabled' => true]);
+        $url = $operations.'/tariffs/'.$tariff;
+        $stamp = $this->actingAs($admin)->publication($url)->assertOk()->json('published_at');
+        Http::preventStrayRequests();
+        Http::fake(['https://emsp.example/*' => Http::response('', 504)]);
+        $key = (string) Str::uuid();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => $key])
+            ->assertOk()->assertJsonPath('delivery', 'unknown');
+        $row = DB::table('ocpi_cpo_catalog')->first();
+        $operation = DB::table('ocpi_cpo_publication_operations')->first();
+        $legacy = hash('sha256', json_encode([
+            (string) $row->id, (string) $row->provider_id, (string) $row->owner_id,
+            (string) $row->generation, (string) $row->authorization_revision, $row->configuration_hash,
+            $row->module, (string) $row->source_id, $row->published_at, (bool) $row->withdrawn,
+            $row->source_hash, hash('sha256', $row->payload),
+        ], JSON_THROW_ON_ERROR));
+        $this->assertNotSame($legacy, $operation->publication_digest);
+        DB::table('ocpi_cpo_publication_operations')->where('id', $operation->id)->update(['publication_digest' => $legacy]);
+        $this->postJson($url.'/reconcile', ['confirmed' => true, 'published_at' => $stamp])->assertConflict();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => $key])->assertConflict();
+        $this->postJson($url.'/push', ['confirmed' => true, 'published_at' => $stamp, 'operation_key' => (string) Str::uuid()])->assertConflict();
+        $this->assertDatabaseCount('ocpi_cpo_publication_operations', 1);
+        $this->assertSame('unknown', DB::table('ocpi_cpo_publication_operations')->value('state'));
+        Http::assertSentCount(1);
+    }
+
     public function test_cpo_reconciliation_can_read_the_full_size_of_a_published_location(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
