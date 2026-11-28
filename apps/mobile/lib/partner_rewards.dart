@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'financial_operation_store.dart';
+import 'reservation_times.dart';
 
 String partnerRewardsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -54,11 +55,13 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
   void initState() {
     super.initState();
     ownsSession = widget.api.sessionFence();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     session = widget.api.sessionEvents.listen((_) {
       if (mounted) setState(() { revoked = true; clearPrivate(); });
     });
-    open();
+    if (foreground) { open(); } else { busy = false; }
   }
 
   @override
@@ -123,7 +126,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
         row['partner_name_ar'] is! String ||
         row['description'] is! String ||
         row['description_ar'] is! String ||
-        row['ends_at'] is! String) {
+        serverUtcTime(context, row['ends_at']) == '—') {
       throw const FormatException('Invalid partner reward offer');
     }
     return Map<String, dynamic>.unmodifiable(row);
@@ -134,7 +137,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     if (!validId(row['id']) ||
         !validId(row['review_id']) ||
         !validId(row['redemption_id']) ||
-        row['created_at'] is! String ||
+        serverUtcTime(context, row['created_at']) == '—' ||
         !['pending', 'fulfilled', 'rejected'].contains(row['status'])) {
       throw const FormatException('Invalid partner reward receipt');
     }
@@ -145,7 +148,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     Future<void> Function(int) action, {
     required String Function() failed,
   }) async {
-    if (!visible) return;
+    if (!visible || !mounted) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -257,8 +260,9 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     ),
   );
 
-  Future<void> confirmClaim(Map<String, dynamic> offer) async {
-    final epoch = generation;
+  Future<void> confirmClaim(Map<String, dynamic> offer, int epoch) async {
+    if (!current(epoch) || busy || !emailVerified || operation == null ||
+        pendingReview != null || !(offers?.items.any((row) => identical(row, offer)) ?? false)) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -415,22 +419,27 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
       'لم يتأكد الإلغاء. احتفظ بالطلب المحفوظ نفسه.'));
   }
 
-  Widget pager(int page, int last, void Function(int) select) => Wrap(
+  Widget pager(int page, int last, void Function(int) select) {
+    final epoch = generation;
+    return Wrap(
     children: [
       if (page > 1)
         TextButton(
-          onPressed: busy ? null : () => select(page - 1),
+          onPressed: busy ? null : () { if (current(epoch) && !busy) select(page - 1); },
           child: Text(t('Previous', 'السابق')),
         ),
       if (page < last && page < 100000)
         TextButton(
-          onPressed: busy ? null : () => select(page + 1),
+          onPressed: busy ? null : () { if (current(epoch) && !busy) select(page + 1); },
           child: Text(t('Next', 'التالي')),
         ),
     ],
   );
+  }
 
-  Widget offerCard(Map<String, dynamic> row) => Card(
+  Widget offerCard(Map<String, dynamic> row) {
+    final epoch = generation;
+    return Card(
     child: Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -448,8 +457,8 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
           ),
           Text(
             t(
-              'Ends ${row['ends_at']} UTC',
-              'ينتهي في ${row['ends_at']} بالتوقيت العالمي',
+              'Ends ${serverEventTime(context, row['ends_at'])}',
+              'ينتهي في ${serverEventTime(context, row['ends_at'])}',
             ),
           ),
           FilledButton(
@@ -459,13 +468,14 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
                     operation == null ||
                     pendingReview != null
                 ? null
-                : () => confirmClaim(row),
+                : () => confirmClaim(row, epoch),
             child: Text(t('Claim reward', 'المطالبة بالمكافأة')),
           ),
         ],
       ),
     ),
   );
+  }
 
   Widget claimCard(Map<String, dynamic> row) => ListTile(
     title: Text(t('Claim #${row['id']}', 'المطالبة رقم ${row['id']}')),
@@ -475,7 +485,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
           'Offer #${row['review_id']} · Reward request #${row['redemption_id']}',
           'العرض رقم ${row['review_id']} · طلب المكافأة رقم ${row['redemption_id']}',
         ),
-        '${row['created_at']} UTC',
+        serverEventTime(context, row['created_at']),
         switch (row['status']) {
           'fulfilled' => t(
             'Manual fulfillment recorded',
@@ -492,6 +502,10 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
   Widget build(BuildContext context) {
     if (!visible) return const Scaffold();
     final pending = pendingReview;
+    final viewEpoch = generation;
+    VoidCallback guarded(VoidCallback action) => () {
+      if (current(viewEpoch) && !busy) action();
+    };
     return Scaffold(
       appBar: AppBar(title: Text(partnerRewardsTitle(context))),
       body: ListView(
@@ -521,7 +535,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
               ),
             ),
             TextButton(
-              onPressed: busy ? null : inspectSaved,
+              onPressed: busy ? null : guarded(inspectSaved),
               child: Text(
                 t(
                   'Check saved claim receipt',
@@ -530,13 +544,13 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
               ),
             ),
             TextButton(
-              onPressed: busy || !emailVerified ? null : () => submit(pending),
+              onPressed: busy || !emailVerified ? null : guarded(() => submit(pending)), 
               child: Text(
                 t('Retry saved claim', 'إعادة محاولة المطالبة المحفوظة'),
               ),
             ),
             TextButton(
-              onPressed: busy ? null : cancelSaved,
+              onPressed: busy ? null : guarded(cancelSaved),
               child: Text(t('Cancel saved claim', 'إلغاء المطالبة المحفوظة')),
             ),
           ],
@@ -545,7 +559,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
             claimCard(confirmed),
           ],
           TextButton(
-            onPressed: busy ? null : () => loadHistory(1),
+            onPressed: busy ? null : guarded(() => loadHistory(1)),
             child: Text(t('My claim history', 'سجل مطالباتي')),
           ),
           if (history case final claims?) ...[
@@ -561,7 +575,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
           ],
           const Divider(),
           TextButton(
-            onPressed: busy ? null : open,
+            onPressed: busy ? null : guarded(open),
             child: Text(t('Refresh offers', 'تحديث العروض')),
           ),
           if (offers case final list?) ...[

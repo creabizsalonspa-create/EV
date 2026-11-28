@@ -4,7 +4,29 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes, createHash } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+function verifyReplayClockBoundary() {
+  const source=fs.readFileSync("services/business-api/public/vendor-payouts.js","utf8");
+  const window={};
+  new Function("window",fs.readFileSync("services/business-api/public/station-time.js","utf8"))(window);
+  const start=source.indexOf("    function parseDate("),end=source.indexOf("    function clock(",start);
+  assert(start>=0&&end>start);
+  const eligible=new Function("window",source.slice(start,end)+"\nreturn replayEligible;")(window);
+  const now=Date.parse("2026-11-28T09:00:00Z");
+  const payout={status:"uncertain"},attempt={retry_until:"2026-11-28T09:01:00Z",lease_until:null};
+  assert.equal(eligible(payout,attempt,now),true);
+  assert.equal(eligible(payout,attempt,now+60000),false);
+  assert.equal(eligible(payout,{...attempt,lease_until:"2026-11-28 09:00:00"},now),true);
+  for(const lease of [undefined,"","2026-02-30T09:00:00Z","2026-11-28T09:00:00","2026-11-28T09:00:01Z"])
+    assert.equal(eligible(payout,{...attempt,lease_until:lease},now),false);
+  for(const deadline of [null,"","2026-02-30T09:01:00Z","2026-11-28T09:01:00","2026-11-28T09:00:00Z"])
+    assert.equal(eligible(payout,{...attempt,retry_until:deadline},now),false);
+  assert.equal(eligible({status:"paid"},attempt,now),false);
+  assert.equal(eligible({status:"executing"},attempt,now),true);
+  assert.equal(eligible(payout,attempt,NaN),false);
+  assert.equal(eligible(payout,null,now),false);
+}
 (async () => {
+  verifyReplayClockBoundary();
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
@@ -168,11 +190,40 @@ const assert = require("node:assert/strict");
     await cp
       .locator(`[data-payout-record="${payout.id}"] [data-payout-state="paid"]`)
       .waitFor();
+    const historyResponse = checker.waitForResponse(r =>
+      r.url().endsWith("/api/commercial/payouts/" + payout.id) && r.request().method() === "GET");
     await cp
       .locator(`[data-payout-record="${payout.id}"]`)
       .getByRole("button", { name: "Inspect payout history", exact: true })
       .click();
-    await cp.locator("[data-payout-history]").waitFor();
+    const historyData = await (await historyResponse).json();
+    const history = cp.locator("[data-payout-history]");
+    await history.waitFor();
+    assert(historyData.events.length > 0);
+    for (const event of historyData.events) {
+      const instant = await checker.evaluate(raw => {
+        const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(raw);
+        return new Date(sql ? raw.replace(" ", "T") + "Z" : raw).toISOString();
+      }, event.created_at);
+      assert(await history.locator('time[datetime="' + instant + '"]').count() > 0);
+    }
+    // Existing mounted timestamps must switch language without a provider request.
+    const mounted = history.locator("time[data-payout-date]");
+    assert(await mounted.count() > 0);
+    for (const language of ["en", "ar", "en"]) {
+      await checker.evaluate(lang => window.EvLocale.set(lang), language);
+      const clocks = await mounted.evaluateAll(nodes => nodes.map(n => ({
+        text:n.textContent, raw:n.dateTime,
+      })));
+      for (const item of clocks) {
+        if (!item.raw) continue;
+        const expected = await checker.evaluate(({raw,language}) =>
+          new Intl.DateTimeFormat(language === "ar" ? "ar" : "en-GB", {
+            timeZone:"UTC",dateStyle:"medium",timeStyle:"short",hourCycle:"h23",
+          }).format(new Date(raw))+" (UTC)", {raw:item.raw,language});
+        assert.equal(item.text, expected);
+      }
+    }
     assert((await cp.innerText()).includes("MOCK · no bank transfer"));
     const config = maker.locator("[data-financial-documents]");
     await config

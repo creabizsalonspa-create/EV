@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 
 String vendorAgreementTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -28,6 +31,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
   String? error;
   int generation = 0, page = 1;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionChanges;
   String get base => 'vendor-ops/companies/${widget.companyId}/agreement';
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
@@ -36,9 +40,20 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    bindSession();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    if (foreground) load();
+  }
+
+  void bindSession() {
+    sessionChanges?.cancel();
+    final source = widget.api;
+    authorized = source.sessionFence();
+    sessionChanges = source.sessionEvents.listen((_) {
+      if (mounted && identical(source, widget.api)) setState(clear);
+    });
   }
 
   void clear() {
@@ -57,7 +72,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
         oldWidget.companyId != widget.companyId) {
       clear();
       page = 1;
-      authorized = widget.api.sessionFence();
+      bindSession();
     }
   }
 
@@ -73,6 +88,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
   @override
   void dispose() {
     generation++;
+    sessionChanges?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -119,9 +135,8 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
     }
   }
 
-  Future<void> accept() async {
-    if (!foreground ||
-        !authorized() ||
+  Future<void> accept(int reviewEpoch) async {
+    if (!current(reviewEpoch) ||
         busy ||
         !accepted ||
         data?['can_accept'] != true)
@@ -169,6 +184,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
         appBar: AppBar(title: Text(vendorAgreementTitle(context))),
       );
     final value = data, record = receipt, history = value?['history'] as Map?;
+    final reviewEpoch = generation;
     return Scaffold(
       appBar: AppBar(title: Text(vendorAgreementTitle(context))),
       body: ListView(
@@ -181,7 +197,9 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
             ),
           ),
           TextButton(
-            onPressed: busy ? null : () => load(number: page),
+            onPressed: busy ? null : () {
+              if (current(reviewEpoch)) load(number: page);
+            },
             child: Text(t('Refresh', 'تحديث')),
           ),
           if (busy) const LinearProgressIndicator(),
@@ -189,7 +207,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
           if (record != null) ...[
             ...version(record['version'] as Map),
             Text(
-              '${record['receipt']['id']} · ${record['receipt']['created_at']} · ${record['receipt']['version_sha256']}',
+              '${record['receipt']['id']} · ${serverEventTime(context, record['receipt']['created_at'])} · ${record['receipt']['version_sha256']}',
             ),
           ],
           if (value != null) ...[
@@ -204,14 +222,18 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
               ),
             if (value['acceptance'] != null)
               Text(
-                '${t('Accepted', 'تمت الموافقة')} · ${value['acceptance']['created_at']} · ${value['acceptance']['id']}',
+                '${t('Accepted', 'تمت الموافقة')} · ${serverEventTime(context, value['acceptance']['created_at'])} · ${value['acceptance']['id']}',
               ),
             if (value['can_accept'] == true) ...[
               CheckboxListTile(
                 value: accepted,
                 onChanged: busy
                     ? null
-                    : (v) => setState(() => accepted = v == true),
+                    : (v) {
+                        if (current(reviewEpoch) && !busy) {
+                          setState(() => accepted = v == true);
+                        }
+                      },
                 title: Text(
                   t(
                     'I reviewed this exact version and am authorized to accept for this company.',
@@ -220,7 +242,7 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
                 ),
               ),
               FilledButton(
-                onPressed: busy || !accepted ? null : accept,
+                onPressed: busy || !accepted ? null : () => accept(reviewEpoch),
                 child: Text(
                   t(
                     'Accept reviewed agreement',
@@ -236,11 +258,13 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
             for (final row in (history?['data'] as List? ?? []))
               ListTile(
                 title: Text(
-                  '${row['country']} · ${row['revision']} · ${row['created_at']}',
+                  '${row['country']} · ${row['revision']} · ${serverEventTime(context, row['created_at'])}',
                 ),
                 subtitle: Text('${row['version_sha256']}'),
                 trailing: TextButton(
-                  onPressed: busy ? null : () => load(id: '${row['id']}'),
+                  onPressed: busy ? null : () {
+                    if (current(reviewEpoch)) load(id: '${row['id']}');
+                  },
                   child: Text(t('Read receipt', 'قراءة الإيصال')),
                 ),
               ),
@@ -250,14 +274,18 @@ class _VendorAgreementsState extends State<VendorAgreementsView>
                   TextButton(
                     onPressed: busy || page <= 1
                         ? null
-                        : () => load(number: page - 1),
+                        : () {
+                            if (current(reviewEpoch)) load(number: page - 1);
+                          },
                     child: Text(t('Previous', 'السابق')),
                   ),
                   Text('${history['current_page']} / ${history['last_page']}'),
                   TextButton(
                     onPressed: busy || page >= (history['last_page'] as int)
                         ? null
-                        : () => load(number: page + 1),
+                        : () {
+                            if (current(reviewEpoch)) load(number: page + 1);
+                          },
                     child: Text(t('Next', 'التالي')),
                   ),
                 ],

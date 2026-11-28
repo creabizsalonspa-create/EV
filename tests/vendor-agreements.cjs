@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
         for (const ar of [false, true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/vendor-agreements.js'});
             await page.evaluate(async () => {
                 window.posts = []; window.accepted = false; window.authorized = true;
@@ -16,7 +17,8 @@ const assert = require('node:assert/strict');
                         // A committed write whose response is lost must be recovered by a read.
                         throw Object.assign(new Error('PRIVATE LOST RESPONSE'), {status:503});
                     }
-                    return {version, can_accept:!window.accepted, can_publish:false, acceptance:window.accepted ? {id:'receipt-1', created_at:'2026-11-14'} : null, history:{data:[],current_page:1,last_page:1}};
+                    if(path.endsWith('/receipts/receipt-1')) return {version,receipt:{id:'receipt-1',created_at:'2026-11-07T18:00:00+04:00',version_sha256:'reviewed-sha'}};
+                    return {version, can_accept:!window.accepted, can_publish:false, acceptance:window.accepted ? {id:'receipt-1', created_at:'2026-11-07T18:00:00+04:00'} : null, history:{data:window.accepted?[{id:'receipt-1',country:'AE',revision:1,created_at:'2026-02-30T09:00:00Z'}]:[],current_page:1,last_page:1}};
                 };
                 await window.EvVendorAgreements.open({host:document.querySelector('#host'), api:window.agreementApi, company:{id:1}, current:()=>window.authorized, notice:()=>{}});
             });
@@ -29,6 +31,16 @@ const assert = require('node:assert/strict');
             assert.equal(await page.getByText('PRIVATE LOST RESPONSE').count(),0);
             await page.getByRole('button',{name:ar?'تحديث':'Refresh',exact:true}).click();
             assert.equal(await page.getByText(/receipt-1/).count(),1);
+            const expected = await page.evaluate(ar => new Intl.DateTimeFormat(ar?'ar':'en-GB',{
+                timeZone:'UTC',dateStyle:'medium',timeStyle:'short',hourCycle:'h23',
+            }).format(new Date('2026-11-07T14:00:00Z'))+' (UTC)', ar);
+            assert.ok((await page.getByText(/receipt-1/).textContent()).includes(expected));
+            assert.equal(await page.getByText(ar?'وقت الحدث غير متاح':'Event time unavailable',{exact:false}).count(),1);
+            assert.equal(await page.getByText('2026-02-30',{exact:false}).count(),0);
+            await page.getByRole('button',{name:ar?'قراءة الإيصال الثابت':'Read immutable receipt',exact:true}).click();
+            const receipt = await page.getByText(/receipt-1/).textContent();
+            assert.ok(receipt.includes(expected) && receipt.includes('reviewed-sha'));
+            assert.ok(!receipt.includes('2026-11-07T18:00:00'));
             assert.equal(await page.evaluate(()=>window.posts.length),1);
             await page.close();
         }

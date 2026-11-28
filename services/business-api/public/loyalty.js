@@ -1,4 +1,9 @@
 /* Non-monetary promotional points. No wallet, money transfer or tariff modification. */
+// Partner reward timestamps are server instants, not browser-local dates.
+function validLoyaltyClock(raw) {
+    return typeof raw === "string" && raw === raw.trim() &&
+        !!window.EvStationTime?.displayStationTime(raw, "UTC", "en");
+}
 function verifyPartnerRewardPage(result, page, kind) {
     const fail = () => { throw new Error("Invalid partner reward page"); };
     if (!Number.isSafeInteger(page) || page < 1 || page > 100000 ||
@@ -19,10 +24,10 @@ function verifyPartnerRewardPage(result, page, kind) {
         previous = id;
         if (kind === "claims") {
             if (!positive(row.redemption_id) || redemptions.has(row.redemption_id) ||
-                typeof row.created_at !== "string" || !["pending", "fulfilled", "rejected"].includes(row.status)) fail();
+                !validLoyaltyClock(row.created_at) || !["pending", "fulfilled", "rejected"].includes(row.status)) fail();
             redemptions.add(row.redemption_id);
         } else if (!["name", "name_ar", "partner_name", "partner_name_ar", "description", "description_ar", "ends_at"]
-            .every(field => typeof row[field] === "string")) fail();
+            .every(field => typeof row[field] === "string") || !validLoyaltyClock(row.ends_at)) fail();
     }
     return result;
 }
@@ -168,6 +173,11 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
     function time(parent, en, ar, value) {
         const line = node("p");
         const clock = window.EvStationTime.bindServerEventTime(node("span"), value);
+        clock.dataset.loyaltyDate = "true";
+        if (validLoyaltyClock(value)) {
+            const sql = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value);
+            clock.dataset.loyaltyInstant = new Date(sql ? value.replace(" ", "T") + "Z" : value).toISOString();
+        }
         line.append(t("span", en, ar), node("span", " · "), clock);
         parent.append(line);
     }
@@ -1511,12 +1521,13 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             if (!evidence(row) || !Number.isSafeInteger(row.id) || row.id < 1 ||
                 !Number.isSafeInteger(row.review_id) || row.review_id < 1 ||
                 !Number.isSafeInteger(row.redemption_id) || row.redemption_id < 1 ||
-                typeof row.created_at !== "string" || !Object.hasOwn(states, row.status)) {
+                !validLoyaltyClock(row.created_at) || !Object.hasOwn(states, row.status)) {
                 throw new Error("Invalid partner reward receipt");
             }
             const card = node("article");
             card.append(node("p", "#" + row.id));
             label(card, ...states[row.status]);
+            time(card, "Claim recorded at", "وقت تسجيل المطالبة", row.created_at);
             return card;
         }
         function partnerRequest(path, method = "GET", data) {
@@ -1650,6 +1661,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 localText(card, item.name, item.name_ar);
                 localText(card, item.partner_name, item.partner_name_ar);
                 localText(card, item.description, item.description_ar);
+                time(card, "Offer expires", "انتهاء العرض", item.ends_at);
                 button(card, "Claim partner reward", "المطالبة بمكافأة الشريك", () => claim(item.review_id));
                 rows.append(card);
             }

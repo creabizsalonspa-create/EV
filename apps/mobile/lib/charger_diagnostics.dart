@@ -5,6 +5,7 @@ import 'strings.dart';
 import 'charger_configuration.dart';
 import 'charger_logs.dart';
 import 'charger_repairs.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 String diagnosticsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -472,7 +473,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                       Text(
                         '${alert['evse_number']}/${alert['connector_number']} · ${alert['status']} · ${alert['error_code'] ?? '—'}',
                       ),
-                      Text('${alert['occurred_at']}'),
+                      Text(serverEventTime(context, alert['occurred_at'])),
                       Text(
                         alert['recovery_observed_at'] != null
                             ? tr(
@@ -556,7 +557,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
               ),
             }),
             if ((value['automatic_monitor'] as Map?)?['checked_at'] != null)
-              Text('${(value['automatic_monitor'] as Map)['checked_at']}'),
+              Text(serverEventTime(context, (value['automatic_monitor'] as Map)['checked_at'])),
             Text(
               value['source_registered'] == true
                   ? tr('Source registered', 'المصدر مسجل')
@@ -579,7 +580,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                         'لا توجد رسالة مصدر حديثة',
                       ),
               ),
-              Text('${value['last_message_at'] ?? '—'}'),
+              Text(serverEventTime(context, value['last_message_at'])),
               Text('${value['firmware_version'] ?? '—'}'),
             ],
             for (final event in value['events'] as List)
@@ -588,7 +589,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView>
                   '${event['connectorStatus']} · ${event['errorCode'] ?? '—'}',
                 ),
                 subtitle: Text(
-                  '${event['evseId'] ?? '—'}/${event['connectorId'] ?? '—'} · ${event['timestamp']}',
+                  '${event['evseId'] ?? '—'}/${event['connectorId'] ?? '—'} · ${serverEventTime(context, event['timestamp'])}',
                 ),
               ),
             if (value['next_before'] != null)
