@@ -182,7 +182,9 @@ void main(){
     expect(api.calls,['POST discovery/federated-nearby']);
     expect(api.bodies.single,{'latitude':'25.2','longitude':'55.3','radius_km':'10','consent':true});
     expect(tester.widget<CheckboxListTile>(consent).value,false);
-    expect(find.text(ar?'0 تقريراً مرخصاً (عينة محدودة)':'0 licensed reports (bounded sample)'),findsOneWidget);
+    final count=find.text(ar?'0 تقريراً مرخصاً (عينة محدودة)':'0 licensed reports (bounded sample)');
+    await tester.scrollUntilVisible(count,200,scrollable:find.byType(Scrollable).first);
+    expect(count,findsOneWidget);
     expect(find.byKey(const Key('unified-recent-0')),findsNothing);
     final next=find.text(ar?'التالي':'Next');
     await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
@@ -211,7 +213,15 @@ void main(){
     if(mode=='revoked'){api.rotate();api.held!.complete(api.envelope());}
     await tester.pumpAndSettle();
     expect(api.calls,['POST discovery/federated-nearby']);
-    expect(find.byKey(const ValueKey('catalog:7')),mode=='unavailable'?findsOneWidget:findsNothing);
+    final catalog=find.byKey(const ValueKey('catalog:7'));
+    final unavailable=find.text('Licensed source unavailable; published results remain available. This is not zero coverage.');
+    if(mode=='unavailable'){
+      await tester.scrollUntilVisible(catalog,200,scrollable:find.byType(Scrollable).first);
+      expect(catalog,findsOneWidget);
+      await tester.scrollUntilVisible(unavailable,200,scrollable:find.byType(Scrollable).first);
+    }else{
+      expect(catalog,findsNothing);
+    }
     expect(find.text('Licensed source unavailable; published results remain available. This is not zero coverage.'),mode=='unavailable'?findsOneWidget:findsNothing);
     expect(find.text('0 licensed reports (bounded sample)'),findsNothing);
     expect(tester.takeException(),isNull);
@@ -373,7 +383,7 @@ void main(){
    // collapse the panel, then finish scrolling before pagination.
    await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
    final next=find.text(ar?'التالي':'Next');
-   await tester.ensureVisible(next);await tester.pumpAndSettle();
+   await tester.scrollUntilVisible(next,200,scrollable:find.byType(Scrollable).first);await tester.pumpAndSettle();
    await tester.tap(next);await tester.pumpAndSettle();
    expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');expect(api.queries.last['min_power_kw'],'40');expect(api.queries.last['max_power_kw'],'60');
    expect(api.calls.every((path)=>path=='GET discovery/search'),true);
@@ -403,7 +413,7 @@ void main(){
   final api=SavedUnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},customer:true));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes,['PUT favorites/7']);
   await tester.tap(find.byKey(const ValueKey('unified-favorite-partner:7')));await tester.pumpAndSettle();expect(api.writes.last,'PUT roaming/favorites/7');expect(api.saved.length,2);
-  await tester.tap(find.byType(CheckboxListTile));await tester.pump();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.last['saved_only'],'1');
+  await tester.tap(find.byKey(const Key('unified-saved-only')));await tester.pump();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.last['saved_only'],'1');
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes.last,'DELETE favorites/7');expect(api.saved,{'partner:7'});
  });
  testWidgets('unknown saved outcomes block replay until explicit refresh',(tester)async{
@@ -688,8 +698,8 @@ void main(){
    await tester.pumpWidget(app(api,(_){},customer:true));
    final input=find.byKey(const Key('unified-query'));
    await tester.enterText(input,'Private customer place');
-   await tester.ensureVisible(find.byType(CheckboxListTile));
-   await tester.tap(find.byType(CheckboxListTile));await tester.pump();
+   await tester.ensureVisible(find.byKey(const Key('unified-saved-only')));
+   await tester.tap(find.byKey(const Key('unified-saved-only')));await tester.pump();
    await tester.ensureVisible(find.byType(FilledButton));
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'1');
@@ -697,7 +707,7 @@ void main(){
    await tester.pumpWidget(app(api,(_){},customer:false));await tester.pumpAndSettle();
    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
    expect(tester.widget<TextField>(input).controller!.text,isEmpty);
-   expect(find.byType(CheckboxListTile),findsNothing);
+   expect(find.byKey(const Key('unified-saved-only')),findsNothing);
    await tester.ensureVisible(find.byType(FilledButton));
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'0');
