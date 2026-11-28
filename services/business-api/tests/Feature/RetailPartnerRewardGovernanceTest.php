@@ -140,6 +140,30 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         $this->assertDatabaseCount('loyalty_ledger', 0);
     }
 
+    public function test_admin_history_rejects_a_claim_linked_to_different_intent_evidence(): void
+    {
+        [$reviewer, $review, $path] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $offer = DB::table('partner_reward_reviews')->find($review);
+        $approval = DB::table('partner_reward_review_events')->where('review_id', $review)
+            ->where('decision', 'approve')->first();
+        $redemption = DB::table('loyalty_redemptions')->insertGetId([
+            'user_id' => $customer->id, 'reward_id' => $offer->reward_id, 'points_cost' => 0,
+            'status' => 'pending', 'request_key' => hash('sha256', 'different-intent'),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('partner_reward_claims')->insert([
+            'user_id' => $customer->id, 'review_id' => $review, 'approval_event_id' => $approval->id,
+            'redemption_id' => $redemption, 'request_key' => hash('sha256', 'original-intent'),
+            'created_at' => now(),
+        ]);
+
+        $this->actingAs($reviewer)->getJson("$path/$review")->assertConflict()
+            ->assertJsonMissingPath('claims');
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_cancelled_partner_claim_fences_delayed_dispatch_and_is_idempotent_without_reserving_inventory(): void
     {
         [, $review] = $this->sandboxOffer();

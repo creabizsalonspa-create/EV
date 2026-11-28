@@ -98,12 +98,17 @@ final class PartnerRewardGovernance
                 ->where('claim.review_id', $review)->orderByDesc('claim.id')
                 ->paginate(25, [
                     'claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.approval_event_id',
-                    'claim.created_at', 'claim.user_id', 'redemption.user_id as redemption_user_id',
+                    'claim.created_at', 'claim.user_id', 'claim.request_key', 'redemption.user_id as redemption_user_id',
+                    'redemption.request_key as redemption_request_key', 'redemption.created_at as redemption_created_at',
                     'redemption.reward_id', 'redemption.points_cost', 'redemption.status',
                     'approval.review_id as approval_review_id', 'approval.decision as approval_decision',
+                    'approval.created_at as approval_created_at',
                 ], 'claims_page', $claimsPage)->through(function ($claim) use ($row, $review) {
                     abort_unless((int) $claim->review_id === $review
                         && $claim->redemption_user_id !== null && (int) $claim->user_id === (int) $claim->redemption_user_id
+                        && $claim->redemption_request_key !== null && hash_equals($claim->request_key, $claim->redemption_request_key)
+                        && $claim->approval_created_at !== null && $claim->approval_created_at <= $claim->redemption_created_at
+                        && $claim->redemption_created_at !== null && $claim->redemption_created_at <= $claim->created_at
                         && (int) $claim->reward_id === (int) $row->reward_id
                         && $claim->points_cost !== null && (string) $claim->points_cost === '0'
                         && (int) $claim->approval_review_id === $review && $claim->approval_decision === 'approve'
