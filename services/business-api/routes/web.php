@@ -28,6 +28,7 @@ use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\PrivacyAccessExportController;
+use App\Http\Controllers\PrivacyContactMinimizationController;
 use App\Http\Controllers\ReferralController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RetailPartnerController;
@@ -98,6 +99,7 @@ Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'r
 Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);
 Route::post('/api/account/privacy-requests/{privacyCase}/withdraw', [AccountPrivacyController::class, 'withdraw'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/privacy-requests/{privacyCase}/minimize-contact', [PrivacyContactMinimizationController::class, 'remove'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
 Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
