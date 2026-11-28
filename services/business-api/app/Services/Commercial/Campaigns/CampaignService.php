@@ -198,6 +198,9 @@ class CampaignService
                 abort_unless($this->eligible($c, $v['kind'] === 'click') && $v['country'] === $c->country && $v['placement'] === $c->placement && ($c->region === null || $c->region === ($v['region'] ?? null)), 409, 'Campaign is not eligible for this delivery context.');
                 $occurred = CarbonImmutable::parse($v['occurred_at']);
                 abort_unless($occurred->gte(CarbonImmutable::parse($c->starts_at)) && $occurred->gte(CarbonImmutable::parse($c->created_at)) && $occurred->lt(CarbonImmutable::parse($c->ends_at)) && $occurred->betweenIncluded(now()->subMinutes(5), now()->addMinute()), 422, 'Delivery occurrence is outside the allowed interval.');
+                $decision = DB::table('commercial_campaign_events')->where('campaign_id', $c->id)
+                    ->where('created_at', '<=', $occurred)->orderByDesc('created_at')->orderByDesc('id')->value('action');
+                abort_unless(in_array($decision, ['approve', 'resume', 'reinstate'], true), 409, 'Campaign was not published at the reported occurrence.');
                 $parent = null;
                 if ($v['kind'] === 'click') {
                     $parent = DB::table('commercial_campaign_deliveries')->where('event_id', $v['parent_event_id'] ?? '')->where('campaign_id', $c->id)->where('kind', 'delivery')->first();
