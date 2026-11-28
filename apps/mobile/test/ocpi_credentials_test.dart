@@ -15,6 +15,7 @@ class CredentialsApi extends FixtureApi {
       () => active;
   bool lost = false, expired = false, incoming = false, forgedCapability = false;
   bool forgedSandboxPolicy = false;
+  bool forgedTokenReadiness = false;
   Map<String, dynamic>? intent;
   @override
   Future<dynamic> request(
@@ -62,6 +63,8 @@ class CredentialsApi extends FixtureApi {
         'payment_authority': false,
         'sandbox_command_policy_ready': false,
         'sandbox_reservation_policy_ready': forgedSandboxPolicy,
+        'sandbox_token_sender_configured': !forgedTokenReadiness,
+        'sandbox_token_sender_request_ready': forgedTokenReadiness || (!lost && !incoming),
         'modules': [
           for (final module in ['locations', 'tariffs', 'sessions', 'cdrs'])
             {
@@ -69,6 +72,7 @@ class CredentialsApi extends FixtureApi {
               'partner_sender_negotiated': module == 'locations' && !lost,
               'local_receiver_configured': module != 'tariffs',
               'local_receiver_active': module != 'tariffs' && !lost,
+              'local_receiver_request_ready': module == 'locations' && !lost && !incoming,
               'local_sender_configured': false,
               'local_sender_active': forgedCapability && module == 'locations',
               'sandbox_delivery_software_enabled': false,
@@ -114,6 +118,16 @@ void main() {
       expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
       expect(find.textContaining(ar ? 'قراءة الشريك نعم' : 'Partner read yes'), findsOneWidget);
       expect(find.textContaining(ar ? 'سياسة أوامر الاختبار: لا' : 'Sandbox command policy: no'), findsOneWidget);
+      final senderReadiness = find.textContaining(ar
+          ? 'مرسل رموز الاختبار جاهز للطلبات: نعم'
+          : 'Sandbox token sender ready: yes');
+      await tester.scrollUntilVisible(senderReadiness, 160);
+      expect(senderReadiness, findsOneWidget);
+      final receiverReadiness = find.textContaining(ar
+          ? 'استقبال الطلبات جاهز نعم'
+          : 'Receive requests ready yes');
+      await tester.scrollUntilVisible(receiverReadiness, 160);
+      expect(receiverReadiness, findsOneWidget);
       expect(find.textContaining('SYNTHETIC-PEER-BOOTSTRAP'), findsNothing);
       expect(api.writes, 0);
     });
@@ -131,6 +145,18 @@ void main() {
     api.forgedSandboxPolicy = true;
     await tester.tap(find.text('Refresh'));
     await tester.pumpAndSettle();
+    expect(find.text('Partner credentials unavailable.'), findsOneWidget);
+    expect(find.text('Rotate partner credentials'), findsNothing);
+    expect(api.writes, 0);
+  });
+
+  testWidgets('token sender readiness without its contract fails closed', (tester) async {
+    final api = CredentialsApi()..forgedTokenReadiness = true;
+    await tester.pumpWidget(MaterialApp(
+      home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+
     expect(find.text('Partner credentials unavailable.'), findsOneWidget);
     expect(find.text('Rotate partner credentials'), findsNothing);
     expect(api.writes, 0);

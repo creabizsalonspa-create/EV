@@ -210,6 +210,44 @@ class UnifiedDiscoveryTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    public function test_unified_partner_state_filter_matches_the_same_evse_before_pagination(): void
+    {
+        $f = $this->fixtures();
+        $record = $f['record'];
+        $normalized = $record->normalized;
+        $normalized['connector_standards'] = ['IEC_62196_T2_COMBO', 'CHADEMO'];
+        $normalized['evses'] = [
+            ['uid' => 'available', 'reported_status' => 'AVAILABLE', 'connectors' => [['id' => 'a', 'standard' => 'CHADEMO']]],
+            ['uid' => 'charging', 'reported_status' => 'CHARGING', 'connectors' => [['id' => 'b', 'standard' => 'IEC_62196_T2_COMBO']]],
+        ];
+        $record->update(['normalized' => $normalized]);
+        for ($n = 0; $n < 26; $n++) {
+            $copy = $record->replicate();
+            $copy->external_id = 'different-evse-state-'.$n;
+            $copy->normalized = array_replace($normalized, ['evses' => [$normalized['evses'][1]]]);
+            $copy->save();
+        }
+
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $url) {
+            $this->getJson($url.'?reported_evse_status=AVAILABLE&connector=CHAdeMO')->assertOk()
+                ->assertJsonPath('total', 1)->assertJsonPath('last_page', 1)
+                ->assertJsonPath('data.0.key', 'partner:'.$record->id)
+                ->assertJsonPath('data.0.availability', 'unknown')
+                ->assertJsonPath('data.0.reservable', false)
+                ->assertJsonPath('data.0.remote_control', false);
+            $this->getJson($url.'?reported_evse_status=AVAILABLE&connector=CCS2')->assertOk()
+                ->assertJsonPath('total', 0);
+            $this->getJson($url.'?reported_evse_status=AVAILABLE&scope=catalog')->assertOk()
+                ->assertJsonPath('total', 0);
+            $this->getJson($url.'?reported_evse_status=AVAILABLE&recent_source_status=Available')->assertOk()
+                ->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'partner');
+            $this->getJson($url.'?reported_evse_status=available')
+                ->assertUnprocessable()->assertJsonValidationErrors('reported_evse_status');
+        }
+
+        Http::assertNothingSent();
+    }
+
     public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));

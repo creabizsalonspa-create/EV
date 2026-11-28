@@ -56,6 +56,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   Map<String,String> submittedAdvanced={}, submittedViewport={};
   late bool Function() ownSession;
   String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
+  String partnerState='';
   String scope='all',country='',connector='',submitted='',submittedScope='all',submittedCountry='',submittedConnector='';
   int generation=0,page=1,last=1,total=0,formEpoch=0;
   bool rememberNextSearch=false;
@@ -82,6 +83,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     submitted='';scope='all';submittedScope='all';
     country='';submittedCountry='';connector='';submittedConnector='';
     sourceStatus='';submittedSourceStatus='';sourceAge='';submittedSourceAge='';
+    partnerState='';
     submittedSaved=false;savedOnly=false;
     page=last=1;total=0;rows=[];
     busy=false;writing=false;uncertain=false;error=null;
@@ -238,6 +240,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       scope=old['scope']??'all';country=old['country']??'';
       connector=old['connector']??'';
       sourceStatus=old['source_status']??'';sourceAge=old['source_age']??'';
+      partnerState=old['advanced_reported_evse_status']??'';
       savedOnly=widget.customer&&old['saved']=='1';
       formEpoch++;
       error=tr('Filters restored locally. Press Search to submit.',
@@ -288,9 +291,30 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       ExpansionTile(title:Text(tr('Advanced filters','مرشحات متقدمة')),children:[
         for(final field in [('operator','Operator label','اسم المشغل',100),('address','Address or city','العنوان أو المدينة',150),('access','Platform access description','وصف الوصول في المنصة',150),('min_power_kw','Minimum published station rating (kW)','أقل قدرة منشورة للمحطة (كيلوواط)',4),('max_power_kw','Maximum published station rating (kW)','أعلى قدرة منشورة للمحطة (كيلوواط)',4),('max_rate_per_kwh','Maximum simulated energy rate per kWh','أقصى سعر طاقة محاكاة لكل كيلوواط ساعة',10),('price_currency','Rate currency (for example AED)','عملة السعر (مثلاً AED)',3)])
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
+        DropdownButtonFormField<String>(
+          key: const Key('unified-partner-state'),
+          initialValue: partnerState,
+          decoration: InputDecoration(labelText: tr('Partner-reported EVSE state', 'حالة وحدة الشحن حسب تقرير الشريك')),
+          items: [
+            for (final option in [
+              ('', 'All partner states', 'كل حالات الشركاء'),
+              ('AVAILABLE', 'Available', 'متاح'),
+              ('BLOCKED', 'Blocked', 'محظور'),
+              ('CHARGING', 'Charging', 'قيد الشحن'),
+              ('INOPERATIVE', 'Inoperative', 'خارج الخدمة'),
+              ('OUTOFORDER', 'Out of order', 'معطل'),
+              ('PLANNED', 'Planned', 'مخطط له'),
+              ('REMOVED', 'Removed', 'تمت إزالته'),
+              ('RESERVED', 'Reserved', 'محجوز'),
+              ('UNKNOWN', 'Unknown', 'غير معروف'),
+            ]) DropdownMenuItem(value: option.$1, child: Text(tr(option.$2, option.$3))),
+          ],
+          onChanged: busy || writing ? null : (value) => setState(() => partnerState = value ?? ''),
+        ),
+        Text(tr('This filter uses partner catalog reports. Select a simulated source state as well to include matching platform results.', 'يستخدم هذا المرشح تقارير كتالوج الشركاء. اختر أيضاً حالة مصدر محاكاة لتضمين نتائج المنصة المطابقة.')),
         Text(tr('Access, power and price filters exclude partner reports. Published station kW is catalog rated power, not measured live power. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:guard((){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);}),child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:guard((){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}if(partnerState.isNotEmpty)submittedAdvanced['reported_evse_status']=partnerState;submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);}),child:Text(tr('Search all sources','البحث في كل المصادر'))),
       if(recentPresets.isNotEmpty&&foreground&&ownSession())...[
         Text(tr('Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)')),
         Wrap(spacing:8,children:[

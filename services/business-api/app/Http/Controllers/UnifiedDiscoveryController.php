@@ -41,7 +41,7 @@ final class UnifiedDiscoveryController extends Controller
             'south' => 'nullable|required_with:north,west,east|numeric|between:-90,90',
             'north' => 'nullable|required_with:south,west,east|numeric|between:-90,90',
             'west' => 'nullable|required_with:south,north,east|numeric|between:-180,180',
-            'east' => 'nullable|required_with:south,north,west|numeric|between:-180,180', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
+            'east' => 'nullable|required_with:south,north,west|numeric|between:-180,180', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'reported_evse_status' => 'nullable|string|in:AVAILABLE,BLOCKED,CHARGING,INOPERATIVE,OUTOFORDER,PLANNED,REMOVED,RESERVED,UNKNOWN', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
         $checkedAt = now('UTC');
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
@@ -114,7 +114,12 @@ final class UnifiedDiscoveryController extends Controller
         }
         if (! empty($v['recent_source_status'])) {
             app(SourceReportFilter::class)->apply($catalog, [...$v, ...(! empty($v['connector']) ? ['connector_type' => $v['connector']] : [])]);
-            $partner->whereRaw('1 = 0'); // Partner reports cannot fulfill canonical five-minute source evidence.
+        }
+        $partnerState = $v['reported_evse_status'] ?? null;
+        if ($partnerState !== null && empty($v['recent_source_status'])) {
+            $catalog->whereRaw('1 = 0');
+        } elseif ($partnerState === null && ! empty($v['recent_source_status'])) {
+            $partner->whereRaw('1 = 0');
         }
         $text = trim($v['q'] ?? '');
         if ($text !== '') {
@@ -143,8 +148,14 @@ final class UnifiedDiscoveryController extends Controller
                     ->join('vendor_connectors as c', 'c.id', '=', 'm.connector_id')->whereColumn('m.station_id', 'stations.id')->where('c.connector_type', $v['connector']))
                     ->orWhere(fn ($legacy) => $legacy->whereNotExists(fn ($sub) => $sub->selectRaw('1')->from('charging_connector_mappings as m')->whereColumn('m.station_id', 'stations.id'))->where('connector_type', $v['connector']));
             });
-            $standards = ['CCS2' => 'IEC_62196_T2_COMBO', 'Type2' => 'IEC_62196_T2', 'CHAdeMO' => 'CHADEMO'];
-            PartnerCatalogText::standard($partner, $standards[$v['connector']]);
+        }
+        $standards = ['CCS2' => 'IEC_62196_T2_COMBO', 'Type2' => 'IEC_62196_T2', 'CHAdeMO' => 'CHADEMO'];
+        $partnerStandard = $standards[$v['connector'] ?? ''] ?? null;
+        if ($partnerStandard !== null) {
+            PartnerCatalogText::standard($partner, $partnerStandard);
+        }
+        if ($partnerState !== null) {
+            PartnerCatalogText::reportedState($partner, $partnerState, $partnerStandard);
         }
         if (($v['scope'] ?? 'all') === 'catalog') {
             $partner->whereRaw('1 = 0');

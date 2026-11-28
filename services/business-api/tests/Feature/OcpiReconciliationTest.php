@@ -7,6 +7,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
+use App\Services\Ocpi\CdrSessionClaims;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -138,6 +139,64 @@ class OcpiReconciliationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('finance_journals', 0);
         $this->assertSame($raw, $first->fresh()->payload);
+    }
+
+    public function test_large_verified_cdr_history_is_compared_without_the_legacy_page_limit(): void
+    {
+        [$provider, $cdr, $raw] = $this->source();
+        $sync = app(RecordSynchronizer::class);
+        $reconciler = app(CdrReconciler::class);
+        $sync->ingest($provider, 'cdrs', [array_replace($raw, ['id' => 'other-party', 'party_id' => 'ALT', 'session_id' => 'session-1'])]);
+        $largeArchive = [];
+        for ($i = 0; $i < 1001; $i++) {
+            $largeArchive[] = array_replace($raw, ['id' => 'archive-'.$i, 'session_id' => 'archive-session-'.$i]);
+        }
+        foreach (array_chunk($largeArchive, 200) as $page) {
+            $sync->ingest($provider, 'cdrs', $page);
+        }
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $cdr)['status']);
+
+        $legacy = OcpiRecord::where('external_id', 'archive-0')->firstOrFail();
+        DB::table('ocpi_records')->where('id', $legacy->id)->update([
+            'cdr_session_claim_key' => null, 'cdr_session_claim_source_hash' => null,
+        ]);
+        $this->assertContains('history_exceeds_comparison_limit', $reconciler->inspect($provider, $cdr)['issues']);
+        $backfill = app(CdrSessionClaims::class)->backfill($provider->id, $legacy->id - 1, 1);
+        $this->assertSame(['indexed' => 1, 'unchanged' => 0, 'requires_review' => 0, 'next_after_id' => $legacy->id], $backfill);
+        $this->assertSame($legacy->getRawOriginal('payload'), $legacy->fresh()->getRawOriginal('payload'));
+        $this->assertSame($legacy->updated_at->toISOString(), $legacy->fresh()->updated_at->toISOString());
+        $this->assertSame('source_consistent', $reconciler->inspect($provider, $cdr)['status']);
+
+        $sync->ingest($provider, 'cdrs', [
+            array_replace($raw, ['id' => 'unlinked', 'session_id' => null]),
+            array_replace($raw, ['id' => 'duplicate-claim']),
+        ]);
+        $report = $reconciler->inspect($provider, $cdr);
+        $this->assertSame('requires_review', $report['status']);
+        $this->assertSame(['history_contains_unlinked_cdrs', 'multiple_cdrs_for_session'], $report['issues']);
+        $this->assertFalse($report['billing_eligible']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_cdr_indexing_command_clears_unverified_index_metadata_without_repairing_source(): void
+    {
+        [$provider, $cdr] = $this->source();
+        $ciphertext = $cdr->getRawOriginal('payload');
+        $this->assertArrayNotHasKey('cdr_session_claim_key', $cdr->toArray());
+        $this->assertArrayNotHasKey('cdr_session_claim_source_hash', $cdr->toArray());
+        $this->artisan('ocpi:index-cdr-claims', ['provider' => $provider->id, '--limit' => 101])->assertExitCode(2);
+        $this->artisan('ocpi:index-cdr-claims', ['provider' => $provider->id, '--limit' => 1])
+            ->expectsOutput('{"indexed":0,"unchanged":1,"requires_review":0,"next_after_id":null}')->assertSuccessful();
+
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['payload' => 'unreadable-test-claim']);
+        $this->artisan('ocpi:index-cdr-claims', ['provider' => $provider->id])
+            ->expectsOutput('{"indexed":0,"unchanged":0,"requires_review":1,"next_after_id":null}')->assertExitCode(1);
+        $this->assertNull($cdr->fresh()->cdr_session_claim_key);
+        $this->assertSame('unreadable-test-claim', $cdr->fresh()->getRawOriginal('payload'));
+        DB::table('ocpi_records')->where('id', $cdr->id)->update(['payload' => $ciphertext]);
+        $this->artisan('ocpi:index-cdr-claims', ['provider' => $provider->id])
+            ->expectsOutput('{"indexed":1,"unchanged":0,"requires_review":0,"next_after_id":null}')->assertSuccessful();
     }
 
     public function test_reused_reconciler_cannot_trust_stale_provider_authority_or_ownership_snapshot(): void

@@ -52,3 +52,45 @@ test('pagination retains applied filters and invalid authority is rejected',asyn
  const q=nodes(f.root,'input').find(x=>x.name==='q');q.value='original';submit(f);await flush();q.value='unsubmitted';click(f,'Next page');await flush();
  assert.match(reads[1],/q=original/);assert.match(reads[1],/page=2/);assert.equal(nodes(f.root,'article').length,0);assert(f.root.textContent.includes('could not load'));
 });
+test('partner source uses its own map filters and renders only bounded report evidence',async()=>{
+ const f=fixture(), reads=[];
+ const partner={...row(),id:3,name:'Synthetic partner pin',country:'ARE',source:'partner_catalog',
+  provider_label:'<img src=x onerror=alert(1)>',source_clock_evidence:'PARTNER_REPORTED_TIME',reported_source_age_minutes:120};
+ f.setActor({id:1,role:'admin'},async path=>{
+  reads.push(path);
+  return reads.length===1?reply():{...reply([partner],1,2),scope:'published_partner_catalog'};
+ });
+ const country=nodes(f.root,'input').find(input=>input.name==='country');
+ country.value='AE';
+ nodes(f.root,'input').find(input=>input.name==='company_id').value='8';
+ nodes(f.root,'select').find(select=>select.name==='recent_source_status').value='Available';
+ submit(f);await flush();
+ assert.equal(nodes(f.root,'article')[0].dataset.stationId,'1');
+ const scope=nodes(f.root,'select').find(select=>select.name==='scope');
+ scope.value='partner';scope.onchange();
+ assert.equal(country.value,'');assert.equal(country.maxLength,3);
+ assert.equal(nodes(f.root,'article').length,0);assert.equal(reads.length,1);
+ assert.match(f.root.textContent,/Station or provider name/);
+ country.value='ARE';submit(f);await flush();
+ const params=new URLSearchParams(reads[1].split('?')[1]);
+ assert.equal(params.get('scope'),'partner');assert.equal(params.get('country'),'ARE');
+ assert.equal(params.has('company_id'),false);assert.equal(params.has('recent_source_status'),false);
+ assert.equal(nodes(f.root,'article')[0].dataset.partnerRecordId,'3');
+ assert.match(f.root.textContent,/Partner reported update: 120 minutes ago/);
+ assert.match(f.root.textContent,/<img src=x onerror=alert\(1\)>/);
+ assert.equal(nodes(f.root,'img').length,0);
+ click(f,'Next page');await flush();
+ assert.match(reads[2],/scope=partner/);assert.match(reads[2],/page=2/);
+});
+test('late responses and mismatched source contracts cannot create partner pins',async()=>{
+ const f=fixture();let resolve, calls=0;
+ f.setActor({id:1,role:'admin'},()=>++calls===1?new Promise(r=>resolve=r):Promise.resolve(reply()));
+ submit(f);
+ const scope=nodes(f.root,'select').find(select=>select.name==='scope');
+ scope.value='partner';scope.onchange();
+ resolve(reply());await flush();
+ assert.equal(nodes(f.root,'article').length,0);
+ submit(f);await flush();
+ assert.equal(nodes(f.root,'article').length,0);
+ assert.match(f.root.textContent,/could not load/);
+});

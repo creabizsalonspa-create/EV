@@ -30,11 +30,16 @@ final class DiscoveryViewport
                 ->orWhere('stations.longitude', '<=', $east));
         }
 
+        $this->applyToPartner($partner, $south, $north, $west, $east);
+    }
+
+    public function applyToPartner(Builder $partner, float $south, float $north, float $west, float $east): void
+    {
         [$latitude, $longitude] = $this->partnerCoordinates();
         $partner->whereRaw("$latitude BETWEEN ? AND ?", [$south, $north])
             ->whereRaw("$latitude BETWEEN -90 AND 90")
             ->whereRaw("$longitude BETWEEN -180 AND 180");
-        if ($west < $east) {
+        if ($west <= $east) {
             $partner->whereRaw("$longitude BETWEEN ? AND ?", [$west, $east]);
         } else {
             $partner->where(fn (Builder $query) => $query->whereRaw("$longitude >= ?", [$west])

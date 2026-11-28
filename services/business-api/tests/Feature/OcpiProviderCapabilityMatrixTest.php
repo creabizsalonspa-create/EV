@@ -58,6 +58,8 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
         $this->actingAs($owner)->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_configured', false)
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_request_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
         config([
@@ -78,6 +80,8 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false);
         $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
         $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_configured', true)
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_request_ready', true)
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', true)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false)
             ->assertJsonPath('charging_commands_enabled', false);
@@ -97,6 +101,7 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
             ->assertDontSee('synthetic-reservation-contract');
         config(['ocpi.connections.capability-test.read_modules' => ['locations', 'tariffs', 'sessions']]);
         $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_request_ready', true)
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false)
             ->assertJsonPath('capability_matrix.modules.3.partner_sender_negotiated', false)
@@ -108,6 +113,8 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $endpoints = $provider->endpoints;
         $provider->update(['endpoints' => array_replace($endpoints, ['commands_receiver' => 'https://foreign.example/commands'])]);
         $this->getJson($path)->assertOk()
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_configured', true)
+            ->assertJsonPath('capability_matrix.sandbox_token_sender_request_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_command_policy_ready', false)
             ->assertJsonPath('capability_matrix.sandbox_reservation_policy_ready', false);
         $provider->update(['endpoints' => $endpoints]);
@@ -119,6 +126,35 @@ class OcpiProviderCapabilityMatrixTest extends TestCase
         $this->assertDatabaseCount('ocpi_credential_operations', 0);
         $this->assertDatabaseCount('ocpi_roaming_orders', 0);
         $this->assertDatabaseCount('ocpi_roaming_commands', 0);
+    }
+
+    public function test_peer_token_module_is_advertised_only_for_a_configured_sandbox_contract(): void
+    {
+        [, , $provider] = $this->fixture();
+        $headers = ['Authorization' => 'Token '.base64_encode('SYNTHETIC-ACTIVE-LOCAL-TOKEN')];
+        $url = '/api/roaming-protocol/2.2.1';
+        $tokenEndpoint = ['identifier' => 'tokens', 'role' => 'SENDER',
+            'url' => 'https://platform.example/api/roaming-protocol/2.2.1/tokens'];
+        config([
+            'ocpi.test_commands_enabled' => true,
+            'ocpi.connections.capability-test.test_commands' => true,
+            'ocpi.connections.capability-test.test_command_contract' => 'synthetic-command-contract',
+        ]);
+        $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $provider->update(['version' => null, 'endpoints' => null]);
+        $this->getJson($url, $headers)->assertOk()->assertJsonFragment($tokenEndpoint);
+        $this->getJson($url.'/tokens', $headers)->assertConflict();
+
+        config(['ocpi.connections.capability-test.environment' => 'production']);
+        $this->getJson($url, $headers)->assertOk()->assertJsonMissing($tokenEndpoint);
+        config([
+            'ocpi.connections.capability-test.environment' => 'sandbox',
+            'ocpi.connections.capability-test.incoming_modules' => ['locations', 'sessions'],
+        ]);
+        $link->update(['configuration_hash' => app(CredentialExchange::class)->configurationHash($provider)]);
+        $this->getJson($url, $headers)->assertOk()->assertJsonMissing($tokenEndpoint);
+        Http::assertNothingSent();
     }
 
     public function test_network_read_scope_restricts_sender_evidence_without_granting_receiver_authority(): void

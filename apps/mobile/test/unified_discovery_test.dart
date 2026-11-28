@@ -320,6 +320,29 @@ void main(){
 
   final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){ }));await tester.tap(find.byKey(const Key('unified-source-status')));await tester.pumpAndSettle();await tester.tap(find.text('Charging').last);await tester.pumpAndSettle();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.single['recent_source_status'],'Charging');
  });
+ testWidgets('partner EVSE state is submitted and retained on the next page', (tester) async {
+  roomy(tester);
+  final api = UnifiedApi();
+  addTearDown(api.close);
+  await tester.pumpWidget(app(api, (_) {}));
+  await tester.tap(find.text('Advanced filters'));
+  await tester.pumpAndSettle();
+  final scrollable = find.byType(Scrollable).first;
+  final control = find.byKey(const Key('unified-partner-state'));
+  await tester.scrollUntilVisible(control, 160, scrollable: scrollable);
+  await tester.tap(control);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Available').last);
+  await tester.pumpAndSettle();
+  await tester.scrollUntilVisible(find.byType(FilledButton), 160, scrollable: scrollable);
+  await tester.tap(find.byType(FilledButton));
+  await tester.pumpAndSettle();
+  expect(api.queries.single['reported_evse_status'], 'AVAILABLE');
+  await tester.scrollUntilVisible(find.text('Next'), 160, scrollable: scrollable);
+  await tester.tap(find.text('Next'));
+  await tester.pumpAndSettle();
+  expect(api.queries.last['reported_evse_status'], 'AVAILABLE');
+ });
  testWidgets('partner source-age selection sends bounded hours and persists across pages',(tester)async{
   roomy(tester);
   final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){ }));

@@ -166,6 +166,24 @@ final class OcpiContractReviewDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_admin_partner_map_observes_the_same_opt_in_publication_policy(): void
+    {
+        [, , $admin, $provider, $record] = $this->fixture();
+        $url = '/api/admin/operations/map?scope=partner&country=ARE';
+        config(['ocpi.contract_review_required' => true]);
+
+        $this->actingAs($admin)->getJson($url)->assertOk()->assertJsonPath('total', 0);
+        $this->approve($admin, $provider);
+        $this->getJson($url)->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $record->id)
+            ->assertJsonPath('data.0.remote_control', false)
+            ->assertDontSee('DO-NOT-RELEASE-OCPI-CONTRACT-BODY');
+        DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->getJson($url)->assertOk()->assertJsonPath('total', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_invalid_stored_review_dates_never_grant_public_or_runtime_authority(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-25T12:00:00Z'));
