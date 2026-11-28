@@ -197,6 +197,9 @@ void main(){
   });
   for(final mode in ['unavailable','forged','revoked'])testWidgets('federated result boundary $mode',(tester)async{
     roomy(tester);
+    // This verifies the response/authority boundary, not scrolling. Keep
+    // the whole expanded form and both result cards mounted at once.
+    tester.view.physicalSize=const Size(1100,3600);
     final api=FederatedFixtureApi();addTearDown(api.close);
     api.unavailable=mode=='unavailable';api.forged=mode=='forged';
     if(mode=='revoked')api.held=Completer<dynamic>();
@@ -215,14 +218,19 @@ void main(){
     expect(api.calls,['POST discovery/federated-nearby']);
     final catalog=find.byKey(const ValueKey('catalog:7'));
     final unavailable=find.text('Licensed source unavailable; published results remain available. This is not zero coverage.');
+    final partner=find.byKey(const ValueKey('partner:7'));
+    final rejected=find.text('Search failed. Retry explicitly.');
     if(mode=='unavailable'){
-      await tester.scrollUntilVisible(catalog,200,scrollable:find.byType(Scrollable).first);
+      expect(rejected,findsNothing);
+      expect(find.text('3 published results'),findsOneWidget);
       expect(catalog,findsOneWidget);
-      await tester.scrollUntilVisible(unavailable,200,scrollable:find.byType(Scrollable).first);
+      expect(partner,findsOneWidget);
     }else{
       expect(catalog,findsNothing);
+      expect(partner,findsNothing);
+      if(mode=='forged')expect(rejected,findsOneWidget);
     }
-    expect(find.text('Licensed source unavailable; published results remain available. This is not zero coverage.'),mode=='unavailable'?findsOneWidget:findsNothing);
+    expect(unavailable,mode=='unavailable'?findsOneWidget:findsNothing);
     expect(find.text('0 licensed reports (bounded sample)'),findsNothing);
     expect(tester.takeException(),isNull);
   });
