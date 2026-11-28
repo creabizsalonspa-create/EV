@@ -13,6 +13,9 @@ window.createRoamingWorkspace = ({
         generation = 0,
         details = 0;
     let catalogFilters = {};
+    let contractReviewClear = () => {};
+    document.addEventListener('visibilitychange', () => { if (document.hidden) contractReviewClear(); });
+    window.addEventListener('pagehide', () => contractReviewClear());
     const meterViews = new Map();
     const clearMeterViews = () => { for (const clear of meterViews.values()) clear(); };
     document.addEventListener('visibilitychange', () => { if (document.hidden) clearMeterViews(); });
@@ -1092,6 +1095,191 @@ window.createRoamingWorkspace = ({
             }
         }
     }
+    async function contractReview(provider, host) {
+        const epoch = generation, version = ++details, viewer = actor();
+        let busy = false, retired = false;
+        if (document.hidden || !host.isConnected || !['admin','vendor'].includes(viewer?.role)) return;
+        const clearReview = () => { retired = true; if (epoch === generation && version === details) host.replaceChildren(); };
+        contractReviewClear = clearReview;
+        const current = () => epoch === generation && version === details &&
+            viewer?.id === actor()?.id && viewer?.role === actor()?.role && host.isConnected && !document.hidden && !retired;
+        const path = 'ocpi/providers/' + provider.id + '/contract-review';
+        const t = (en, ar) => document.documentElement.lang === 'ar' ? ar : en;
+        host.replaceChildren(raw('h3', t('Internal partner contract review', 'مراجعة عقد الشريك الداخلية')),
+            raw('p', t('Loading internal review evidence…', 'جارٍ تحميل دليل المراجعة الداخلية…')));
+        let result;
+        try {
+            result = await api(path, 'GET', undefined, privateRequest?.signal);
+        } catch (error) {
+            if (current()) {
+                host.replaceChildren(raw('p', t('Contract review unavailable. No approval is assumed.', 'مراجعة العقد غير متاحة. لا يُفترض وجود موافقة.')));
+                button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => { if (current() && !busy) return contractReview(provider, host); });
+            }
+            return;
+        }
+        if (!current()) return;
+        // Reject contradictory or upgraded capability claims, rather than
+        // rendering the review record as an operator signature or live access.
+        const safe = result && ['missing', 'internally_reviewed', 'revoked'].includes(result.state) &&
+            Number.isSafeInteger(result.revision) && result.revision >= 0 &&
+            typeof result.review_valid_for_current_owner === 'boolean' &&
+            result.source === 'INTERNAL_MANUAL_DOCUMENT_DIGEST_ONLY' &&
+            result.external_partner_acceptance_verified === false &&
+            result.contract_legally_executed_verified === false &&
+            result.live_roaming_enabled === false &&
+            result.payment_authority === false &&
+            result.automatic_partner_requests === 0 && result.operational_enforcement_available === false &&
+            typeof result.administrative_authorization_review_required === 'boolean' &&
+            (!result.review_valid_for_current_owner || result.state === 'internally_reviewed');
+        if (!safe) {
+            host.replaceChildren(raw('p', t('Inconsistent contract review evidence; refresh for review.', 'دليل مراجعة العقد غير متسق؛ حدّث للمراجعة.')));
+            button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => { if (current() && !busy) return contractReview(provider, host); });
+            return;
+        }
+        const status = {
+            missing: t('Missing', 'مفقودة'),
+            internally_reviewed: t('Internally reviewed only', 'تمت مراجعته داخلياً فقط'),
+            revoked: t('Internal review revoked', 'أُلغيت المراجعة الداخلية')
+        };
+        host.replaceChildren(raw('h3', t('Internal partner contract review', 'مراجعة عقد الشريك الداخلية')),
+            raw('p', t('This is an internal document digest review, NOT a signed contract, partner acceptance or authorization for live charging or payment.', 'هذه مراجعة داخلية لبصمة المستند، وليست عقداً موقعاً أو قبولاً من الشريك أو تفويضاً للشحن المباشر أو الدفع.')),
+            raw('p', t('Review state: ', 'حالة المراجعة: ') + status[result.state]),
+            raw('p', t('Revision: ', 'الإصدار: ') + result.revision),
+            raw('p', result.review_valid_for_current_owner
+                ? t('Internal review is current for this vendor.', 'المراجعة الداخلية سارية لهذا المورّد.')
+                : t('No current internal review approval.', 'لا توجد موافقة مراجعة داخلية سارية.')));
+        host.append(raw('p', result.administrative_authorization_review_required
+            ? t('Internal review is required for new administrative authorization.', 'المراجعة الداخلية مطلوبة للتفويض الإداري الجديد.')
+            : t('Internal review policy is not enabled.', 'سياسة المراجعة الداخلية غير مفعلة.')));
+        if (result.valid_until && /^\d{4}-\d{2}-\d{2}$/.test(result.valid_until))
+            host.append(raw('p', t('Review valid until: ', 'المراجعة سارية حتى: ') + result.valid_until));
+        button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => { if (current() && !busy) return contractReview(provider, host); });
+        button(host, t('Read contract review history', 'قراءة سجل مراجعة العقد'), async () => {
+            if (!current() || busy) return;
+            let audit;
+            try {
+                audit = await api(path + '/history', 'GET', undefined, privateRequest?.signal);
+            } catch (error) {
+                if (current()) host.append(raw('p', t('Private contract review history unavailable.', 'سجل مراجعة العقد الخاص غير متاح.')));
+                return;
+            }
+            if (!current() || busy) return;
+            const valid = audit && audit.scope === 'private_ocpi_contract_review_history' &&
+                audit.external_partner_acceptance_verified === false &&
+                audit.contract_legally_executed_verified === false &&
+                audit.live_roaming_enabled === false && audit.payment_authority === false &&
+                audit.history && Array.isArray(audit.history.data) &&
+                audit.history.data.length <= 25 &&
+                Number.isSafeInteger(audit.history.total) && audit.history.total >= audit.history.data.length &&
+                audit.operational_enforcement_available === false &&
+                audit.administrative_authorization_review_required === result.administrative_authorization_review_required &&
+                audit.current_revision === result.revision &&
+                audit.history.data.every(row => Number.isSafeInteger(row.revision) && row.revision >= 1 &&
+                    ['review', 'revoke'].includes(row.decision) &&
+                    typeof row.recorded_at === 'string');
+            if (!valid) {
+                host.append(raw('p', t('Contract audit data require reconciliation; no partial history shown.', 'تتطلب بيانات تدقيق العقد المطابقة؛ لن يُعرض سجل جزئي.')));
+                return;
+            }
+            host.querySelector('[data-contract-review-history]')?.remove();
+            const section = document.createElement('section');
+            section.dataset.contractReviewHistory = '';
+            section.append(raw('h4', t('Stored internal review decisions', 'قرارات المراجعة الداخلية المخزنة')));
+            if (!audit.history.data.length)
+                section.append(raw('p', t('No reviews for this owner.', 'لا توجد مراجعات لهذا المالك.')));
+            for (const row of audit.history.data) {
+                const item = document.createElement('article');
+                item.append(raw('p', '#' + row.revision + ' · ' + row.decision + ' · ' + row.recorded_at));
+                if (viewer?.role === 'admin') {
+                    if (typeof row.reference_id === 'string') item.append(raw('p', row.reference_id));
+                    if (typeof row.reason === 'string') item.append(raw('p', row.reason));
+                    if (typeof row.evidence_sha256 === 'string') item.append(raw('p', row.evidence_sha256));
+                }
+                section.append(item);
+            }
+            host.append(section);
+        });
+        if (viewer?.role !== 'admin') return;
+
+        function reviewForm(decision) {
+            const form = document.createElement('form');
+            form.dataset.contractReviewAction = decision;
+            const field = (label, element) => {
+                const wrapper = document.createElement('label');
+                wrapper.append(document.createTextNode(label), element);
+                form.append(wrapper);
+                element.required = true;
+                return element;
+            };
+            let reference, digest, expiry;
+            if (decision === 'review') {
+                reference = field(t('Internal case reference', 'مرجع القضية الداخلية'), document.createElement('input'));
+                reference.maxLength = 120;
+                reference.pattern = '[A-Za-z0-9][A-Za-z0-9_.-]{5,119}';
+                digest = field(t('Reviewed document SHA-256 digest', 'بصمة SHA-256 للمستند المراجع'), document.createElement('input'));
+                digest.pattern = '[a-f0-9]{64}';
+                digest.maxLength = 64;
+                expiry = field(t('Review validity date (UTC)', 'تاريخ صلاحية المراجعة (UTC)'), document.createElement('input'));
+                expiry.type = 'date';
+            }
+            const reason = field(t('Internal review reason', 'سبب المراجعة الداخلية'), document.createElement('textarea'));
+            reason.minLength = 15;
+            reason.maxLength = 1000;
+            const submit = document.createElement('button');
+            submit.type = 'submit';
+            submit.textContent = decision === 'review'
+                ? t('Record internal review', 'تسجيل المراجعة الداخلية')
+                : t('Revoke internal review', 'إلغاء المراجعة الداخلية');
+            form.append(submit);
+            host.append(form);
+            let attempted = false;
+            form.onsubmit = async event => {
+                event.preventDefault();
+                if (!current() || busy || attempted || !form.reportValidity() ||
+                    !confirm(t('Record a manual internal decision? This does not activate a roaming partner.', 'تسجيل قرار داخلي يدوي؟ هذا لا يفعّل شريك تجوال.'))) return;
+                // A strong fresh identity prevents accidental replay after an
+                // ambiguous transport response; never auto-retry a mutation.
+                if (!window.crypto?.getRandomValues) {
+                    host.replaceChildren(raw('p', t('Secure operation identity unavailable.', 'معرّف العملية الآمن غير متاح.')));
+                    return;
+                }
+                const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+                const identity = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                const payload = {
+                    decision, reason: reason.value, expected_revision: result.revision,
+                    idempotency_key: identity
+                };
+                if (decision === 'review') {
+                    payload.reference_id = reference.value;
+                    payload.evidence_sha256 = digest.value;
+                    payload.valid_until = expiry.value;
+                }
+                attempted = true;
+                busy = true;
+                for (const control of host.querySelectorAll('form input, form textarea, form button')) control.disabled = true;
+                reason.value = '';
+                if (reference) { reference.value = ''; digest.value = ''; expiry.value = ''; }
+                try {
+                    await api(path, 'POST', payload, privateRequest?.signal);
+                    if (current()) await contractReview(provider, host);
+                } catch (error) {
+                    if (current()) {
+                        busy = false; retired = false; attempted = true;
+                        host.replaceChildren(raw('p', t('Contract review outcome uncertain. Refresh before any further decision.', 'نتيجة مراجعة العقد غير مؤكدة. حدّث قبل اتخاذ أي قرار آخر.')));
+                        button(host, t('Refresh contract review', 'تحديث مراجعة العقد'), () => { if (current() && !busy) return contractReview(provider, host); });
+                        notice(error);
+                    }
+                }
+            };
+        }
+        reviewForm('review');
+        if (result.state === 'internally_reviewed') {
+            if (result.administrative_authorization_review_required && provider.authorized)
+                host.append(raw('p', t('Revoke provider authorization before withdrawing the review.', 'ألغِ تفويض مقدم الخدمة قبل سحب المراجعة.')));
+            else reviewForm('revoke');
+        }
+    }
+
     async function cpoCatalog(provider, host) {
         const viewer = actor(), epoch = generation, version = ++details;
         const current = () => epoch === generation && version === details && host.isConnected
@@ -1302,6 +1490,9 @@ window.createRoamingWorkspace = ({
                 if (actor()?.role === "admin") {
                     button(card, "CPO catalog publications", () => cpoCatalog(provider, detail));
                 }
+                button(card, "Partner contract review", () => {
+                    if (epoch === generation && card.isConnected && !document.hidden) return contractReview(provider, detail);
+                });
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );
