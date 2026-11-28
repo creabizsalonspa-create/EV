@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\OcpiCatalogObservationsController;
 use App\Http\Controllers\OcpiCatalogQualityHistoryController;
+use App\Http\Controllers\OcpiContractReviewController;
 use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCpoCatalogController;
 use App\Http\Controllers\OcpiCredentialsController;
@@ -40,3 +41,8 @@ Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/push', [OcpiCpo
     ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
 Route::post('/providers/{provider}/cpo-catalog/{module}/{source}/reconcile', [OcpiCpoCatalogController::class, 'reconcile'])
     ->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs'])->where('source', '[1-9][0-9]{0,17}');
+
+// Internal evidence ledger only; no operational authorization is granted.
+Route::get('/providers/{provider}/contract-review', [OcpiContractReviewController::class, 'show'])->where('provider', '[0-9]{1,18}');
+Route::get('/providers/{provider}/contract-review/history', [OcpiContractReviewController::class, 'history'])->where('provider', '[0-9]{1,18}');
+Route::post('/providers/{provider}/contract-review', [OcpiContractReviewController::class, 'decide'])->where('provider', '[0-9]{1,18}');
