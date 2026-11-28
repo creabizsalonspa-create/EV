@@ -43,11 +43,21 @@ def open_regular_archive(path):
 def fingerprint(path, magic):
     with open_regular_archive(path) as stream:
         info = os.fstat(stream.fileno())
+        require(0 < info.st_size <= 8 * 1024**3, 'Archive type or size invalid')
         h = hashlib.sha256()
         require(stream.read(len(magic)) == magic, 'Archive magic mismatch')
         stream.seek(0)
-        for block in iter(lambda: stream.read(1048576), b''):
+        remaining = info.st_size
+        while remaining:
+            block = stream.read(min(1048576, remaining))
+            require(bool(block), 'Archive shrank during fingerprinting')
             h.update(block)
+            remaining -= len(block)
+        require(not stream.read(1), 'Archive grew during fingerprinting')
+        final = os.fstat(stream.fileno())
+        require((info.st_size, info.st_mtime_ns, info.st_ctime_ns) ==
+                (final.st_size, final.st_mtime_ns, final.st_ctime_ns),
+                'Archive changed during fingerprinting')
     return {'sha256':h.hexdigest(),'bytes':info.st_size}
 
 def safe_tar(path):
@@ -168,6 +178,27 @@ def read_auth_key(path):
 def read_strict_json(payload):
     # Duplicate names, even inside a nested object, and NaN/Infinity are
     # ambiguous evidence across JSON implementations. Refuse them outright.
+    # Enforce an explicit nesting bound before decoding, independently of the
+    # interpreter recursion limit. Ignore brackets and braces inside strings.
+    depth = 0
+    in_string = escaped = False
+    for byte in payload:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 92:
+                escaped = True
+            elif byte == 34:
+                in_string = False
+        elif byte == 34:
+            in_string = True
+        elif byte in (91, 123):
+            depth += 1
+            require(depth <= 32, 'Backup manifest JSON nesting exceeds limit')
+        elif byte in (93, 125):
+            depth -= 1
+            require(depth >= 0, 'Invalid backup manifest JSON nesting')
+
     def unique(pairs):
         data = {}
         for key, value in pairs:
@@ -178,8 +209,16 @@ def read_strict_json(payload):
     def nonfinite(value):
         raise ArchiveError('Non-standard manifest JSON numeric constant')
 
-    return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
-                      parse_constant=nonfinite)
+    def reject_float(value):
+        # This manifest format has only integer counts and Boolean flags.
+        # Reject fractional/exponent spellings rather than coercing them.
+        raise ArchiveError('Backup manifest floating-point values denied')
+
+    try:
+        return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
+                          parse_constant=nonfinite, parse_float=reject_float)
+    except RecursionError:
+        raise ArchiveError('Backup manifest JSON nesting exceeds limit') from None
 
 
 def main(argv=None):
@@ -223,7 +262,11 @@ def main(argv=None):
                 require('authentication' not in saved and 'manifest_hmac_sha256' not in saved,
                         'Signed manifest requires run-local HMAC key')
                 expected = inspect(args.pg_dump,args.private_tar)
-            require(saved == expected, 'Backup bytes differ from integrity record')
+            # Python's equality treats False as 0 and True as 1. Compare
+            # canonical JSON instead to preserve every field's JSON type.
+            require(json.dumps(saved, sort_keys=True, separators=(',', ':'), allow_nan=False)
+                    == json.dumps(expected, sort_keys=True, separators=(',', ':'), allow_nan=False),
+                    'Backup bytes differ from integrity record')
     except (OSError, ValueError, ArchiveError) as exc:
         print(f'FAIL: {exc}',file=sys.stderr)
         return 1

@@ -135,6 +135,84 @@ class ArchiveTests(unittest.TestCase):
             manifest.write_text(original)
             self.assertEqual(guard.main(['check'] + args), 0)
 
+    def test_manifest_requires_exact_json_field_types_and_bounded_nesting(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, private, manifest = root/'db.dump', root/'private.tar.gz', root/'proof.json'
+            sample_db(dump)
+            sample_tar(private)
+            args = ['--pg-dump', str(dump), '--private-tar', str(private),
+                    '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            original = manifest.read_text()
+            mutations = [
+                original.replace('"production_ready": false', '"production_ready": 0'),
+                original.replace('"gzip_trailer_verified": true', '"gzip_trailer_verified": 1'),
+                original.replace('"regular_files": 1', '"regular_files": true'),
+                original.replace('"regular_files": 1', '"regular_files": 1.0'),
+                original.replace('"regular_files": 1', '"regular_files": 1e0'),
+                original.replace('"regular_files": 1', '"regular_files": 1e999'),
+                '{"extra":' + '[' * 32 + '0' + ']' * 32 + '}',
+                '{"extra":' + '[' * 2000 + '0' + ']' * 2000 + '}',
+            ]
+            for hostile in mutations:
+                with self.subTest(case=hostile[:100]):
+                    self.assertNotEqual(hostile, original)
+                    manifest.write_text(hostile)
+                    self.assertEqual(guard.main(['check'] + args), 1)
+            # Whitespace and object ordering are immaterial, types are not.
+            manifest.write_text(json.dumps(json.loads(original), indent=None))
+            self.assertEqual(guard.main(['check'] + args), 0)
+
+    def test_explicit_manifest_depth_ignores_escaped_strings(self):
+        import json
+        tricky = {'x': 'escaped \" ' + '[' * 60 + '}' * 60 + '\\'}
+        self.assertEqual(guard.read_strict_json(json.dumps(tricky).encode()), tricky)
+        with self.assertRaisesRegex(guard.ArchiveError, 'nesting exceeds limit'):
+            guard.read_strict_json(b'{"x":'+b'['*32+b'0'+b']'*32+b'}')
+
+    def test_fingerprint_rejects_concurrent_growth_truncation_and_same_size_rewrite(self):
+        import os
+        from contextlib import contextmanager
+        original = guard.open_regular_archive
+        for mutation in ('grow', 'shrink', 'rewrite'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as d:
+                dump = Path(d) / 'db.dump'
+                dump.write_bytes(b'PGDMP' + b'a' * 2_000_000)
+
+                @contextmanager
+                def wrapped(path):
+                    with original(path) as raw:
+                        class MutatingReader:
+                            def fileno(self):
+                                return raw.fileno()
+
+                            def read(self, n):
+                                return raw.read(n)
+
+                            def seek(self, offset):
+                                result = raw.seek(offset)
+                                if mutation == 'grow':
+                                    with dump.open('ab') as target:
+                                        target.write(b'growth')
+                                elif mutation == 'shrink':
+                                    with dump.open('r+b') as target:
+                                        target.truncate(10)
+                                else:
+                                    prior = dump.stat()
+                                    with dump.open('r+b') as target:
+                                        target.seek(10000)
+                                        target.write(b'changed')
+                                    os.utime(dump, ns=(prior.st_atime_ns, prior.st_mtime_ns + 2_000_000_000))
+                                return result
+
+                        yield MutatingReader()
+
+                with patch.object(guard, 'open_regular_archive', side_effect=wrapped):
+                    with self.assertRaisesRegex(guard.ArchiveError, 'Archive (grew|shrank|changed)'):
+                        guard.fingerprint(dump, b'PGDMP')
+
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);db=root/'db.dump';private=root/'p.tar.gz';manifest=root/'m.json'
