@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\PartnerReadProfile;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,9 +17,9 @@ class OcpiProvider extends Model
     /** Published OCPI records lose public visibility when their vendor is disabled. */
     public function scopePubliclyDiscoverable(Builder $query): Builder
     {
-        return $query->where('authorized', true)
+        return ContractAuthorizationGate::constrainPublic($query->where('authorized', true)
             ->whereIn('owner_id', User::query()->where('role', 'vendor')
-                ->where('account_status', 'active')->select('id'));
+                ->where('account_status', 'active')->select('id')));
     }
 
     public function getReadableModulesAttribute(): array

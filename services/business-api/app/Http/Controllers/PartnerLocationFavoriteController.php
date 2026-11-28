@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
-use App\Models\User;
 use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
@@ -64,7 +63,7 @@ class PartnerLocationFavoriteController extends CustomerFavoritesController
             $record = OcpiRecord::whereKey($id)->where('module', 'locations')->firstOrFail();
             $provider = OcpiProvider::whereKey($record->ocpi_provider_id)->lockForUpdate()->firstOrFail();
             $record = $record->fresh();
-            abort_unless($record && $provider->authorized && User::whereKey($provider->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()
+            abort_unless($record && OcpiProvider::publiclyDiscoverable()->whereKey($provider->id)->exists()
                 && ($record->normalized['publish'] ?? false) === true, 404);
             DB::table('partner_location_favorites')->insertOrIgnore(['user_id' => $user, 'record_id' => $record->id, 'created_at' => now()]);
 

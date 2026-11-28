@@ -5,6 +5,7 @@ namespace App\Services\Ocpi;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /** Opt-in administrative authorization gate, not a runtime protocol gate. */
@@ -66,6 +67,40 @@ final class ContractAuthorizationGate
     {
         abort_unless(self::credentialAuthority($provider, $action) === $expected, 409,
             'Internal contract evidence changed; credential exchange was fenced.');
+    }
+
+    /** Apply the same latest-review predicate before SQL pagination. */
+    public static function constrainPublic(Builder $providers): Builder
+    {
+        if (! self::required()) {
+            return $providers;
+        }
+        $at = CarbonImmutable::now('UTC');
+        $driver = $providers->getModel()->getConnection()->getDriverName();
+
+        return $providers->whereExists(function ($review) use ($at, $driver) {
+            $review->selectRaw('1')->from('ocpi_partner_contract_reviews as review')
+                ->whereColumn('review.provider_id', 'ocpi_providers.id')
+                ->whereColumn('review.owner_id', 'ocpi_providers.owner_id')
+                ->whereColumn('review.connection_key', 'ocpi_providers.connection_key')
+                ->where('review.decision', 'review')
+                ->whereBetween('review.valid_until', [$at->toDateString(), $at->addYears(3)->toDateString()])
+                ->whereNotExists(function ($newer) {
+                    $newer->selectRaw('1')->from('ocpi_partner_contract_reviews as newer')
+                        ->whereColumn('newer.provider_id', 'review.provider_id')
+                        ->whereColumn('newer.revision', '>', 'review.revision');
+                });
+            if ($driver === 'pgsql') {
+                $review->whereRaw('review.reference_id ~ ?', ['^[A-Za-z0-9][A-Za-z0-9_.-]{5,119}$'])
+                    ->whereRaw('review.evidence_sha256 ~ ?', ['^[a-f0-9]{64}$']);
+            } elseif ($driver === 'sqlite') {
+                $review->whereRaw("date(review.valid_until, '+0 days') = review.valid_until")
+                    ->whereRaw("length(review.reference_id) BETWEEN 6 AND 120 AND substr(review.reference_id, 1, 1) GLOB '[A-Za-z0-9]' AND review.reference_id NOT GLOB '*[^A-Za-z0-9_.-]*'")
+                    ->whereRaw("length(review.evidence_sha256) = 64 AND review.evidence_sha256 NOT GLOB '*[^a-f0-9]*'");
+            } else {
+                $review->whereRaw('1 = 0');
+            }
+        });
     }
 
     public static function validReview(?object $row, OcpiProvider $provider, User $owner, CarbonImmutable $at): bool
