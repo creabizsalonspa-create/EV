@@ -357,6 +357,20 @@ const { chromium } = require("playwright"),
     const vh = (await (await vendorCreation).json()).checkout;
     assert.equal(vh.scope, "subscription");
     assert.equal(vh.subscription_id, f.vendor_subscription);
+    // Creating a checkout refreshes the history list. That independent read
+    // must not retire the current detail or require a second selection.
+    await vendor.waitForFunction(() => {
+      const panel = document.querySelector("[data-hosted-checkout]");
+      return panel && !panel.hasAttribute("aria-busy");
+    });
+    const createdActivity = vendor.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return url.pathname === `/api/commercial/hosted-checkouts/${vh.id}/events` &&
+        url.searchParams.get("page") === "1" && r.request().method() === "GET";
+    });
+    await vendorPanel.getByRole("button", { name: "View checkout activity", exact: true }).click();
+    assert.equal((await createdActivity).status(), 200);
+    await vendorPanel.locator("[data-checkout-activity]").getByText("Checkout activity", { exact: true }).waitFor();
     assert.equal(
       (
         await api(
@@ -384,6 +398,51 @@ const { chromium } = require("playwright"),
       })
       .click();
     assert.equal((await vendorCapture).status(), 200);
+    const activity = vendorPanel.locator("[data-checkout-activity]");
+    await vendorPanel.getByRole("button", { name: "View checkout activity", exact: true }).click();
+    await activity.getByText("Test capture recorded", { exact: true }).waitFor();
+    // Malformed event pages cannot fabricate a timestamp or duplicate activity.
+    const eventRoute = "**/api/commercial/hosted-checkouts/" + vh.id + "/events*";
+    for (const defect of ["invalid-date", "duplicate", "short-page", "wrong-page-size", "wrong-last-page", "ascending"]) {
+      await vendor.route(eventRoute, (route) => {
+        const row = {id: 1, hosted_checkout_id: vh.id, kind: "capture_observed",
+          created_at: defect === "invalid-date" ? "2026-02-30T04:30:00Z" : "2026-02-28 04:30:00.123456"};
+        const data = defect === "duplicate" ? [row,row] : defect === "ascending" ? [row,{...row,id:2}] : [row];
+        const total = defect === "short-page" ? 26 : data.length;
+        return route.fulfill({json:{current_page:1,last_page:defect === "wrong-last-page" ? 2 : Math.max(1,Math.ceil(total/25)),per_page:defect === "wrong-page-size" ? 24 : 25,total,data}});
+      });
+      await activity.getByRole("button",{name:"Refresh activity",exact:true}).click();
+      await activity.getByText("Could not load checkout activity.",{exact:true}).waitFor();
+      assert.equal(await activity.getByText("Test capture recorded",{exact:true}).count(),0);
+      await vendor.unroute(eventRoute);
+    }
+    await activity.getByRole("button",{name:"Refresh activity",exact:true}).click();
+    await activity.getByText("Test capture recorded",{exact:true}).waitFor();
+    const held = [];
+    await vendor.route(eventRoute, (route) => new Promise((resolve) => {
+      held.push({route,resolve});
+    }));
+    const viewActivity = vendorPanel.getByRole("button", {name:"View checkout activity",exact:true});
+    await viewActivity.click();
+    for (let i=0; i<100 && held.length<1; i++) await new Promise(r=>setTimeout(r,20));
+    assert.equal(held.length,1);
+    await viewActivity.click();
+    for (let i=0; i<100 && held.length<2; i++) await new Promise(r=>setTimeout(r,20));
+    assert.equal(held.length,2);
+    const eventPage = (kind) => ({current_page:1,last_page:1,per_page:25,total:1,data:[{id:1,hosted_checkout_id:vh.id,kind,created_at:"2026-02-28 04:30:00"}]});
+    await held[1].route.fulfill({json:eventPage("capture_observed")}); held[1].resolve();
+    await activity.getByText("Test capture recorded",{exact:true}).waitFor();
+    await held[0].route.fulfill({json:eventPage("prepared")}); held[0].resolve();
+    await vendor.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await activity.getByText("Checkout prepared",{exact:true}).count(),0);
+    assert.equal(await activity.getByRole("button",{name:"Refresh activity",exact:true}).count(),1);
+    await vendor.unroute(eventRoute);
+    await activity.getByRole("button",{name:"Refresh activity",exact:true}).click();
+    await activity.getByText("Test capture recorded",{exact:true}).waitFor();
+    await vendor.locator("#language").click();
+    await activity.getByText("تم تسجيل تحصيل اختباري", { exact: true }).waitFor();
+    await vendor.locator("#language").click();
+
     assert.equal(
       (await api(vendor, `commercial/subscriptions/${f.vendor_subscription}`))
         .data.entitlements_active,
@@ -412,6 +471,10 @@ const { chromium } = require("playwright"),
     const foreign = await login("foreign", false);
     assert.equal(
       (await api(foreign, `commercial/hosted-checkouts/${h.id}`)).status,
+      404,
+    );
+    assert.equal(
+      (await api(foreign, `commercial/hosted-checkouts/${h.id}/events?page=1`)).status,
       404,
     );
     assert.equal(

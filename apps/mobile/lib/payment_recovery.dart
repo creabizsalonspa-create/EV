@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 import 'subscriptions.dart';
 import 'financial_documents.dart';
@@ -22,6 +25,7 @@ const recoveryEn = {
       'Test-provider evidence only. A completed operation does not necessarily mean a paid invoice. Inspecting status never initiates a new charge or refund.',
   'empty': 'No payment recovery operations.',
   'emptyNotices': 'No subscription notices.',
+  'hidden': 'Private payment recovery details were cleared.',
   'refresh': 'Refresh status',
   'inspect': 'Inspect provider status',
   'confirm':
@@ -68,6 +72,7 @@ const recoveryAr = {
       'أدلة مزود الاختبار فقط. اكتمال العملية لا يعني بالضرورة سداد الفاتورة. فحص الحالة لا ينشئ دفعة أو استرداداً جديداً.',
   'empty': 'لا توجد عمليات دفع للمراجعة.',
   'emptyNotices': 'لا توجد تنبيهات اشتراك.',
+  'hidden': 'مُسحت تفاصيل استرداد حالة الدفع الخاصة.',
   'refresh': 'تحديث الحالة',
   'inspect': 'فحص حالة مزود الدفع',
   'confirm':
@@ -122,12 +127,18 @@ class PaymentRecoveryView extends StatefulWidget {
   State<PaymentRecoveryView> createState() => _RecoveryState();
 }
 
-class _RecoveryState extends State<PaymentRecoveryView> {
+class _RecoveryState extends State<PaymentRecoveryView>
+    with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? data;
   Object? error;
-  bool busy = false, uncertain = false;
+  bool busy = false, uncertain = false, confirming = false, foreground = true;
   int generation = 0, target = 1;
+  late bool Function() authorized;
+  StreamSubscription<int>? sessionChanges;
   String t(String key) => recoveryText(context, key);
+  bool get active => mounted && foreground && authorized();
+  bool current(int epoch) => active && epoch == generation;
+  bool canAct(int epoch) => current(epoch) && !busy && !confirming;
   String get endpoint => widget.subscriptionNotices
       ? 'commercial/subscription-notices'
       : widget.intent == null
@@ -136,12 +147,62 @@ class _RecoveryState extends State<PaymentRecoveryView> {
   @override
   void initState() {
     super.initState();
-    load();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    bindSession();
+    if (active) unawaited(load());
+  }
+
+  void bindSession() {
+    unawaited(sessionChanges?.cancel());
+    final api = widget.api;
+    authorized = api.sessionFence();
+    sessionChanges = api.sessionEvents.listen((_) {
+      if (mounted && identical(api, widget.api) && !authorized()) {
+        setState(clear);
+      }
+    });
+  }
+
+  void clear() {
+    generation++;
+    target = 1;
+    data = null;
+    error = null;
+    busy = false;
+    uncertain = false;
+    confirming = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant PaymentRecoveryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final apiChanged = !identical(oldWidget.api, widget.api);
+    if (apiChanged ||
+        oldWidget.intent != widget.intent ||
+        oldWidget.subscriptionNotices != widget.subscriptionNotices) {
+      clear();
+      if (apiChanged) bindSession();
+      if (active) unawaited(load());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (foreground == resumed) return;
+    setState(() {
+      foreground = resumed;
+      if (!resumed) clear();
+    });
   }
 
   @override
   void dispose() {
     generation++;
+    unawaited(sessionChanges?.cancel());
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -152,6 +213,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
   }
 
   Future<void> load({int page = 1}) async {
+    if (!canAct(generation)) return;
     final epoch = ++generation;
     target = page;
     setState(() {
@@ -164,6 +226,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
         await widget.api.request(endpoint, query: {'page': '$page'}),
         (v) => v,
       );
+      if (!current(epoch)) return;
       if (widget.intent == null) {
         for (final row in result.items) {
           final amount =
@@ -180,80 +243,122 @@ class _RecoveryState extends State<PaymentRecoveryView> {
           }
         }
       }
-      if (mounted && generation == epoch) {
-        setState(() {
-          data = result;
-          uncertain = false;
-        });
-      }
+      setState(() {
+        data = result;
+        uncertain = false;
+      });
     } catch (e) {
-      if (mounted && generation == epoch) setState(() => fail(e));
+      if (current(epoch)) setState(() => fail(e));
     } finally {
-      if (mounted && generation == epoch) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
-  Future<void> inspect(int id) async {
+  Future<void> inspect(int id, int reviewEpoch) async {
+    if (!canAct(reviewEpoch)) return;
+    final api = widget.api;
+    final originalPage = target;
+    setState(() => confirming = true);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(t('inspect')),
-        content: Text(t('confirm')),
+        title: Text(recoveryText(c, 'inspect')),
+        content: Text(recoveryText(c, 'confirm')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
-            child: Text(t('cancel')),
+            child: Text(recoveryText(c, 'cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: Text(t('inspect')),
+            child: Text(recoveryText(c, 'inspect')),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (!current(reviewEpoch)) return;
+    setState(() => confirming = false);
+    if (confirmed != true) return;
+    final operation = ++generation;
     setState(() {
       busy = true;
       error = null;
       uncertain = false;
     });
     try {
-      await widget.api.request(
+      await api.request(
         'commercial/payment-recovery/$id/reconcile',
         method: 'POST',
         body: {},
       );
-      if (mounted) await load(page: target);
+      if (current(operation)) {
+        setState(() => busy = false);
+        await load(page: originalPage);
+      }
     } catch (e) {
       // Lost responses and holds never cause automatic POST replay. A refresh
       // is a GET and cannot create another financial operation.
-      if (mounted)
+      if (current(operation)) {
         setState(() {
           uncertain = true;
           fail(e);
         });
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(operation)) setState(() => busy = false);
     }
+  }
+
+  Future<void> openRelated(
+    int epoch,
+    Widget Function(EvApi, VoidCallback) destination, {
+    bool refresh = false,
+  }) async {
+    if (!canAct(epoch)) return;
+    final api = widget.api;
+    final onExpired = widget.onExpired;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => current(epoch)
+            ? destination(api, onExpired)
+            : Scaffold(
+                body: Center(child: Text(recoveryText(routeContext, 'hidden'))),
+              ),
+      ),
+    );
+    if (refresh && canAct(epoch)) await load(page: target);
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = EvStrings.of(context), page = data;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          t(
-            widget.subscriptionNotices
-                ? 'notices'
-                : widget.intent == null
-                ? 'title'
-                : 'history',
-          ),
+    final s = EvStrings.of(context), page = active ? data : null;
+    final epoch = generation;
+    final ready = canAct(epoch);
+    Future<void> refresh(int page) async {
+      if (canAct(epoch)) await load(page: page);
+    }
+
+    final appBar = AppBar(
+      title: Text(
+        t(
+          widget.subscriptionNotices
+              ? 'notices'
+              : widget.intent == null
+              ? 'title'
+              : 'history',
         ),
       ),
+    );
+    if (!active) {
+      return Scaffold(
+        appBar: appBar,
+        body: Center(child: Text(t('hidden'))),
+      );
+    }
+    return Scaffold(
+      appBar: appBar,
       body: RefreshIndicator(
-        onRefresh: () => load(page: target),
+        onRefresh: () => refresh(target),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -264,7 +369,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
               Semantics(liveRegion: true, child: Text(t('unknown'))),
             if (error != null) Text(s.t(errorKey(error!))),
             TextButton(
-              onPressed: busy ? null : () => load(page: target),
+              onPressed: ready ? () => refresh(target) : null,
               child: Text(t('refresh')),
             ),
             if (page != null && page.items.isEmpty)
@@ -291,43 +396,37 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                         Text(
                           '${t('amount')}: ${minorDecimal(row['total_minor'] as int, row['minor_units'] as int)} ${row['currency']}',
                         ),
-                        Text('${row['created_at']}'),
+                        Text(serverEventTime(context, row['created_at'])),
                         if (row['subscription_id'] is int &&
                             row['subscription_id'] > 0)
                           OutlinedButton(
-                            onPressed: busy
+                            onPressed: !ready
                                 ? null
-                                : () async {
-                                    await Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => SubscriptionDetailView(
-                                          api: widget.api,
-                                          onExpired: widget.onExpired,
-                                          id: row['subscription_id'] as int,
-                                        ),
-                                      ),
-                                    );
-                                    if (mounted) load(page: target);
-                                  },
+                                : () => openRelated(
+                                    epoch,
+                                    (api, onExpired) => SubscriptionDetailView(
+                                      api: api,
+                                      onExpired: onExpired,
+                                      id: row['subscription_id'] as int,
+                                    ),
+                                    refresh: true,
+                                  ),
                             child: Text(t('subscriptionDetail')),
                           ),
                         if (row['invoice_id'] is int && row['invoice_id'] > 0)
                           OutlinedButton(
-                            onPressed: busy
+                            onPressed: !ready
                                 ? null
-                                : () async {
-                                    await Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => FinancialDocumentsView(
-                                          api: widget.api,
-                                          onExpired: widget.onExpired,
-                                          sourceKind: 'subscription_invoice',
-                                          sourceId: row['invoice_id'] as int,
-                                        ),
-                                      ),
-                                    );
-                                    if (mounted) load(page: target);
-                                  },
+                                : () => openRelated(
+                                    epoch,
+                                    (api, onExpired) => FinancialDocumentsView(
+                                      api: api,
+                                      onExpired: onExpired,
+                                      sourceKind: 'subscription_invoice',
+                                      sourceId: row['invoice_id'] as int,
+                                    ),
+                                    refresh: true,
+                                  ),
                             child: Text(t('invoiceDocument')),
                           ),
                       ],
@@ -344,7 +443,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                         Text(
                           '#${row['id']} · ${t('status')}: ${t('${row['status']}')}',
                         ),
-                        Text('${row['created_at'] ?? ''}'),
+                        Text(serverEventTime(context, row['created_at'])),
                         if (widget.intent == null) ...[
                           Text(
                             '${t('scope')}: ${t('${row['scope']}')} · ${t('kind')}: ${t(row['kind'] == 'cancel' ? 'cancelOperation' : '${row['kind']}')}',
@@ -358,15 +457,14 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                             spacing: 8,
                             children: [
                               TextButton(
-                                onPressed: busy
+                                onPressed: !ready
                                     ? null
-                                    : () => Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => PaymentRecoveryView(
-                                            api: widget.api,
-                                            onExpired: widget.onExpired,
-                                            intent: row['id'] as int,
-                                          ),
+                                    : () => openRelated(
+                                        epoch,
+                                        (api, onExpired) => PaymentRecoveryView(
+                                          api: api,
+                                          onExpired: onExpired,
+                                          intent: row['id'] as int,
                                         ),
                                       ),
                                 child: Text(t('history')),
@@ -374,9 +472,9 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                               if (row['provider'] == 'stripe_test' &&
                                   row['status'] != 'completed')
                                 OutlinedButton(
-                                  onPressed: busy
-                                      ? null
-                                      : () => inspect(row['id'] as int),
+                                  onPressed: ready
+                                      ? () => inspect(row['id'] as int, epoch)
+                                      : null,
                                   child: Text(t('inspect')),
                                 ),
                             ],
@@ -391,15 +489,15 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                 spacing: 12,
                 children: [
                   TextButton(
-                    onPressed: !busy && page.current > 1
-                        ? () => load(page: page.current - 1)
+                    onPressed: ready && page.current > 1
+                        ? () => refresh(page.current - 1)
                         : null,
                     child: Text(t('previous')),
                   ),
                   Text('${page.current} / ${page.last}'),
                   TextButton(
-                    onPressed: !busy && page.current < page.last
-                        ? () => load(page: page.current + 1)
+                    onPressed: ready && page.current < page.last
+                        ? () => refresh(page.current + 1)
                         : null,
                     child: Text(t('next')),
                   ),
