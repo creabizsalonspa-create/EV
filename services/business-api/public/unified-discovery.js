@@ -90,6 +90,158 @@
    window.dispatchEvent(published);
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
+  // Separate first-page geographic search: no forwarding of existing
+  // filters, saved preferences or map coordinates to an external provider.
+  const federation=document.createElement('details'),federatedForm=document.createElement('form');
+  federation.id='unified-federated-nearby';
+  federation.append(text('summary','Nearby across published and licensed sources','المواقع القريبة عبر المصادر المنشورة والمرخصة'),
+    text('p','Enter coordinates manually. This search sends the geographic query to Open Charge Map only with your explicit consent. It returns a published first page and a separate licensed sample; neither represents complete coverage or verified live availability.','أدخل الإحداثيات يدوياً. لا يُرسل البحث الجغرافي إلى Open Charge Map إلا بموافقتك الصريحة. يعرض الصفحة الأولى المنشورة وعينة مرخصة منفصلة؛ ولا يؤكد التغطية الكاملة أو التوفر المباشر.'));
+  const federationFields={};
+  for(const [name,en,ar] of [['latitude','Latitude','خط العرض'],['longitude','Longitude','خط الطول'],['radius_km','Radius (1–200 km)','نطاق البحث (١–٢٠٠ كم)']]){
+   const label=text('label',en,ar),control=document.createElement('input');
+   control.name=name;control.type='text';control.inputMode='decimal';control.maxLength=24;label.append(control);federatedForm.append(label);federationFields[name]=control;
+  }
+  const federationCountry=document.createElement('select');federationCountry.name='country';
+  for(const [value,en,ar] of [['','All available markets','كل الأسواق المتاحة'],['AE','United Arab Emirates','الإمارات العربية المتحدة'],['US','United States','الولايات المتحدة'],['CA','Canada','كندا']]){
+   const option=text('option',en,ar);option.value=value;federationCountry.append(option);
+  }
+  const federationMarket=text('label','Country','الدولة');federationMarket.append(federationCountry);federatedForm.append(federationMarket);
+  const federationConsent=document.createElement('input');federationConsent.type='checkbox';federationConsent.name='consent';
+  const consentLabel=text('label','I agree to share these coordinates and radius with Open Charge Map for this search.','أوافق على مشاركة هذه الإحداثيات والنطاق مع Open Charge Map لهذا البحث.');
+  consentLabel.append(federationConsent);federatedForm.append(consentLabel);
+  const federationSubmit=text('button','Search nearby sources','البحث في المصادر القريبة');federationSubmit.type='submit';
+  const federationState=document.createElement('p'),federationPublished=document.createElement('div'),federationLicensed=document.createElement('div');
+  federationState.setAttribute('role','status');federatedForm.append(federationSubmit);
+  federation.append(federatedForm,federationState,federationPublished,federationLicensed);root.append(federation);
+  let federationTurn=0,federationMapRows=null,federationMapPublished=false;
+  const federationMapToken={};
+  function revokeFederationMap(){
+   federationMapRows=null;federationMapButton.disabled=true;
+   if(!federationMapPublished)return;
+   federationMapPublished=false;
+   window.dispatchEvent(new CustomEvent('unified-map-clear',{detail:federationMapToken}));
+  }
+  const federationMapButton=button('Map loaded nearby results','عرض النتائج القريبة المحملة على الخريطة',()=>{
+   if(federationMapButton.disabled||!federationMapRows||!owner||document.visibilityState==='hidden')return;
+   federationMapPublished=true;
+   const event=new CustomEvent('unified-map-data',{detail:federationMapRows.published});
+   event.evUnifiedPublication=federationMapToken;
+   event.evLicensedRows=federationMapRows.licensed;
+   window.dispatchEvent(event);
+   document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
+  });
+  federationMapButton.disabled=true;federation.append(federationMapButton);
+  const labelValue=value=>typeof value==='string'?value.trim().slice(0,250):'';
+  function clearFederation(){
+   federationTurn++;revokeFederationMap();for(const control of Object.values(federationFields))control.value='';
+   federationCountry.value='';federationConsent.checked=false;federationSubmit.disabled=false;
+   federationState.replaceChildren();federationPublished.replaceChildren();federationLicensed.replaceChildren();
+  }
+  function federatedCards(reply){
+   if(!reply||reply.evidence!=='FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY'||reply.distance_basis!=='great_circle'||
+      reply.complete_geographic_coverage!==false||reply.live_status_verified!==false||reply.combined_total!==null)throw Error('Unverified federation');
+   const published=reply.published,licensed=reply.licensed;
+   if(!published||!Array.isArray(published.data)||published.data.length>25||published.current_page!==1||
+      !Number.isSafeInteger(published.total)||published.total<published.data.length||
+      !Number.isSafeInteger(published.last_page)||published.last_page<1||published.per_page!==25)throw Error('Unverified published page');
+   const keys=new Set(),publishedCards=[];
+   for(const row of published.data){
+    if(!row||typeof row.key!=='string'||keys.has(row.key))throw Error('Unverified identity');
+    keys.add(row.key);
+    const card=document.createElement('article');let name,detail;
+    if(row.kind==='catalog'&&Number.isSafeInteger(row.station?.id)&&row.station.id>0&&row.key==='catalog:'+row.station.id&&
+       ['SIMULATED','DISCOVERY_ONLY'].includes(row.station.evidence)){
+     name=labelValue(row.station.name);detail=['Platform catalog · '+row.station.evidence,'كتالوج المنصة · '+row.station.evidence];
+    }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&
+      row.evidence==='PARTNER_REPORTED_UNVERIFIED'&&row.availability==='unknown'&&row.reservable===false&&row.remote_control===false&&
+      row.location?.availability==='unknown'&&row.location.reservable===false&&row.location.remote_control===false){
+     name=labelValue(row.location.name)||labelValue(row.location.id);
+     detail=['Partner reported · availability unknown','تقرير شريك · التوفر غير معروف'];
+    }else throw Error('Unverified published source');
+    card.append(text('h4',name||'Unnamed location',name||'موقع بلا اسم'),text('p',...detail));
+    if(row.kind==='partner'){
+     const label=labelValue(row.provider_label),address=[row.location.address,row.location.city,row.location.country].map(labelValue).filter(Boolean).join(' · ');
+     if(label)card.append(text('p',label,label));if(address)card.append(text('p',address,address));
+    }
+    publishedCards.push(card);
+   }
+   const licensedCards=[];
+   if(!licensed||!['observed','unavailable'].includes(licensed.state))throw Error('Unverified licensed state');
+   if(licensed.state==='unavailable'){
+    if(licensed.sample!==null)throw Error('Unexpected licensed sample');
+    licensedCards.push(text('p','Licensed source unavailable; this is not zero matching locations.','المصدر المرخص غير متاح؛ وهذا لا يعني عدم وجود مواقع مطابقة.'));
+   }else{
+    const sample=licensed.sample;
+    if(!sample||sample.provider!=='open_charge_map'||sample.evidence!=='OPEN_LICENSED_DISCOVERY_ONLY'||
+       sample.availability!=='unknown'||sample.remote_control!==false||sample.reservable!==false||sample.billing_eligible!==false||
+       sample.license_policy!=='PER_RECORD_ATTRIBUTION_REQUIRED'||!Array.isArray(sample.results)||sample.results.length>25||
+       sample.count!==sample.results.length)throw Error('Unverified licensed sample');
+    const ids=new Set();
+    licensedCards.push(text('p',sample.count+' licensed reports (maximum 25; not full coverage)',sample.count+' تقريراً مرخصاً (٢٥ كحد أقصى؛ ليست تغطية كاملة)'));
+    for(const row of sample.results){
+     if(!row||typeof row.id!=='string'||!/^ocm:[1-9]\d*$/.test(row.id)||ids.has(row.id)||
+       row.source_status_evidence!=='OPEN_CHARGE_MAP_DISCOVERY_ONLY'||row.availability!=='unknown'||
+       row.remote_control!==false||row.reservable!==false||row.billing_eligible!==false||
+       typeof row.data_license!=='string'||!row.data_license.trim()||row.data_license.length>480||
+       typeof row.attribution!=='string'||!row.attribution.startsWith('Open Charge Map / ')||row.attribution.length>480||
+       row.source_url!=='https://openchargemap.org/site/poi/details/'+row.id.slice(4))throw Error('Unverified licensed record');
+     ids.add(row.id);const card=document.createElement('article'),name=labelValue(row.name);
+     const address=[row.address,row.city,row.country].map(labelValue).filter(Boolean).join(' · ');
+     const link=text('a','View source and license','عرض المصدر والترخيص');link.href=row.source_url;link.target='_blank';link.rel='noopener noreferrer';
+     card.append(text('h4',name||'Unnamed location',name||'موقع بلا اسم'),text('p','Open Charge Map · crowd reported · availability unknown','Open Charge Map · تقرير مجتمع · التوفر غير معروف'));
+     if(address)card.append(text('p',address,address));
+     card.append(text('p',row.attribution+' · '+row.data_license,row.attribution+' · '+row.data_license),link);
+     licensedCards.push(card);
+    }
+   }
+   return [[text('h4','Published first page · '+published.total+' published matches','الصفحة الأولى المنشورة · '+published.total+' نتيجة منشورة'),...publishedCards],
+     [text('h4','Licensed sample (separate)','عينة مرخصة (منفصلة)'),...licensedCards]];
+  }
+  federatedForm.onsubmit=async event=>{
+   event.preventDefault();if(federationSubmit.disabled||!owner)return;
+   const body={consent:true};const bounds={latitude:[-90,90],longitude:[-180,180],radius_km:[1,200]};
+   const turn=++federationTurn;revokeFederationMap();federationPublished.replaceChildren();federationLicensed.replaceChildren();
+   for(const [key,control] of Object.entries(federationFields)){
+    const value=normalizeRate(control.value.trim()),number=Number(value),[low,high]=bounds[key];
+    if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)||!Number.isFinite(number)||number<low||number>high){
+     federationState.replaceChildren(text('span','Enter valid coordinates and a radius of 1–200 km.','أدخل إحداثيات صحيحة ونطاقاً من ١ إلى ٢٠٠ كم.'));return;
+    }
+    body[key]=number;
+   }
+   if(!federationConsent.checked){federationState.replaceChildren(text('span','Explicit consent is required.','الموافقة الصريحة مطلوبة.'));return;}
+   if(['AE','US','CA'].includes(federationCountry.value))body.country=federationCountry.value;
+   // Consent is per dispatch, including a subsequent identical query.
+   federationConsent.checked=false;federationSubmit.disabled=true;
+   federationState.replaceChildren(text('span','Searching nearby sources…','جارٍ البحث في المصادر القريبة…'));
+   try{
+    const reply=await api('federated-nearby','POST',body);
+    if(turn!==federationTurn)return;
+    const [published,licensed]=federatedCards(reply);
+    federationPublished.replaceChildren(...published);federationLicensed.replaceChildren(...licensed);
+    // Map eligibility is narrower than text visibility. The map consumer
+    // independently validates all three sources and owns their lifetimes.
+    const coordinate=value=>typeof value==='number'||(typeof value==='string'&&value.trim()!=='')
+      ? Number(value):NaN;
+    const plottable=row=>Number.isFinite(coordinate(row?.latitude))&&Math.abs(coordinate(row.latitude))<=85.05112878&&
+      Number.isFinite(coordinate(row?.longitude))&&Math.abs(coordinate(row.longitude))<=180;
+    const publishedPoints=reply.published.data.filter(row=>row.kind==='catalog'
+      ?catalogMetadataComplete(row)&&plottable(row.station)
+      :row.location_available!==false&&plottable(row.location));
+    const licensedPoints=reply.licensed.state==='observed'?reply.licensed.sample.results.filter(row=>
+      typeof row.latitude==='number'&&typeof row.longitude==='number'&&plottable(row)&&
+      row.reported_operational_evidence==='OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED'&&
+      (row.reported_operational===null||typeof row.reported_operational==='boolean')&&
+      row.reported_access_evidence==='OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED'&&
+      row.reported_cost_evidence==='OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED'&&
+      typeof row.reported_cost_note==='string'&&Array.from(row.reported_cost_note).length<=240&&
+      typeof row.reported_access==='string'):[];
+    federationMapRows={published:publishedPoints,licensed:licensedPoints};
+    federationMapButton.disabled=publishedPoints.length+licensedPoints.length===0;
+    federationState.replaceChildren(text('span','Discovery only. Open the regular catalog to inspect booking options.','للاكتشاف فقط. افتح الكتالوج العادي للاطلاع على خيارات الحجز.'));
+   }catch{
+    if(turn===federationTurn)federationState.replaceChildren(text('span','Nearby search failed. Confirm consent and submit again.','تعذر البحث القريب. أكد الموافقة وأعد الإرسال.'));
+   }finally{if(turn===federationTurn)federationSubmit.disabled=false;}
+  };
   // Missing source metadata must never become a bookable catalog action.
   // Location identity remains visible as read-only evidence.
   const catalogMetadataComplete=row=>row&&row.station&&
@@ -231,7 +383,7 @@
     favoriteWriter=context.favorite;savedField.hidden=!customer;
    },
    clear(){
-    revokePublishedMap();
+    revokePublishedMap();clearFederation();
     recentPresets=[];renderRecentPresets();advancedQuery={};viewportQuery={};
     for(const control of Object.values(advancedInputs))control.value='';
     generation++;writing=false;uncertain=false;scope='all';source.value='all';

@@ -447,6 +447,46 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator(".station-map-pin").count(), 0);
     assert.equal(await page.locator("#station-map").isHidden(), true);
     assert.equal(viewportRequests.length, requestCountBeforeMalformedMap);
+    // Federated publication owns the licensed layer alongside the two
+    // published sources. A superseding standalone licensed sample survives.
+    await page.getByRole("button", {name: "تفعيل الخريطة التفاعلية"}).click();
+    await page.evaluate(() => {
+      const token={};
+      window.__federatedMapToken=token;
+      const event=new CustomEvent("unified-map-data",{detail:[{
+        kind:"catalog",key:"catalog:7",station:{id:7,name:"Federated platform",
+          latitude:25.2,longitude:55.3,evidence:"SIMULATED",connector_type:"CCS2",power_kw:50}
+      }]});
+      const licensed={id:"ocm:123",name:"Federated crowd",latitude:25.22,longitude:55.32,
+        source_status_evidence:"OPEN_CHARGE_MAP_DISCOVERY_ONLY",
+        reported_operational_evidence:"OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED",reported_operational:null,
+        reported_access_evidence:"OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED",
+        reported_cost_evidence:"OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED",
+        reported_access:"",reported_cost_note:"",availability:"unknown",remote_control:false,
+        reservable:false,billing_eligible:false,data_license:"CC BY-SA 4.0",
+        attribution:"Open Charge Map / Fixture",source_url:"https://openchargemap.org/site/poi/details/123"};
+      event.evUnifiedPublication=token;
+      event.evLicensedRows=[licensed,{...licensed,id:"ocm:124",source_url:"https://openchargemap.org/site/poi/details/124",latitude:true}];
+      window.__federatedLicensedFixture=licensed;
+      window.dispatchEvent(event);
+    });
+    assert.equal(await page.locator(".ocm-map-pin").count(),1);
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent("unified-map-clear",{detail:{}})));
+    assert.equal(await page.locator(".ocm-map-pin").count(),1);
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent("open-charge-map-data",{detail:[window.__federatedLicensedFixture]})));
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent("unified-map-clear",{detail:window.__federatedMapToken})));
+    assert.equal(await page.locator(".ocm-map-pin").count(),1,"New standalone source survives old federation clear");
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin):not(.ocm-map-pin)").count(),0);
+    await page.evaluate(()=>{
+      const event=new CustomEvent("unified-map-data",{detail:[]});
+      event.evUnifiedPublication=window.__federatedMapToken;
+      event.evLicensedRows=[window.__federatedLicensedFixture];
+      window.dispatchEvent(event);
+      window.dispatchEvent(new CustomEvent("unified-map-clear",{detail:window.__federatedMapToken}));
+    });
+    assert.equal(await page.locator(".ocm-map-pin").count(),0);
+    assert.equal(await page.locator("#station-map").isHidden(),true);
+    assert.equal(viewportRequests.length,requestCountBeforeMalformedMap);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: consented mixed map, disable/re-enable privacy and map refit, unverified partner capability checks, revocation, GPS opt-in, safe popups, Arabic and mobile layout. Synthetic only.",

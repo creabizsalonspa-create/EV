@@ -115,7 +115,7 @@
         routeLines;
     let popupOpen = false;
     // Each independently published source can supersede only its own layer.
-    let unifiedCatalogOwner = false, unifiedPartnerOwner = false;
+    let unifiedCatalogOwner = false, unifiedPartnerOwner = false, unifiedLicensedOwner = false;
     let unifiedPublisherToken = null;
     let records = [],
         partnerRows = [],
@@ -806,6 +806,7 @@
     });
     window.addEventListener("open-charge-map-data", (event) => {
         // Open-licensed records do not supersede either union-owned layer.
+        unifiedLicensedOwner = false;
         ocmRows = Array.isArray(event.detail) && event.detail.length <= 25
             ? event.detail.filter(ocmSafe)
             : [];
@@ -844,7 +845,21 @@
             valid(row.station),
         ).map(row => row.station);
         partnerRows = rows.filter(row => row?.kind === 'partner').map(row => ({...row,id:row.record_id})).filter(partnerSafe);
-        ocmRows = [];
+        // The federated producer supplies its own bounded licensed sample.
+        // A plain unified publication retains its original clear semantics.
+        unifiedLicensedOwner = unifiedPublisherToken !== null && Array.isArray(event.evLicensedRows);
+        const licensed = unifiedLicensedOwner && event.evLicensedRows.length <= 25
+            ? event.evLicensedRows : [];
+        const licensedIds = new Set();
+        ocmRows = licensed.filter(row => {
+            if (!ocmSafe(row) || typeof row.latitude !== "number" ||
+                typeof row.longitude !== "number" || licensedIds.has(row.id)) return false;
+            licensedIds.add(row.id);
+            return true;
+        });
+        routeSegments = [];
+        planner?.clear();
+        renderRoute();
         planner?.update(records);
         render();
         fitLoaded(true);
@@ -853,7 +868,7 @@
         // A detached UI/old actor cannot revoke a newer publication. Manual
         // legacy events without a token remain scoped to an unowned publication.
         if ((event.detail ?? null) !== unifiedPublisherToken ||
-            (!unifiedCatalogOwner && !unifiedPartnerOwner)) return;
+            (!unifiedCatalogOwner && !unifiedPartnerOwner && !unifiedLicensedOwner)) return;
         if (unifiedCatalogOwner) {
             records = [];
             routeSegments = [];
@@ -861,7 +876,8 @@
             renderRoute();
         }
         if (unifiedPartnerOwner) partnerRows = [];
-        unifiedCatalogOwner = unifiedPartnerOwner = false;
+        if (unifiedLicensedOwner) ocmRows = [];
+        unifiedCatalogOwner = unifiedPartnerOwner = unifiedLicensedOwner = false;
         unifiedPublisherToken = null;
         if (!records.length && !partnerRows.length && !ocmRows.length) {
             // No remaining source: revoke prior-account map tiles, GPS
@@ -880,7 +896,7 @@
         render();
     });
     window.addEventListener("catalog-map-clear", () => {
-        unifiedCatalogOwner = unifiedPartnerOwner = false;
+        unifiedCatalogOwner = unifiedPartnerOwner = unifiedLicensedOwner = false;
         unifiedPublisherToken = null;
         records = [];
         partnerRows = [];
