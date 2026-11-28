@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\RiderSourceProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -143,6 +144,56 @@ class RiderAccessTest extends TestCase
         $this->assertNull($after->provisioned_at);
         $this->assertNull($after->source_authorization_id);
         $this->assertNull($after->provision_lease);
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function unreadableTokenSourceActions(): array
+    {
+        return [
+            'publish damaged token' => ['provision', 'publication', false],
+            'publish mismatched token' => ['provision', 'publication', true],
+            'retire damaged token' => ['retire-source', 'retirement', false],
+            'retire mismatched token' => ['retire-source', 'retirement', true],
+        ];
+    }
+
+    #[DataProvider('unreadableTokenSourceActions')]
+    public function test_source_operation_requires_the_registered_local_token_identity(string $operation, string $audit, bool $validCiphertext): void
+    {
+        [$owner, $customer, $company, $id] = $this->approvedSourceFixture();
+        if ($operation === 'retire-source') {
+            $this->actingAs($customer)->deleteJson('/api/rider-access/tokens/'.$id)->assertOk();
+        }
+        RiderAccessToken::findOrFail($id)->update([
+            // Keep the original suffix while testing a different card identity.
+            'token_ciphertext' => $validCiphertext ? Crypt::encryptString('OTHER3456') : 'unreadable',
+        ]);
+        Http::preventStrayRequests();
+        Http::fake([
+            'http://citrine:8080/creabiz/rider-auth/capabilities?*' => function ($request) {
+                parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return Http::response(['ready' => true, 'adapter_version' => 'creabiz-rider-v1', 'tenant_id' => 1,
+                    'offline_fallback' => false, 'cache_seconds' => 0,
+                    'proof' => hash_hmac('sha256', "creabiz-rider-v1\n".$query['nonce'], str_repeat('s', 64))]);
+            },
+        ]);
+
+        $this->actingAs($owner)->postJson('/api/vendor-ops/companies/'.$company->id.'/rider-tokens/'.$id.'/'.$operation)
+            ->assertServiceUnavailable()->assertJsonPath('message', 'Local rider token identity requires inspection.');
+        $this->assertDatabaseHas('rider_access_tokens', [
+            'id' => $id,
+            'provisioning_state' => 'requires_inspection',
+            'source_authorization_id' => null,
+            'provisioned_at' => null,
+        ]);
+        $this->assertDatabaseHas('rider_authorization_events', [
+            'token_id' => $id,
+            'actor_id' => $owner->id,
+            'action' => 'source.'.$audit.'_requires_inspection',
+        ]);
         Http::assertSentCount(1);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);

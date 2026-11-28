@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -50,6 +51,20 @@ class RiderSourceProvisioner
         }
 
         return $data;
+    }
+
+    private function tokenValue(RiderAccessToken $token): string
+    {
+        try {
+            $value = Crypt::decryptString($token->token_ciphertext);
+        } catch (DecryptException) {
+            abort(503, 'Local rider token identity requires inspection.');
+        }
+        abort_unless(preg_match('/^[A-Z0-9]{6,20}$/D', $value)
+            && hash_equals($token->token_digest, hash('sha256', $value))
+            && hash_equals($token->suffix, substr($value, -4)), 503, 'Local rider token identity requires inspection.');
+
+        return $value;
     }
 
     private function lookup(string $raw, array $authority): ?array
@@ -165,7 +180,7 @@ class RiderSourceProvisioner
             return $token;
         }, 3);
         try {
-            $raw = Crypt::decryptString($token->token_ciphertext);
+            $raw = $this->tokenValue($token);
             $source = $this->lookup($raw, $authority);
             if ($source !== null) {
                 $this->owned($source, $token, $raw);
@@ -224,9 +239,9 @@ class RiderSourceProvisioner
 
             return $token;
         }, 3);
-        $raw = Crypt::decryptString($token->token_ciphertext);
-        $marker = ['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER'];
         try {
+            $raw = $this->tokenValue($token);
+            $marker = ['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER'];
             $this->currentPublication($actor, $company, $token, $lease);
             $source = $this->lookup($raw, $authority);
             if ($source === null) {
@@ -265,9 +280,15 @@ class RiderSourceProvisioner
 
                 return ['source_provisioned' => true, 'hardware_verified' => false, 'evidence' => 'SIMULATED_SOURCE'];
             }, 3);
-        } catch (Throwable $e) {
-            RiderAccessToken::whereKey($token->id)->where('provision_lease', $lease)->update(['provisioning_state' => 'requires_inspection']);
-            throw $e;
+        } catch (Throwable $error) {
+            DB::transaction(function () use ($token, $lease, $actor) {
+                $changed = RiderAccessToken::whereKey($token->id)->where('provision_lease', $lease)
+                    ->update(['provisioning_state' => 'requires_inspection', 'provisioned_at' => null]);
+                if ($changed) {
+                    app(RiderTokenRegistry::class)->event($token->id, null, $actor->id, 'source.publication_requires_inspection');
+                }
+            }, 3);
+            throw $error;
         }
     }
 }
