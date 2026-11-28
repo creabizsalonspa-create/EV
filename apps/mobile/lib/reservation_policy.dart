@@ -24,13 +24,41 @@ String reservationPolicyText(bool arabic, {bool priceAcceptanceRequired = false}
     : '30-minute slot. Self-reported arrival opens 15 minutes before the slot. Unused bookings expire at slot end unless an uncertain operation requires review. Cancel before an admitted or uncertain charging start. Cancellation/no-show fees are zero. Active/uncertain sessions block starting another session on the same resource until completed or reconciled. No automatic physical stop or financial penalty. A booking does not guarantee physical space or live charger availability.') + (priceAcceptanceRequired ? (arabic ? ' راجع أسعار محاكاة الشحن الحالية واقبلها صراحة قبل البدء؛ وهذا منفصل عن تأكيد الحجز.' : ' Review and explicitly accept current simulated charging prices before starting; this is separate from booking confirmation.') : '');
 
 class ReservationPolicyPanel extends StatelessWidget {
-  final Map<String,dynamic> terms;
-  const ReservationPolicyPanel({super.key,required this.terms});
+  final Map<String, dynamic> terms;
+  final Object? status;
+
+  const ReservationPolicyPanel({super.key, required this.terms, this.status});
+
   @override
-  Widget build(BuildContext context) => supportedReservationTerms(terms) ? ExpansionTile(
-    title:Text(Localizations.localeOf(context).languageCode=='ar'?'شروط الحجز المسجلة - النسخة 1':'Recorded reservation terms - version 1'),
-    children:[Padding(padding:const EdgeInsets.all(12),child:Text(reservationPolicyText(Localizations.localeOf(context).languageCode=='ar',priceAcceptanceRequired:terms['price_acceptance_required']==true)))],
-  ):const SizedBox.shrink();
+  Widget build(BuildContext context) {
+    if (!supportedReservationTerms(terms)) return const SizedBox.shrink();
+    final arabic = Localizations.localeOf(context).languageCode == 'ar';
+    final outcome = status == 'expired_unused'
+        ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(arabic
+                ? 'انتهت مدة الحجز دون جلسة شحن مرتبطة. رسوم عدم الحضور صفر ولا يثبت السجل الحضور الفعلي.'
+                : 'The slot expired without a linked charging session. The no-show fee is zero, and the record does not verify physical attendance.'),
+          )
+        : null;
+    final policy = ExpansionTile(
+      title: Text(arabic ? 'شروط الحجز المسجلة - النسخة 1' : 'Recorded reservation terms - version 1'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(reservationPolicyText(
+            arabic,
+            priceAcceptanceRequired: terms['price_acceptance_required'] == true,
+          )),
+        ),
+      ],
+    );
+    if (outcome == null) return policy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [outcome, policy],
+    );
+  }
 }
 
 /// UTC calendar day for the explicit UTC reservation picker, never device-local.

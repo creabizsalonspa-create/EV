@@ -1052,7 +1052,7 @@ async function bookings(page = reservationPage) {
         if (stationTimeEn)
             a.append(batteryNode("p", "Station local · " + stationTimeEn,
                 "توقيت المحطة · " + window.EvStationTime.displayStationTime(r.starts_at, r.station_timezone, "ar")));
-        window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot);
+        window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot, r.status);
         if (r.vehicle_connector_type) a.append(r.vehicle_label
             ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
             : batteryNode("p", "Vehicle connector · " + r.vehicle_connector_type, "موصل المركبة · " + r.vehicle_connector_type));
