@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\ContractAuthorizationGate;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
@@ -75,7 +76,8 @@ class OcpiCredentialsController extends Controller
             $ownerVendor = $owner->role === 'vendor';
             $ownerActive = $ownerVendor && $owner->account_status === 'active';
             $adminActions = $configured && $provider->authorized && $actor->role === 'admin' && $ownerVendor;
-            $canAdvance = $ownerActive && $provider->authorization_revision < PHP_INT_MAX
+            $contractEligible = ContractAuthorizationGate::permits($provider, $owner);
+            $canAdvance = $ownerActive && $contractEligible && $provider->authorization_revision < PHP_INT_MAX
                 && (int) ($link->generation ?? 0) < 2147483647;
             if ($adminActions) {
                 if ($state === 'active') {
@@ -117,7 +119,7 @@ class OcpiCredentialsController extends Controller
                 $ownerActive, $receiverModules, $activeReceivers
             );
 
-            return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
+            return response()->json(['capability_matrix' => $capabilities, 'configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $activeReceivers, 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'contract_review_required_for_new_credentials' => ContractAuthorizationGate::required(), 'new_credentials_contract_eligible' => $contractEligible, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 

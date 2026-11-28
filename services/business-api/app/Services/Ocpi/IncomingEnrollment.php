@@ -97,6 +97,11 @@ class IncomingEnrollment
         }, 3);
     }
 
+    public function assertPreparedReview(OcpiProvider $provider, object $link): void
+    {
+        $this->reviewAuthority($provider, $link, $this->preparedOperation($provider, $link));
+    }
+
     private function preparedOperation(OcpiProvider $provider, object $link, bool $lock = false): object
     {
         $query = DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)

@@ -279,7 +279,11 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
             'idempotency_key' => 'incoming-review-001'];
         $this->actingAs($admin)->postJson($url, $intent)->assertConflict();
         $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->getJson($url)->assertOk()->assertJsonPath('available_actions', [])
+            ->assertJsonPath('new_credentials_contract_eligible', false);
         $this->postJson($path, $this->review())->assertCreated();
+        $this->getJson($url)->assertOk()->assertJsonPath('available_actions', ['prepare_incoming'])
+            ->assertJsonPath('new_credentials_contract_eligible', true);
         $this->postJson($url, $intent)->assertOk()->assertJsonPath('state', 'awaiting_peer');
         $peer = ['token' => 'INCOMING-PEER-B', 'url' => 'https://partner.example/ocpi/versions',
             'roles' => [['role' => 'CPO', 'country_code' => 'NL', 'party_id' => 'ABC',
@@ -289,6 +293,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         $reviews = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
         // Replacing even a valid digest invalidates the prepared receipt.
         $reviews->update(['evidence_sha256' => str_repeat('b', 64)]);
+        $this->getJson('/api/roaming-protocol/versions', $headers)->assertUnauthorized();
         $this->postJson($protocol, $peer, $headers)->assertStatus(400);
         Http::assertNothingSent();
         $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_register']);
@@ -316,10 +321,31 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_register']);
         $reviews->update(['valid_until' => $this->review()['valid_until']]);
         $expireDuringProof = false;
-        $this->postJson($protocol, $peer, $headers)->assertCreated();
+        $registered = $this->postJson($protocol, $peer, $headers)->assertCreated();
         $this->assertSame(3, $requests);
         $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'active']);
         $this->assertDatabaseHas('ocpi_credential_operations', ['action' => 'peer_register', 'state' => 'acknowledged']);
+        $activeHeaders = ['Authorization' => 'Token '.base64_encode($registered->json('data.token'))];
+        $peer['token'] = 'INCOMING-PEER-C';
+        $reviews->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->getJson($url)->assertOk()->assertJsonPath('available_actions', ['unregister'])
+            ->assertJsonPath('new_credentials_contract_eligible', false);
+        $this->putJson($protocol, $peer, $activeHeaders)->assertStatus(400);
+        $this->assertSame(3, $requests);
+        $reviews->update(['valid_until' => $this->review()['valid_until']]);
+        $expireDuringProof = true;
+        $this->putJson($protocol, $peer, $activeHeaders)->assertStatus(400);
+        $this->assertSame(4, $requests);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_rotate']);
+        $reviews->update(['valid_until' => $this->review()['valid_until']]);
+        $expireDuringProof = false;
+        $rotated = $this->putJson($protocol, $peer, $activeHeaders)->assertOk();
+        $this->assertSame(6, $requests);
+        $this->assertDatabaseHas('ocpi_credential_operations', ['action' => 'peer_rotate', 'state' => 'acknowledged']);
+        $reviews->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->deleteJson($protocol, [], ['Authorization' => 'Token '.base64_encode($rotated->json('data.token'))])->assertOk();
+        $this->assertSame(6, $requests);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'revoked']);
     }
 
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
