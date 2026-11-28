@@ -311,10 +311,21 @@ async function sponsorPanelRegression() {
     const clickCount = record.locator("[data-campaign-click-count]");
     assert(await clickCount.isVisible());
     assert.equal(await clickCount.textContent(), "0");
-    await v
-      .locator(`[data-campaign-record="${id}"]`)
-      .getByRole("button", { name: "Review campaign", exact: true })
-      .click();
+    const badDeliveryPattern = new RegExp("/api/commercial/campaigns/" + id + "\\?page=1$");
+    await vendor.route(badDeliveryPattern, async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      assert.equal(data.deliveries.data.length, 1);
+      data.deliveries.data[0].parent_delivery_id = data.deliveries.data[0].id;
+      await route.fulfill({ response, json: data });
+    });
+    await record.getByRole("button", { name: "Review campaign", exact: true }).click();
+    await v.getByText("Invalid campaign delivery history.", { exact: true }).waitFor();
+    assert.equal(await v.getByText("Eligible for a sponsored placement", { exact: true }).count(), 0);
+    await vendor.unroute(badDeliveryPattern);
+    await v.getByRole("button", { name: "Campaign list", exact: true }).click();
+    await v.locator(`[data-campaign-record="${id}"]`)
+      .getByRole("button", { name: "Review campaign", exact: true }).click();
     await v
       .getByText("Eligible for a sponsored placement", { exact: true })
       .waitFor();

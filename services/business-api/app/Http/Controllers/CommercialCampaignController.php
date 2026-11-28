@@ -12,6 +12,17 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CommercialCampaignController extends Controller
 {
+    private const MAX_EXACT = 9_007_199_254_740_991;
+
+    private static function exactId(mixed $value): int
+    {
+        abort_unless(is_int($value) || is_string($value), 409, 'Invalid campaign identity.');
+        $id = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($id !== false && $id >= 1 && $id <= self::MAX_EXACT, 409, 'Invalid campaign identity.');
+
+        return $id;
+    }
+
     private const REVIEW_STATES = ['draft', 'submitted', 'approved', 'paused', 'rejected', 'cancelled', 'suspended'];
 
     private function pageRules(): array
@@ -45,19 +56,28 @@ class CommercialCampaignController extends Controller
 
     private function safe(object $row, CampaignService $service): array
     {
-        $data = (array) $row;
-        unset($data['request_key'], $data['fingerprint']);
+        $data = array_intersect_key((array) $row, array_flip([
+            'id', 'vendor_id', 'invoice_id', 'station_id', 'title', 'title_ar', 'description',
+            'description_ar', 'country', 'region', 'placement', 'budget_units', 'starts_at',
+            'ends_at', 'status', 'created_at', 'updated_at',
+        ]));
+        foreach (['id', 'vendor_id', 'invoice_id', 'station_id', 'budget_units'] as $key) {
+            $data[$key] = self::exactId($row->{$key});
+        }
+        abort_unless(in_array($row->status, self::REVIEW_STATES, true)
+            && $data['budget_units'] <= 1000000, 409, 'Invalid campaign source.');
 
         // One statement obtains both counters; a click committed between two
         // separate COUNTs must not manufacture a temporary impossible ratio.
         $counts = DB::table('commercial_campaign_deliveries')->where('campaign_id', $row->id)
-            ->selectRaw('COUNT(CASE WHEN kind = ? THEN 1 END) AS delivered, COUNT(CASE WHEN kind = ? THEN 1 END) AS clicks', ['delivery', 'click'])
+            ->selectRaw('COUNT(*) AS all_receipts, COUNT(CASE WHEN kind = ? THEN 1 END) AS delivered, COUNT(CASE WHEN kind = ? THEN 1 END) AS clicks', ['delivery', 'click'])
             ->first();
         $delivered = (int) $counts->delivered;
         $clicks = (int) $counts->clicks;
         $revision = $service->controlRevision($row->id);
-        abort_unless($revision > 0 && $delivered <= (int) $row->budget_units
-            && $clicks <= $delivered, 409, 'Campaign source counters cannot be reconciled.');
+        abort_unless($revision > 0 && $revision <= self::MAX_EXACT && $delivered <= $data['budget_units']
+            && $clicks <= $delivered && $delivered + $clicks === (int) $counts->all_receipts,
+            409, 'Campaign source counters cannot be reconciled.');
 
         return $data + ['control_revision' => (string) $revision, 'delivered_units' => $delivered, 'verified_server_clicks' => $clicks, 'unit' => 'PREPAID_PACKAGE_DELIVERY_UNIT', 'additional_cash_charge' => false, 'human_impressions_verified' => false, 'sponsored' => true];
     }
@@ -67,9 +87,9 @@ class CommercialCampaignController extends Controller
         $v = $r->validate($this->pageRules() + [
             'status' => ['sometimes', Rule::in(self::REVIEW_STATES)],
             'country' => ['sometimes', 'regex:/\A[A-Z]{2}\z/'],
-            'vendor_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
-            'station_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
-            'invoice_id' => ['sometimes', 'regex:/\A[1-9][0-9]{0,17}\z/'],
+            'vendor_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,15}\z/', 'integer', 'max:'.self::MAX_EXACT],
+            'station_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,15}\z/', 'integer', 'max:'.self::MAX_EXACT],
+            'invoice_id' => ['sometimes', 'bail', 'regex:/\A[1-9][0-9]{0,15}\z/', 'integer', 'max:'.self::MAX_EXACT],
         ]);
 
         return DB::transaction(function () use ($r, $s, $v) {
@@ -187,16 +207,34 @@ class CommercialCampaignController extends Controller
                 ->orderBy('id')->limit(1001)->get();
             abort_if($events->count() > 1000, 409, 'Campaign history requires assisted review.');
 
+            $deliveries = DB::table('commercial_campaign_deliveries as d')
+                ->leftJoin('commercial_campaign_deliveries as parent', 'parent.id', '=', 'd.parent_delivery_id')
+                ->where('d.campaign_id', $campaign)->orderByDesc('d.id')
+                ->select('d.id', 'd.campaign_id', 'd.parent_delivery_id', 'd.kind', 'd.occurred_at', 'd.created_at',
+                    'parent.campaign_id as parent_campaign_id', 'parent.kind as parent_kind', 'parent.occurred_at as parent_occurred_at')
+                ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1))
+                ->through(function ($receipt) use ($campaign) {
+                    $id = self::exactId($receipt->id);
+                    $parent = $receipt->parent_delivery_id === null ? null : self::exactId($receipt->parent_delivery_id);
+                    abort_unless(($receipt->kind === 'delivery' && $parent === null)
+                        || ($receipt->kind === 'click' && $parent !== null && $parent < $id
+                            && (int) $receipt->parent_campaign_id === $campaign && $receipt->parent_kind === 'delivery'
+                            && CarbonImmutable::parse($receipt->parent_occurred_at)->lte(CarbonImmutable::parse($receipt->occurred_at))),
+                        409, 'Campaign delivery lineage cannot be verified.');
+
+                    return [
+                        'id' => $id, 'campaign_id' => $campaign, 'parent_delivery_id' => $parent,
+                        'kind' => $receipt->kind, 'occurred_at' => $receipt->occurred_at, 'created_at' => $receipt->created_at,
+                    ];
+                });
+
             return response()->json([
                 'campaign' => $this->safe($row, $s),
                 'currently_eligible' => $s->eligible($row),
                 'events' => $events,
                 // A private review needs canonical receipt identity and time,
                 // not the publisher's raw idempotency keys or payload hashes.
-                'deliveries' => DB::table('commercial_campaign_deliveries')
-                    ->where('campaign_id', $campaign)->orderByDesc('id')
-                    ->select('id', 'campaign_id', 'parent_delivery_id', 'kind', 'occurred_at', 'created_at')
-                    ->paginate((int) ($v['per_page'] ?? 25), ['*'], 'page', (int) ($v['page'] ?? 1)),
+                'deliveries' => $deliveries,
             ])->header('Cache-Control', 'private, no-store');
         }, 3);
     }

@@ -249,6 +249,36 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         if (previous !== Number(c.control_revision) || status !== c.status)
             throw Error("Campaign revision does not match history.");
     }
+    function verifyDeliveryHistory(page, c) {
+        if (page.total !== c.delivered_units + c.verified_server_clicks)
+            throw Error("Invalid campaign delivery history.");
+        const parents = new Set(), rows = new Map();
+        let previous = Infinity, deliveryCount = 0, clickCount = 0;
+        for (const row of page.data) {
+            if (!row || !positive(row.id) || row.id >= previous || row.campaign_id !== c.id ||
+                !["delivery", "click"].includes(row.kind) ||
+                !Number.isFinite(instant(row.occurred_at)) || !Number.isFinite(instant(row.created_at)) ||
+                Object.hasOwn(row,"event_id") || Object.hasOwn(row,"fingerprint") ||
+                (row.kind === "delivery" && row.parent_delivery_id !== null) ||
+                (row.kind === "click" && (!positive(row.parent_delivery_id) ||
+                    row.parent_delivery_id >= row.id || parents.has(row.parent_delivery_id))))
+                throw Error("Invalid campaign delivery history.");
+            if (row.kind === "click") {
+                parents.add(row.parent_delivery_id);
+                clickCount++;
+            } else deliveryCount++;
+            rows.set(row.id, row);
+            previous = row.id;
+        }
+        if (deliveryCount > c.delivered_units || clickCount > c.verified_server_clicks)
+            throw Error("Invalid campaign delivery history.");
+        for (const row of rows.values()) {
+            if (row.kind !== "click" || !rows.has(row.parent_delivery_id)) continue;
+            const parent = rows.get(row.parent_delivery_id);
+            if (parent.kind !== "delivery" || instant(parent.occurred_at) > instant(row.occurred_at))
+                throw Error("Invalid campaign delivery history.");
+        }
+    }
     function verifyProgress(old, next) {
         if (old && (!sameTerms(old, next) ||
             Number(next.control_revision) < Number(old.control_revision) ||
@@ -787,14 +817,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
         if (typeof data.currently_eligible !== "boolean" ||
             (data.currently_eligible && (c.status !== "approved" || c.delivered_units >= c.budget_units)))
             throw Error("Invalid campaign eligibility.");
-        const deliveredIds = new Set();
-        for (const row of data.deliveries.data) {
-            if (!row || !positive(row.id) || deliveredIds.has(row.id) ||
-                row.campaign_id !== id || !["delivery", "click"].includes(row.kind) ||
-                !Number.isFinite(instant(row.occurred_at)))
-                throw Error("Invalid campaign delivery history.");
-            deliveredIds.add(row.id);
-        }
+        verifyDeliveryHistory(data.deliveries, c);
         content.replaceChildren();
         nav();
         content.append(
