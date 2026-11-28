@@ -6,7 +6,7 @@ use App\Models\InboxNotification;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
-/** Local notices only. Existing separately consented generic email policy remains independent. */
+/** Local notices only; generic email handoff explicitly excludes this notice kind. */
 final class IncidentAlertRouting
 {
     private function eligible(User $user, ?object $preference): bool
@@ -67,6 +67,16 @@ final class IncidentAlertRouting
                 $user = User::whereKey($id)->lockForUpdate()->first();
                 $preference = DB::table('operational_incident_alert_preferences')->where('user_id', $id)->lockForUpdate()->first();
                 if (! $user || ! $this->eligible($user, $preference) || ! config('operational_health.enabled')) {
+                    return 0;
+                }
+                // Serialize with the scanner and reject old or missing scan
+                // evidence. Open records are observations, not live alarms.
+                $scan = DB::table('operational_incident_scan_locks')->where('id', 1)->lockForUpdate()->first();
+                if (! $scan || ! $scan->last_completed_at) {
+                    return 0;
+                }
+                $summary = app(OperationalIncidents::class)->summary();
+                if (($summary['scanner']['state'] ?? null) !== 'recent') {
                     return 0;
                 }
                 $count = 0;
