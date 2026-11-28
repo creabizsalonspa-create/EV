@@ -465,7 +465,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
   Widget build(BuildContext context) {
     final visible = foreground && authorized() ? data : null;
     final p = visible?['connectors'];
-    final directPage = foreground && authorized() ? directData?['chargers'] : null;
+    final directPage = foreground && authorized() ? (directData?['chargers']) : null;
     return Scaffold(
       appBar: AppBar(
         title: Text(t('Recorded connector fleet', 'سجل موصلات الأسطول')),
