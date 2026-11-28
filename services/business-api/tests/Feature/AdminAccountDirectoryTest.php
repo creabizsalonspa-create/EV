@@ -188,6 +188,25 @@ class AdminAccountDirectoryTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_account_search_is_literal_case_insensitive_and_history_pages_are_bounded(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $target = User::factory()->create(['name' => 'Review_X%!', 'email' => 'literal-target@example.test']);
+        User::factory()->create(['name' => 'ReviewAXYZ', 'email' => 'other-target@example.test']);
+        $this->actingAs($admin);
+        foreach (['_', '%', '!', 'review_x%!'] as $search) {
+            $this->getJson('/api/admin/accounts?q='.rawurlencode($search))
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $target->id);
+        }
+        $history = '/api/admin/accounts/'.$target->id.'/moderations';
+        $before = DB::table('audit_events')->count();
+        foreach (['0', '-1', '100001', '1.5'] as $page) {
+            $this->getJson($history.'?page='.$page)->assertUnprocessable();
+        }
+        $this->assertSame($before, DB::table('audit_events')->count());
+        $this->getJson($history.'?page=1')->assertOk()->assertJsonPath('total', 0);
+    }
+
     public function test_business_name_search_is_case_insensitive_and_escapes_like_wildcards(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
