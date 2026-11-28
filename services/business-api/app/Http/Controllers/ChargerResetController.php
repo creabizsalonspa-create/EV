@@ -85,7 +85,7 @@ class ChargerResetController extends Controller
             ->exists(), 409, 'An unresolved charging command owns this station.');
     }
 
-    public function idle(object $b, ?string $after = null): void
+    public function idle(object $b, ?string $after = null): int
     {
         $this->requireLocalIdle($b);
         $url = app(CsmsGraphqlTransport::class)->requireApproved();
@@ -169,6 +169,8 @@ class ChargerResetController extends Controller
             // idle decision if a charging hold appeared during observation.
             $this->requireLocalIdle($b);
             $requireAuthority();
+
+            return $rows[0]['id'];
         } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (Throwable) {
@@ -228,7 +230,7 @@ class ChargerResetController extends Controller
                     $this->enabled();
                     $sourceUrl = app(CsmsGraphqlTransport::class)->requireApproved();
                     $sourceKey = (string) config('csms.graphql_secret');
-                    $this->idle($b);
+                    $sourceStation = $this->idle($b);
                     $operationsBase = config('csms.operations_base_url');
                     $auth = app(OperationsCredentials::class)->token($operationsBase);
                     $this->enabled();
@@ -239,6 +241,21 @@ class ChargerResetController extends Controller
                     $this->requireCurrentScope($r, $company, $charger, $b);
                     $this->requireLocalIdle($b);
                     abort_unless(is_string($auth) && $auth !== '', 503);
+                    // Token acquisition is external I/O: the previously idle
+                    // charger can become occupied, faulted or reassigned.
+                    // Recheck the entire typed source inventory, not only the
+                    // local holds, before sending the single reset request.
+                    $freshSourceStation = $this->idle($b);
+                    abort_unless($freshSourceStation === $sourceStation, 409,
+                        'Reset source station changed during authorization.');
+                    $this->enabled();
+                    abort_unless(config('csms.operations_base_url') === $operationsBase
+                        && app(CsmsGraphqlTransport::class)->requireApproved() === $sourceUrl
+                        && hash_equals($sourceKey, (string) config('csms.graphql_secret')), 409,
+                        'Source or operations authority changed during final idle review.');
+                    $this->requireCurrentScope($r, $company, $charger, $b);
+                    $this->requireOperationGeneration($current, $b);
+                    $this->requireLocalIdle($b);
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($auth)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/reset?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), ['type' => $row->reset_type]);
 
                     return $reply->successful() && $reply->json() === [['success' => true]] ? 'transport_submitted' : 'outcome_unknown';

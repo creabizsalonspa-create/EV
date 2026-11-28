@@ -69,7 +69,7 @@ class ChargerResetTest extends TestCase
             $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('capacity_released', false)->json('id');
             $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
             $this->postJson($f['path'], array_replace($body, ['reason' => 'A different request reason']))->assertConflict();
-            Http::assertSentCount(6); // Two preflights, OAuth and exactly one write.
+            Http::assertSentCount(8); // Three preflights, OAuth and exactly one write.
             Http::assertSent(fn ($r) => str_contains($r->url(), '/configuration/reset?') && $r['type'] === ($protocol === '1.6' ? 'Soft' : 'OnIdle'));
             $this->assertStringNotContainsString('PRIVATE', DB::table('charger_reset_operations')->where('id', $id)->value('reason'));
             $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Reviewing source state safely'])->assertConflict();
@@ -288,7 +288,7 @@ class ChargerResetTest extends TestCase
                 'idempotency_key' => 'both-connectors-'.$protocol,
             ])->assertCreated()->assertJsonPath('status', 'transport_submitted')
                 ->assertJsonPath('capacity_released', false);
-            Http::assertSentCount(6); // Two typed source preflights, token and exactly one reset.
+            Http::assertSentCount(8); // Three typed source preflights, token and exactly one reset.
             Http::assertSent(fn ($request) => str_contains($request->url(), '/configuration/reset?')
                 && $request['type'] === ($protocol === '1.6' ? 'Soft' : 'OnIdle'));
         }
@@ -397,6 +397,73 @@ class ChargerResetTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset?'));
         $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
         $this->assertDatabaseCount('charger_reset_operations', 1);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function postTokenSourceDriftCases(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['active_transaction', 'occupied', 'faulted', 'stale', 'offline', 'station_replaced', 'credential_rotated'] as $change) {
+                $cases[$protocol.'_'.$change] = [$protocol, $change];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('postTokenSourceDriftCases')]
+    public function test_reset_requires_fresh_unchanged_source_after_token(string $protocol, string $change): void
+    {
+        $f = $this->fixture($protocol);
+        $tokenIssued = false;
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use ($f, $change, &$tokenIssued) {
+            if (str_ends_with($request->url(), '/dev/token')) {
+                $tokenIssued = true;
+
+                return Http::response(['accessToken' => 'synthetic-source-token']);
+            }
+            if ($request->url() === 'http://127.0.0.1:8095/v1/graphql') {
+                if (str_contains($request['query'], 'ChargingStations')) {
+                    return Http::response(['data' => ['ChargingStations' => [[
+                        'id' => $tokenIssued && $change === 'station_replaced' ? 10 : 9,
+                        'isOnline' => ! ($tokenIssued && $change === 'offline'),
+                        'protocol' => $f['protocol'],
+                    ]]]]);
+                }
+                if ($tokenIssued && $change === 'credential_rotated') {
+                    config(['csms.graphql_secret' => str_repeat('y', 64)]);
+                }
+
+                return Http::response(['data' => [
+                    'Transactions' => $tokenIssued && $change === 'active_transaction' ? [['id' => 1]] : [],
+                    'Connectors' => [['id' => 7]],
+                    'StatusNotifications' => [[
+                        'connectorDatabaseId' => 7,
+                        'connectorStatus' => $tokenIssued && $change === 'occupied' ? 'Occupied' : 'Available',
+                        'errorCode' => $tokenIssued && $change === 'faulted' ? 'GroundFailure' : 'NoError',
+                        'timestamp' => $tokenIssued && $change === 'stale' ? now()->subMinutes(3)->toISOString() : now()->toISOString(),
+                    ]],
+                ]]);
+            }
+
+            $this->fail('No reset transport may run after source authority or safety drift.');
+        });
+        $body = ['reason' => 'Confirm current source idle after token acquisition', 'idempotency_key' => 'post-token-source-drift'];
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()
+            ->assertJsonPath('status', 'outcome_unknown')->assertJsonPath('capacity_released', false)->json('id');
+        $this->assertTrue($tokenIssued);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/configuration/reset?'));
+        config(['csms.graphql_secret' => str_repeat('x', 64)]);
+        $before = Http::recorded()->count();
+        $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'outcome_unknown');
+        $this->assertSame($before, Http::recorded()->count());
+        $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+        $this->assertDatabaseCount('charger_reset_operations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
@@ -552,9 +619,9 @@ class ChargerResetTest extends TestCase
         $this->source($f, uncertain: true);
         $body = ['reason' => 'Inspect uncertain simulator reset', 'idempotency_key' => 'uncertain'];
         $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown');
-        Http::assertSentCount(6);
+        Http::assertSentCount(8);
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('status', 'outcome_unknown');
-        Http::assertSentCount(6);
+        Http::assertSentCount(8);
         $this->postJson($f['path'], array_replace($body, ['idempotency_key' => 'new-reset']))->assertConflict();
         $this->expectException(HttpException::class);
         app(StationGate::class)->requireReady($f['station']);
