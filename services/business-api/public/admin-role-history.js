@@ -13,6 +13,23 @@ window.EvAdminOperatorRoleHistory = (() => {
     let status = null;
     let cursor = null;
     let more = false;
+    let filters = null;
+    const lang = () => document.documentElement.lang === "ar" ? "ar" : "en";
+    function localized(tag,en,ar) {
+        const n = node(tag);
+        n.dataset.en = en; n.dataset.ar = ar;
+        n.textContent = lang() === "ar" ? ar : en;
+        return n;
+    }
+    function message(en,ar) {
+        status.dataset.en = en; status.dataset.ar = ar;
+        status.textContent = lang() === "ar" ? ar : en;
+    }
+    function clock(raw) {
+        const label = language => window.EvStationTime?.serverEventTime(raw,language)
+            || (language === "ar" ? "وقت الحدث غير متاح" : "Event time unavailable");
+        return localized("p","Timestamp (UTC): " + label("en"),"وقت الحدث (UTC): " + label("ar"));
+    }
 
     function node(tag, value) {
         const e = document.createElement(tag);
@@ -39,6 +56,7 @@ window.EvAdminOperatorRoleHistory = (() => {
         controller?.abort();
         controller = null;
         request = null;
+        filters = null; cursor = null; more = false;
         root.replaceChildren();
     }
     async function load(reset = true) {
@@ -47,16 +65,18 @@ window.EvAdminOperatorRoleHistory = (() => {
         const active = new AbortController();
         controller = active;
         const epoch = generation;
+        if (reset) filters = {target:target.value.trim(), role:role.value};
         const q = new URLSearchParams({limit: "25"});
-        if (target.value.trim()) q.set("target_user_id", target.value.trim());
-        if (role.value) q.set("assigned_role", role.value);
-        if (!reset) q.set("before_id", String(cursor));
+        if (filters.target) q.set("target_user_id", filters.target);
+        if (filters.role) q.set("assigned_role", filters.role);
+        const before = reset ? null : cursor;
+        if (before !== null) q.set("before_id", String(before));
         if (reset) {
             cursor = null;
             more = false;
             rows.replaceChildren();
         }
-        status.textContent = "Loading privileged role changes…";
+        message("Loading privileged role changes…","جارٍ تحميل تغييرات الأدوار ذات الصلاحيات…");
         try {
             const data = await request("admin/operator-role-changes?" + q.toString(),
                 "GET", undefined, active.signal);
@@ -67,7 +87,21 @@ window.EvAdminOperatorRoleHistory = (() => {
                     child.remove();
                 }
             }
-            const events = Array.isArray(data.events) ? data.events : [];
+            if (!Array.isArray(data?.events) || data.events.length > 25 ||
+                data.limit !== 25 || data.operator_identity_available !== false ||
+                typeof data.has_more !== "boolean") throw Error("Invalid role history");
+            const events = data.events;
+            let last = before ?? Infinity;
+            for (const event of events) {
+                if (!event || !Number.isSafeInteger(event.id) || event.id <= 0 ||
+                    event.id >= last || !Number.isSafeInteger(event.target_user_id) ||
+                    event.target_user_id <= 0 ||
+                    (filters.target && String(event.target_user_id) !== filters.target) ||
+                    (filters.role && event.assigned_role !== filters.role)) throw Error("Invalid role scope");
+                last = event.id;
+            }
+            if (data.has_more ? !events.length || data.next_before_id !== last
+                : data.next_before_id !== null) throw Error("Invalid role cursor");
             for (const event of events) {
                 const item = node("article");
                 item.append(
@@ -77,7 +111,7 @@ window.EvAdminOperatorRoleHistory = (() => {
                         event.previous_role + " → " + event.assigned_role),
                     node("p", "Source: " + event.source +
                         " · Ticket: " + (event.ticket_reference || "not provided")),
-                    node("p", "Timestamp (UTC): " + event.created_at)
+                    clock(event.created_at)
                 );
                 rows.append(item);
             }
@@ -85,17 +119,21 @@ window.EvAdminOperatorRoleHistory = (() => {
                 ? data.next_before_id : null;
             more = data.has_more === true && cursor !== null;
             if (more) {
-                const next = button("Load older role changes / أحداث أقدم", () => load(false));
+                const next = button("Load older role changes / أحداث أقدم", () => {
+                    if (current(epoch,active) && next.isConnected) return load(false);
+                });
                 next.setAttribute("data-role-more", "true");
                 rows.append(next);
             }
             if (!rows.children.length) rows.append(node("p", "No role changes match these filters."));
-            status.textContent = events.length + " role changes loaded; " +
-                "shell operator identity must be verified from privileged host logs.";
+            message(events.length + " role changes loaded; shell operator identity must be verified from privileged host logs.",
+                events.length + " تغييرات أدوار محملة؛ يجب التحقق من هوية مشغل النظام من سجلات المضيف ذات الصلاحيات.");
         } catch {
             if (current(epoch, active)) {
-                status.textContent = "Role change history unavailable.";
-                const retry = button("Retry / إعادة المحاولة", () => load(reset));
+                message("Role change history unavailable.","سجل تغييرات الأدوار غير متاح.");
+                const retry = button("Retry / إعادة المحاولة", () => {
+                    if (current(epoch,active) && retry.isConnected) return load(reset);
+                });
                 retry.setAttribute("data-role-more", "true");
                 rows.append(retry);
             }
@@ -125,7 +163,11 @@ window.EvAdminOperatorRoleHistory = (() => {
         search.type = "submit";
         form.append(field("Account ID (optional)", target),
             field("Assigned role", role), search);
-        form.onsubmit = event => { event.preventDefault(); load(true); };
+        const formEpoch = generation;
+        form.onsubmit = event => {
+            event.preventDefault();
+            if (generation === formEpoch && form.isConnected && request) load(true);
+        };
         status = node("p", "CLI role history is read-only. Ticket references are not operator identities.");
         status.setAttribute("role", "status");
         rows = node("div");
