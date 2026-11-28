@@ -522,8 +522,8 @@ class ChargerLiveConnectorsTest extends TestCase
             $response->assertStatus(match ($case) {
                 'disabled', 'plaintext', 'authority_epoch_changed_during_read' => 503, 'foreign_owner' => 404, default => 409,
             });
-            if (! in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read',
-                'authority_epoch_changed_during_read'], true)) {
+            if (in_array($case, ['receipt_changed_during_read', 'wrong_tenant', 'wrong_connection', 'connection_changed_during_read',
+                'authority_epoch_changed_during_read'], true) === false) {
                 Http::assertNothingSent();
             }
         }

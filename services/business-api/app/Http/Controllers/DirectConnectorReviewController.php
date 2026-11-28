@@ -95,8 +95,7 @@ final class DirectConnectorReviewController extends Controller
         abort_unless($snapshot['evidence'] === 'REGISTERED_DIRECT_SOURCE'
             && $snapshot['source_topology_complete'] === true && $snapshot['source_identity_rechecked'] === true
             && hash_equals($fingerprint, $snapshot['internal_registration_fingerprint'] ?? ''), 409);
-        $matches = array_values(array_filter($snapshot['connectors'], fn ($row) =>
-            $row['source_evse_number'] === $evse && $row['source_connector_number'] === $number && $row['state'] === 'recent'));
+        $matches = array_values(array_filter($snapshot['connectors'], fn ($row) => $row['source_evse_number'] === $evse && $row['source_connector_number'] === $number && $row['state'] === 'recent'));
         abort_unless(count($matches) === 1, 409, 'A recent exact source connector observation is required.');
         $observed = SourceStatusTime::parse($matches[0]['source_event_at']);
         $sourceId = $matches[0]['source_connector_database_id'];

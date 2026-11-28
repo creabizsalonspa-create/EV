@@ -209,10 +209,22 @@ void main() {
     api.pending[4].complete(api.directReply(5));
     await tester.pumpAndSettle();
     expect(find.text('0/2 · Available'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.text('Registered source unavailable or unverified; status unknown.'), 200,
-    );
-    expect(find.text('Registered source unavailable or unverified; status unknown.'), findsWidgets);
+    // Both the foreign charger receipt and the contradictory fault receipt
+    // must be rejected. Scope to each distinct card instead of scrolling to
+    // a repeated label (Flutter's scroll helper requires one matching element).
+    for (final id in [3, 4]) {
+      final card = find.ancestor(
+        of: find.text('Direct station · Asset $id'),
+        matching: find.byType(Card),
+      );
+      final unknown = find.descendant(
+        of: card,
+        matching: find.text('Registered source unavailable or unverified; status unknown.'),
+      );
+      await tester.scrollUntilVisible(unknown, 200);
+      expect(unknown, findsOneWidget);
+      expect(find.descendant(of: card, matching: find.textContaining('· Available')), findsNothing);
+    }
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
