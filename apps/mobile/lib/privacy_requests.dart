@@ -381,7 +381,15 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                     'يمكنك طلب نسخة من بياناتك الشخصية أو مراجعة حذف حسابك. تقديم الطلب لا يحذف الحساب أو سجل الشحن أو الفواتير أو السجلات المحتفظ بها قانونياً.',
                   ),
                 ),
-                if (loading) const LinearProgressIndicator(),
+                if (loading || sending)
+                  Semantics(
+                    liveRegion: true,
+                    child: LinearProgressIndicator(
+                      semanticsLabel: sending
+                          ? t('Updating privacy requests', 'جارٍ تحديث طلبات الخصوصية')
+                          : t('Loading privacy requests', 'جارٍ تحميل طلبات الخصوصية'),
+                    ),
+                  ),
                 if (error != null)
                   Semantics(
                     liveRegion: true,
