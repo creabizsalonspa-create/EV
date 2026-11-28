@@ -1433,6 +1433,107 @@ async function simulations(page = simulationPage) {
         if (active()) list.removeAttribute("aria-busy");
     }
 }
+function regionalRolloutReview(region, epoch) {
+    const domains = {
+        legal: ["Legal", "قانوني"], payments: ["Payment provider", "مزود الدفع"],
+        tax: ["Tax", "الضريبة"], telecom: ["Telecom", "الاتصالات"],
+        charging_partners: ["Charging partners", "شركاء الشحن"],
+    };
+    const decisions = {pending: ["Pending", "قيد الانتظار"], reviewed: ["Reviewed", "تمت المراجعة"], blocked: ["Blocked", "متوقف"]};
+    const node = (tag, names) => batteryNode(tag, ...names);
+    const panel = document.createElement("div");
+    panel.dataset.access = "admin";
+    const open = node("button", ["Review country rollout", "مراجعة الإطلاق في البلد"]);
+    open.type = "button";
+    open.setAttribute("aria-label", open.textContent + " · " + region.country);
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    const checks = document.createElement("div");
+    panel.append(open, status, checks);
+    const path = "admin/regions/" + encodeURIComponent(region.country) + "/rollout";
+    const current = () => panel.isConnected && epoch === client.sessionEpoch && user?.role === "admin";
+    let busy = false;
+
+    function validate(report) {
+        if (report?.country !== region.country || report.configuration_revision !== region.configuration_revision ||
+            report.external_evidence_verified !== false || report.rollout_authorized !== false ||
+            !Array.isArray(report.checks) || report.checks.length !== Object.keys(domains).length ||
+            new Set(report.checks.map(check => check?.domain)).size !== Object.keys(domains).length) {
+            throw Error("Regional configuration changed");
+        }
+        for (const check of report.checks) {
+            if (!check || !Object.hasOwn(domains, check.domain) || !Object.hasOwn(decisions, check.decision)) {
+                throw Error("Invalid rollout review");
+            }
+            const valid = check.decision === "pending"
+                ? check.review_id === null && check.evidence_reference === null
+                : Number.isSafeInteger(check.review_id) && check.review_id > 0 &&
+                    typeof check.evidence_reference === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(check.evidence_reference);
+            if (!valid) throw Error("Invalid rollout evidence");
+        }
+    }
+
+    async function request(method, values) {
+        if (!current() || busy) return;
+        busy = true;
+        open.disabled = true;
+        checks.replaceChildren();
+        status.replaceChildren(node("span", ["Reading rollout reviews…", "جارٍ قراءة مراجعات الإطلاق…"]));
+        try {
+            const report = await api(path, method, values);
+            if (!current()) return;
+            validate(report);
+            if (values && !report.checks.some(check => check.domain === values.domain &&
+                check.decision === values.decision && check.evidence_reference === values.evidence_reference)) {
+                throw Error("Review receipt does not match");
+            }
+            status.replaceChildren(node("span", ["Rollout reviews loaded", "تم تحميل مراجعات الإطلاق"]));
+            checks.append(node("p", ["Record references to external review evidence. Rollout authorization is separate.", "سجّل مراجع أدلة المراجعة الخارجية. تتم الموافقة على الإطلاق بشكل منفصل."]));
+            for (const check of report.checks) {
+                const form = document.createElement("form");
+                const legend = node("legend", domains[check.domain]);
+                const fieldset = document.createElement("fieldset");
+                const evidence = document.createElement("input");
+                evidence.required = true;
+                evidence.maxLength = 100;
+                evidence.pattern = "[A-Za-z0-9][A-Za-z0-9._\\-]{0,99}";
+                evidence.value = check.evidence_reference ?? "";
+                const reference = document.createElement("label");
+                reference.append(node("span", ["Evidence reference", "مرجع الدليل"]), evidence);
+                const select = document.createElement("select");
+                const decision = document.createElement("label");
+                decision.append(node("span", ["Review decision", "قرار المراجعة"]), select);
+                for (const option of ["reviewed", "blocked"]) {
+                    const choice = node("option", decisions[option]);
+                    choice.value = option;
+                    select.append(choice);
+                }
+                select.value = check.decision === "pending" ? "reviewed" : check.decision;
+                const save = node("button", ["Save review", "حفظ المراجعة"]);
+                save.type = "submit";
+                fieldset.append(legend, node("p", decisions[check.decision]), reference, decision, save);
+                form.append(fieldset);
+                form.onsubmit = event => {
+                    event.preventDefault();
+                    if (!form.isConnected) return;
+                    request("POST", {
+                        configuration_revision: region.configuration_revision,
+                        domain: check.domain, decision: select.value,
+                        evidence_reference: evidence.value, expected_review_id: check.review_id,
+                    });
+                };
+                checks.append(form);
+            }
+        } catch {
+            if (current()) status.replaceChildren(node("span", ["Review could not be confirmed. Refresh regional settings before trying again.", "تعذر تأكيد المراجعة. حدّث إعدادات المنطقة قبل المحاولة مرة أخرى."]));
+        } finally {
+            busy = false;
+            open.disabled = false;
+        }
+    }
+    open.onclick = () => request("GET");
+    return panel;
+}
 async function regions() {
     const epoch = client.sessionEpoch;
     const rows = await api("regions");
@@ -1463,7 +1564,7 @@ async function regions() {
                 });
                 form.elements.namedItem("currency").focus();
             };
-            root.append(edit);
+            root.append(edit, regionalRolloutReview(region, epoch));
         }
         const enabled = Boolean(region.review_intake_enabled);
         const button = enabled

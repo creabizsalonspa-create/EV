@@ -12,6 +12,7 @@ use App\Http\Controllers\AdminOperationalHealthController;
 use App\Http\Controllers\AdminOperationsMapController;
 use App\Http\Controllers\AdminOperatorRoleHistoryController;
 use App\Http\Controllers\AdminOverviewController;
+use App\Http\Controllers\AdminRegionalRolloutController;
 use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\AdminSecurityDenialSummaryController;
 use App\Http\Controllers\AdminSessionController;
@@ -118,6 +119,10 @@ Route::get('/api/admin/overview', [AdminOverviewController::class, 'show'])
     ->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware('throttle:catalog');
+Route::middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {
+    Route::get('/api/admin/regions/{country}/rollout', [AdminRegionalRolloutController::class, 'show'])->where('country', '[A-Z]{2}');
+    Route::post('/api/admin/regions/{country}/rollout', [AdminRegionalRolloutController::class, 'record'])->where('country', '[A-Z]{2}');
+});
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     $c = EnterpriseController::class;
     Route::put('/api/regions/{country}', [$c, 'configureRegion']);
