@@ -21,6 +21,24 @@ final class OperationalIncidents
 
     private const SCANNER_MAX_AGE_SECONDS = 150;
 
+    private function backlogThresholds(): array
+    {
+        return [
+            'ready_count' => $this->validatedThreshold('queue_backlog_ready_count', 1, 10000, 25),
+            'age_seconds' => $this->validatedThreshold('queue_backlog_age_seconds', 60, 3600, 300),
+        ];
+    }
+
+    private function validatedThreshold(string $key, int $minimum, int $maximum, int $fallback): int
+    {
+        $value = config('operational_health.'.$key);
+        if (is_string($value) && preg_match('/^[1-9][0-9]{0,4}$/D', $value)) {
+            $value = (int) $value;
+        }
+
+        return is_int($value) && $value >= $minimum && $value <= $maximum ? $value : $fallback;
+    }
+
     private function conditions(array $health): array
     {
         $components = collect($health['components'] ?? [])->keyBy('component');
@@ -36,13 +54,14 @@ final class OperationalIncidents
         $unknown = $email['outcome_unknown'] ?? null;
         $stale = $email['stale_claimed'] ?? null;
         $overdue = $email['overdue_queued'] ?? null;
+        $thresholds = $this->backlogThresholds();
 
         return [
             'queue_worker_stale' => in_array($worker, ['recent', 'stale'], true) ? $worker === 'stale' : null,
             'scheduler_stale' => in_array($scheduler, ['recent', 'stale'], true) ? $scheduler === 'stale' : null,
             // A positive queue age without a matching, known ready count is not proof of a backlog.
             'queue_backlog' => is_int($ready) && ($ready === 0 || is_int($age))
-                ? $ready >= 25 && $age >= 300 : null,
+                ? $ready >= $thresholds['ready_count'] && $age >= $thresholds['age_seconds'] : null,
             'queue_failed_jobs' => is_int($failed) ? $failed > 0 : null,
             'email_handoff_uncertain' => $emailReadable && is_int($unknown) && is_int($stale)
                 ? $unknown > 0 || $stale > 0 : null,
@@ -172,6 +191,7 @@ final class OperationalIncidents
                     'external_alert_delivery' => false,
                     'production_recovery_verified' => false,
                     'scanner' => $this->scannerSnapshot(),
+                    'queue_backlog_thresholds' => $this->backlogThresholds(),
                     'open' => $states->where('state', 'open')->values()->all(),
                     'resolved' => $states->where('state', 'resolved')->whereNotNull('resolved_at')->values()->all(),
                     'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)

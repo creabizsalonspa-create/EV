@@ -125,6 +125,35 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('operational_incident_events', 6);
     }
 
+    public function test_queue_backlog_uses_configured_count_and_age_boundaries_and_exposes_effective_thresholds(): void
+    {
+        config(['operational_health.queue_backlog_ready_count' => '2',
+            'operational_health.queue_backlog_age_seconds' => 60]);
+        $scanner = app(OperationalIncidents::class);
+        $health = app(OperationalHealth::class);
+        $enqueue = static fn () => DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => 'PRIVATE-QUEUE-PAYLOAD', 'attempts' => 0,
+            'reserved_at' => null, 'available_at' => now()->timestamp - 59, 'created_at' => now()->timestamp - 59,
+        ]);
+
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->travel(1)->second();
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertDatabaseHas('operational_incident_states', ['condition_key' => 'queue_backlog', 'state' => 'open']);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/admin/operational-health')
+            ->assertOk()->assertJsonPath('incidents.queue_backlog_thresholds', ['ready_count' => 2, 'age_seconds' => 60])
+            ->assertDontSee('PRIVATE-QUEUE-PAYLOAD');
+
+        config(['operational_health.queue_backlog_ready_count' => '1e2',
+            'operational_health.queue_backlog_age_seconds' => 3601]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame(['ready_count' => 25, 'age_seconds' => 300], $scanner->summary()['queue_backlog_thresholds']);
+    }
+
     public function test_private_payloads_are_never_duplicated_into_incidents_and_no_work_is_retried(): void
     {
         $health = app(OperationalHealth::class);
