@@ -206,7 +206,17 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertSame($count, DB::table('finance_entries')->count());
     }
 
-    public function test_cumulative_tax_or_commission_reversal_cannot_exceed_original_allocation(): void
+    public function test_cumulative_tax_reversal_cannot_exceed_original_allocation(): void
+    {
+        $this->assertCumulativeReversalBound('tax_minor', 'tax_payable:AE');
+    }
+
+    public function test_cumulative_commission_reversal_cannot_exceed_original_allocation(): void
+    {
+        $this->assertCumulativeReversalBound('commission_minor', 'platform_commission');
+    }
+
+    private function assertCumulativeReversalBound(string $component, string $account): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
         $invoice = $this->invoice(100, 'overallocated-refund', true, true);
@@ -217,22 +227,22 @@ class VendorRevenueCohortTest extends TestCase
         $this->actingAs($this->vendor)->getJson($base.$scope)->assertOk()
             ->assertJsonPath('totals.paid_minor', 110);
         // Each imported refund is individually within the original allocation
-        // and has balanced postings. Together they reverse 12 of 10 tax units.
+        // and has balanced postings. Together they reverse 12 of 10 units of the selected component.
         foreach ([1, 2] as $index) {
-            $key = 'cohort-tax-overallocation-'.$index;
+            $key = 'cohort-'.$component.'-overallocation-'.$index;
             $journal = DB::table('finance_journals')->insertGetId([
                 'invoice_id' => $invoice->id, 'kind' => 'refund', 'idempotency_key' => $key,
                 'fingerprint' => hash('sha256', $key), 'currency' => 'AED',
                 'amount_minor' => 6, 'created_at' => now(),
             ]);
             DB::table('finance_entries')->insert([
-                ['journal_id' => $journal, 'account' => 'tax_payable:AE', 'debit_minor' => 6, 'credit_minor' => 0, 'created_at' => now()],
+                ['journal_id' => $journal, 'account' => $account, 'debit_minor' => 6, 'credit_minor' => 0, 'created_at' => now()],
                 ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 0, 'credit_minor' => 6, 'created_at' => now()],
             ]);
             DB::table('finance_refunds')->insert([
                 'invoice_id' => $invoice->id, 'journal_id' => $journal, 'actor_id' => $this->admin->id,
-                'credit_note_number' => 'SIM-CN-'.$key, 'amount_minor' => 6, 'tax_minor' => 6,
-                'commission_minor' => 0, 'vendor_minor' => 0, 'reason' => 'Synthetic imported reversal',
+                'credit_note_number' => 'SIM-CN-'.$key, 'amount_minor' => 6, 'tax_minor' => $component === 'tax_minor' ? 6 : 0,
+                'commission_minor' => $component === 'commission_minor' ? 6 : 0, 'vendor_minor' => 0, 'reason' => 'Synthetic imported reversal',
                 'evidence' => 'SIMULATED', 'created_at' => now(),
             ]);
             if ($index === 1) {
