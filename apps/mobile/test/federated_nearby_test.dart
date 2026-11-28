@@ -9,16 +9,16 @@ Map<String,dynamic> fixtureReply()=> {
   'evidence':'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY','distance_basis':'great_circle',
   'complete_geographic_coverage':false,'live_status_verified':false,'combined_total':null,
   'published':{'data':[
-    {'kind':'catalog','key':'catalog:7','station':{'id':7,'name':'Fixture platform','evidence':'SIMULATED'}},
+    {'kind':'catalog','key':'catalog:7','station':{'id':7,'name':'Fixture platform','evidence':'SIMULATED','latitude':25.2,'longitude':55.3}},
     {'kind':'partner','key':'partner:7','record_id':7,'evidence':'PARTNER_REPORTED_UNVERIFIED',
       'availability':'unknown','remote_control':false,'reservable':false,
-      'location':{'name':'Fixture partner','availability':'unknown','remote_control':false,'reservable':false}},
+      'location':{'name':'Fixture partner','latitude':'25.21','longitude':'55.31','availability':'unknown','remote_control':false,'reservable':false}},
   ],'total':2,'current_page':1,'last_page':1,'per_page':25},
   'licensed':{'state':'observed','sample':{
     'provider':'open_charge_map','evidence':'OPEN_LICENSED_DISCOVERY_ONLY','availability':'unknown',
     'remote_control':false,'reservable':false,'billing_eligible':false,'license_policy':'PER_RECORD_ATTRIBUTION_REQUIRED',
     'count':1,'results':[
-      {'id':'ocm:123','name':'<img src=x>','source_status_evidence':'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
+      {'id':'ocm:123','name':'<img src=x>','latitude':25.22,'longitude':55.32,'source_status_evidence':'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
         'availability':'unknown','remote_control':false,'reservable':false,'billing_eligible':false,
         'data_license':'CC BY-SA 4.0','attribution':'Open Charge Map / Fixture',
         'source_url':'https://openchargemap.org/site/poi/details/123'},
@@ -58,6 +58,26 @@ void main(){
     final empty=fixtureReply();
     empty['licensed']['sample']['results']=[];empty['licensed']['sample']['count']=0;
     expect(FederatedNearbyResult.parse(empty).licensed,isEmpty);
+  });
+  test('federated map retains three source identities, attribution and rejects malformed coordinates',(){
+    final raw=fixtureReply();
+    final parsed=FederatedNearbyResult.parse(raw);
+    expect(parsed.mapPoints.length,3);
+    expect(parsed.mapPoints[0].platformCatalog,isTrue);
+    expect(parsed.mapPoints[1].platformCatalog,isFalse);
+    expect(parsed.mapPoints[1].licensedCrowd,isFalse);
+    expect(parsed.mapPoints[2].licensedCrowd,isTrue);
+    expect(parsed.mapPoints[2].licensedAttribution,'Open Charge Map / Fixture');
+    expect(parsed.mapPoints[2].licensedLicense,'CC BY-SA 4.0');
+    for(final invalid in [null,true,'25.22',91.0,double.nan]){
+      final altered=fixtureReply();
+      altered['licensed']['sample']['results'][0]['latitude']=invalid;
+      final result=FederatedNearbyResult.parse(altered);
+      expect(result.licensed!.length,1,reason:'Keep a valid text record');
+      expect(result.mapPoints.length,2,reason:'Never guess or coerce map coordinates');
+    }
+    raw['licensed']={'state':'unavailable','sample':null};
+    expect(FederatedNearbyResult.parse(raw).mapPoints.length,2);
   });
   test('malformed federation cannot create a partial or promoted source projection',(){
     for(final mutate in <void Function(Map<String,dynamic>)>[
