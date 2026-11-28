@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 
 class InvoiceHistoryView extends StatefulWidget {
@@ -26,6 +29,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
   bool busy = false;
   int generation = 0, target = 1;
   late bool Function() authorized;
+  StreamSubscription<int>? sessionChanges;
   bool foreground = true;
   bool current(int n, bool Function() session) =>
       mounted && foreground && authorized() && session() && n == generation;
@@ -46,9 +50,20 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    final state = WidgetsBinding.instance.lifecycleState;
+    foreground = state == null || state == AppLifecycleState.resumed;
+    bindSession();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    if (foreground) load();
+  }
+
+  void bindSession() {
+    sessionChanges?.cancel();
+    final source = widget.api;
+    authorized = source.sessionFence();
+    sessionChanges = source.sessionEvents.listen((_) {
+      if (mounted && identical(source, widget.api)) setState(clearPrivate);
+    });
   }
 
   @override
@@ -56,7 +71,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.api != widget.api) {
       clearPrivate();
-      authorized = widget.api.sessionFence();
+      bindSession();
       final replacementApi = widget.api;
       // This widget is already scheduled to rebuild. Start the new actor's
       // read only after the update frame, never inside the build traversal.
@@ -80,6 +95,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
   @override
   void dispose() {
     generation++;
+    sessionChanges?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     prefix.dispose();
     currency.dispose();
@@ -121,7 +137,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
             number.isEmpty ||
             number.length > 100 ||
             date is! String ||
-            DateTime.tryParse(date) == null ||
+            serverUtcTime(context, date) == '—' ||
             currency is! String ||
             !RegExp(r'^[A-Z]{3}$').hasMatch(currency) ||
             total is! int ||
@@ -157,6 +173,11 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    final viewEpoch = generation;
+    final viewApi = widget.api;
+    final viewSession = viewApi.sessionFence();
+    bool canUsePage() => current(viewEpoch, viewSession) &&
+        identical(widget.api, viewApi) && identical(data, page);
     if (!authorized()) return Scaffold(
       appBar: AppBar(title: Text(s.t('invoiceHistory'))),
       body: Center(child: Text(s.t('expired'))),
@@ -270,7 +291,7 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
                           '${invoice['number']}',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                        Text('${invoice['created_at']}'),
+                        Text(serverEventTime(context, invoice['created_at'])),
                         Text(
                           s.t('invoiceLine', {
                             'label': s.t('total'),
@@ -280,20 +301,22 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
                         ),
                         OutlinedButton(
                           onPressed: () async {
-                            final actorApi = widget.api;
-                            final session = actorApi.sessionFence();
+                            if (!canUsePage()) return;
+                            final actorApi = viewApi;
+                            final session = viewSession;
                             final pageNumber = page.current;
                             await Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => InvoicePage(
-                                  api: actorApi,
-                                  invoiceId: invoice['id'] as int,
-                                  onExpired: widget.onExpired,
-                                ),
+                                builder: (_) => canUsePage()
+                                    ? InvoicePage(
+                                        api: actorApi,
+                                        invoiceId: invoice['id'] as int,
+                                        onExpired: widget.onExpired,
+                                      )
+                                    : const Scaffold(),
                               ),
                             );
-                            if (mounted && foreground && session() &&
-                                authorized() && identical(widget.api, actorApi)) {
+                            if (canUsePage() && session()) {
                               await load(page: pageNumber);
                             }
                           },
@@ -315,13 +338,17 @@ class _InvoiceHistoryViewState extends State<InvoiceHistoryView>
                 children: [
                   OutlinedButton(
                     onPressed: page.current > 1
-                        ? () => load(page: page.current - 1)
+                        ? () {
+                            if (canUsePage()) load(page: page.current - 1);
+                          }
                         : null,
                     child: Text(s.t('previous')),
                   ),
                   OutlinedButton(
                     onPressed: page.current < page.last
-                        ? () => load(page: page.current + 1)
+                        ? () {
+                            if (canUsePage()) load(page: page.current + 1);
+                          }
                         : null,
                     child: Text(s.t('next')),
                   ),

@@ -10,6 +10,17 @@ class HistoryApi extends FixtureApi {
   final queries = <Map<String, String>>[];
   bool failSecond = true, expired = false, malformedList = false;
   final methods = <String>[];
+  String clock = '2026-10-27T00:00:00Z';
+  int epoch = 0;
+  final changes = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => changes.stream;
+  @override
+  bool Function() sessionFence() {
+    final captured = epoch;
+    return () => captured == epoch;
+  }
+  void revoke() { epoch++; changes.add(epoch); }
   @override
   Future<dynamic> request(
     String path, {
@@ -24,7 +35,7 @@ class HistoryApi extends FixtureApi {
       'id': 7,
       'number': 'SIM-HISTORY-7',
       'evidence': 'SIMULATED',
-      'created_at': '2026-10-27T00:00:00Z',
+      'created_at': clock,
       'total_minor': 329,
       'subtotal_minor': 313,
       'tax_minor': 16,
@@ -115,6 +126,37 @@ Widget app(HistoryApi api, VoidCallback expired) => MaterialApp(
   home: InvoiceHistoryView(api: api, onExpired: expired),
 );
 void main() {
+  testWidgets('invoice list rejects impossible source clocks and recovers with explicit UTC display', (tester) async {
+    final api = HistoryApi()..clock = '2026-02-30T08:00:00+04:00';
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    api.clock = '2026-10-27T08:00:00+04:00';
+    await tester.ensureVisible(find.text('إعادة المحاولة'));
+    await tester.tap(find.text('إعادة المحاولة'));
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsOneWidget);
+    expect(find.textContaining('UTC'), findsOneWidget);
+    expect(find.text(api.clock), findsNothing);
+  });
+  testWidgets('revocation immediately removes invoice history and retained detail callback cannot navigate', (tester) async {
+    final api = HistoryApi();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('عرض الفاتورة'), 300, scrollable: find.byType(Scrollable).first);
+    final open = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'عرض الفاتورة')).onPressed!;
+    final calls = api.methods.length;
+    api.revoke();
+    await tester.pumpAndSettle();
+    open();
+    await tester.pumpAndSettle();
+    expect(find.text('SIM-HISTORY-7'), findsNothing);
+    expect(find.text('عرض الفاتورة'), findsNothing);
+    expect(api.methods.length, calls);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('late old-account invoice list is discarded and new actor gets fresh data', (
     tester,
   ) async {
