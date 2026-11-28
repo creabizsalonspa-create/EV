@@ -18,6 +18,9 @@ window.EvAdminOperationalHealth = (() => {
         const keys=['ready','reserved','delayed','failed','oldest_ready_age_seconds'];
         if(!d.enabled&&(q.state!=='disabled'||!d.components.every(c=>c.state==='disabled')))return false;
         const validQueue=q.state==='available' ? keys.every(k=>q[k]===null||exact(q[k]))&&['ready','reserved','delayed'].every(k=>exact(q[k])) : keys.every(k=>q[k]===null);
+        const pref=d.alert_preferences;
+        if(pref!==undefined&&(!pref||typeof pref.enabled!=='boolean'||typeof pref.consent_current!=='boolean'||
+            (pref.consent_current&&!pref.enabled)||pref.scope!=='current_admin_local_inbox'||pref.external_delivery_confirmed!==false))return false;
         const i=d.incidents;
         if(i!==undefined) {
             if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>6 || i.recent_events.length>20) return false;
@@ -42,6 +45,22 @@ window.EvAdminOperationalHealth = (() => {
             !exact(e.outcome_unknown)||!exact(e.stale_claimed) : e.outcome_unknown!==null||e.stale_claimed!==null)))return false;
         if(e!==undefined && e.overdue_queued!==undefined && (e.state==='available'?!exact(e.overdue_queued):e.overdue_queued!==null))return false;
         return validQueue;
+    }
+    async function setAlertPreference(enabled, own, run) {
+        if(!api||document.hidden||own!==revision||run!==sequence)return;
+        erase();const attempt=sequence,controller=new AbortController();request=controller;refresh.disabled=true;
+        status.replaceChildren(n('span','Saving incident alert preference…','جارٍ حفظ تفضيل تنبيهات الحوادث…'));
+        try{
+            const d=await api('admin/operational-health/alert-preference','PUT',{enabled},controller.signal);
+            if(own!==revision||attempt!==sequence||controller.signal.aborted||document.hidden)return;
+            if(d?.enabled!==enabled||d.consent_current!==enabled||d.scope!=='current_admin_local_inbox'||
+                d.external_delivery_confirmed!==false)throw Error('Unexpected preference receipt');
+            await load();
+        }catch(error){
+            if(own===revision&&attempt===sequence&&!controller.signal.aborted){
+                erase();status.replaceChildren(n('span','Alert preference not confirmed. Refresh before another action.','لم يتأكد تفضيل التنبيهات. حدّث قبل أي إجراء آخر.'));
+            }
+        }finally{if(own===revision&&attempt===sequence)refresh.disabled=false;}
     }
     async function acknowledge(item, own, run) {
         if(!api||document.hidden||own!==revision||run!==sequence)return;
@@ -83,6 +102,17 @@ window.EvAdminOperationalHealth = (() => {
                     const line=document.createElement('p');line.append(n('span',en+': ',ar+': '),plain('span',e[key]));output.append(line);
                 }
                 output.append(n('p','Handoff never confirms mailbox delivery. No automatic retries occur.','تسليم الرسالة إلى الناقل لا يؤكد وصولها للبريد. لا تحدث إعادات إرسال تلقائية.'));
+            }
+            if(d.alert_preferences){
+                const pref=d.alert_preferences;
+                output.append(n('h4','My incident inbox alerts','تنبيهات الحوادث في صندوق الوارد الخاص بي'),
+                    n('p','Opt in to local notices for currently open, unreviewed incidents. Separately consented generic email notices may also apply; external delivery is not confirmed.',
+                        'اشترك في التنبيهات المحلية للحوادث المفتوحة التي لم تُراجع. قد تنطبق أيضاً تنبيهات البريد العامة بموافقة منفصلة؛ لم يتأكد التسليم الخارجي.'));
+                output.append(pref.consent_current?n('p','Incident alerts enabled for this account','تنبيهات الحوادث مفعلة لهذا الحساب'):
+                    n('p','Incident alerts not enabled for current account authority','تنبيهات الحوادث غير مفعلة لصلاحية الحساب الحالية'));
+                const button=pref.consent_current?n('button','Disable incident alerts','إيقاف تنبيهات الحوادث'):
+                    n('button','Enable incident alerts','تفعيل تنبيهات الحوادث');
+                button.type='button';button.onclick=()=>setAlertPreference(!pref.consent_current,own,run);output.append(button);
             }
             if(d.incidents) {
                 const i=d.incidents;output.append(n('h4','Operational incident timeline (read-only)','السجل الزمني للحوادث التشغيلية (للقراءة فقط)'));
