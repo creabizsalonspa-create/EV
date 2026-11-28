@@ -17,7 +17,7 @@ class ExpireDiagnosticFiles extends Command
     {
         $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000]]);
         if ($limit === false) {
-            $this->error('Limit must be1..1000.');
+            $this->error('Limit must be 1..1000.');
 
             return self::FAILURE;
         }
@@ -29,7 +29,9 @@ class ExpireDiagnosticFiles extends Command
                 $query->where(fn (Builder $request) => $request
                     ->where('expires_at', '<=', $timestamp)
                     ->where(fn (Builder $content) => $content
-                        ->whereNotNull('upload_token_digest')->orWhereNotNull('payload_ciphertext')))
+                        ->whereNotNull('upload_token_digest')->orWhereNotNull('payload_ciphertext')
+                        ->orWhere(fn (Builder $claim) => $claim->whereNull('cancelled_at')
+                            ->whereIn('dispatch_state', ['requested', 'dispatching']))))
                     ->orWhere(fn (Builder $file) => $file
                         ->where('file_expires_at', '<=', $timestamp)->whereNotNull('file_ciphertext'));
             })
@@ -44,9 +46,15 @@ class ExpireDiagnosticFiles extends Command
                 }
 
                 $values = [];
-                if (($row->upload_token_digest !== null || $row->payload_ciphertext !== null)
-                    && $cutoff->gte(CarbonImmutable::parse($row->expires_at, 'UTC'))) {
-                    $values += ['upload_token_digest' => null, 'payload_ciphertext' => null];
+                if ($cutoff->gte(CarbonImmutable::parse($row->expires_at, 'UTC'))) {
+                    if ($row->upload_token_digest !== null || $row->payload_ciphertext !== null) {
+                        $values += ['upload_token_digest' => null, 'payload_ciphertext' => null];
+                    }
+                    if ($row->cancelled_at === null && in_array($row->dispatch_state, ['requested', 'dispatching'], true)) {
+                        // A claimed transport may have reached the source even if its receipt never committed.
+                        $values['dispatch_state'] = $row->dispatch_state === 'requested' && $row->attempted_at === null
+                            ? 'not_dispatched' : 'outcome_unknown';
+                    }
                 }
                 if ($row->file_ciphertext !== null && $row->file_expires_at !== null
                     && $cutoff->gte(CarbonImmutable::parse($row->file_expires_at, 'UTC'))) {
@@ -57,7 +65,7 @@ class ExpireDiagnosticFiles extends Command
                 }
 
                 return DB::table('charger_diagnostic_logs')->where('id', $id)->update($values + ['updated_at' => $cutoff]) === 1;
-            });
+            }, 3);
         }
 
         $this->info('Expired diagnostic records processed: '.$count.'. No source commands or billing changes.');
