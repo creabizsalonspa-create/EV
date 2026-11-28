@@ -172,6 +172,12 @@ class CorporateHostedCollection
     public function dto(object $h, User $actor): array
     {
         $s = DB::table('corporate_statements')->find($h->statement_id);
+        abort_unless($s, 409, 'Corporate checkout statement is missing.');
+        if ($h->status === 'captured') {
+            $receipt = DB::table('corporate_receipts')->where('statement_id', $s->id)->first();
+            abort_unless($receipt, 409, 'Captured corporate checkout has no receipt.');
+            $this->verifyHostedReceipt($h, $s, $receipt);
+        }
         $own = (int) $h->payer_id === $actor->id && (int) Fleet::findOrFail($s->fleet_id)->owner_id === $actor->id;
         $available = ! app()->environment('production') && $this->configurationMatches($h) && ($h->provider !== 'mock' || app()->environment('local', 'testing'));
         $pending = DB::table('corporate_hosted_operations')->where('checkout_id', $h->id)->where('status', '!=', 'completed')->first();
@@ -370,14 +376,28 @@ class CorporateHostedCollection
         }
     }
 
+    private function verifyHostedReceipt(object $h, object $s, object $receipt): void
+    {
+        abort_unless((int) $h->statement_id === (int) $s->id
+            && (int) $h->payer_id === (int) $s->payer_id
+            && $h->currency === $s->currency
+            && CorporateBilling::exactMinor($h->minor_units) === CorporateBilling::exactMinor($s->minor_units)
+            && CorporateBilling::exactMinor($h->amount_minor) === CorporateBilling::exactMinor($s->total_minor)
+            && $receipt->request_key === hash('sha256', 'corporate-hosted:'.$h->reference)
+            && hash_equals($h->line_fingerprint, $receipt->fingerprint)
+            && $receipt->evidence === ($h->provider === 'mock' ? 'SIMULATED' : 'STRIPE_TEST_CONTRACT'),
+            409, 'Corporate hosted receipt identity or terms require reconciliation.');
+        app(CorporateBilling::class)->verifiedReceipt($s, $receipt);
+    }
+
     private function allocate(object $h, object $s, iterable $lines, array $invoices): void
     {
+        $this->validateCollectionSource($s, $lines, $invoices, $h);
         if ($old = DB::table('corporate_receipts')->where('statement_id', $s->id)->first()) {
-            abort_unless($old->request_key === hash('sha256', 'corporate-hosted:'.$h->reference) && (int) $old->amount_minor === (int) $h->amount_minor, 409, 'A different corporate receipt already exists.');
+            $this->verifyHostedReceipt($h, $s, $old);
 
             return;
         }
-        abort_unless(hash_equals($h->line_fingerprint, $this->lineFingerprint($s, $lines, $invoices)), 409);
         $this->unpaid($lines);
         $prior = self::$allocating;
         self::$allocating = (int) $h->id;
