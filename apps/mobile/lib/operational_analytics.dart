@@ -73,8 +73,8 @@ const operationalLabels = {
   'excluded_sessions': ['Sessions requiring review', 'جلسات تحتاج مراجعة'],
 };
 const operationalNotice = [
-  'Simulator source observations. Missing telemetry is unknown, not uptime or physical availability. Energy covers sessions ending in the period; busy time covers observed intervals across current EVSE inventory. Power is a session interval average, not simultaneous site demand. Invoice references are not cash or settlement.',
-  'ملاحظات محاكي المصدر. غياب القياسات مجهول وليس وقت تشغيل أو توفر فعلياً. الطاقة للجلسات المنتهية في الفترة ووقت الانشغال للفترة المرصودة ضمن مخزون EVSE الحالي. القدرة متوسط فترة جلسة وليست طلب الموقع المتزامن. الفواتير ليست مقبوضات أو تسويات.',
+  'Simulator source observations. Missing telemetry is unknown, not uptime or physical availability. Energy covers sessions ending in the period; busy time covers observed intervals across current EVSE inventory. Site demand aggregates accepted meter interval averages across distinct EVSEs. Invoice references are not cash or settlement.',
+  'ملاحظات محاكي المصدر. غياب القياسات مجهول وليس وقت تشغيل أو توفر فعلياً. الطاقة للجلسات المنتهية في الفترة ووقت الانشغال للفترة المرصودة ضمن مخزون EVSE الحالي. يُحسب طلب الموقع بجمع متوسطات فترات العدادات المقبولة عبر وحدات EVSE مختلفة. الفواتير ليست مقبوضات أو تسويات.',
 ];
 
 class OperationalAnalyticsView extends StatefulWidget {

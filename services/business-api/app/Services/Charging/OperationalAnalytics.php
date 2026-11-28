@@ -168,17 +168,28 @@ class OperationalAnalytics
             }
             $key = $b->id.':'.$evse->source_evse_number.':'.$m->source_connector_number;
             abort_if(isset($components[$key]), 409, 'Ambiguous source connector mapping.');
-            $components[$key] = ['site' => $b->site_id, 'generation' => FaultMonitor::generation($b), 'events' => []];
+            $components[$key] = ['site' => $b->site_id, 'generation' => FaultMonitor::generation($b), 'protocol' => $b->protocol, 'events' => []];
             $rows[$b->site_id]['mapped_connectors']++;
             $rows[$b->site_id]['possible_connector_seconds'] += $z - $a;
         }
+        $lastSourceId = [];
+        $conflictingGenerations = [];
         foreach ($observations as $o) {
             $key = $o->binding_id.':'.$o->evse_number.':'.$o->connector_number;
             if (isset($components[$key]) && hash_equals($components[$key]['generation'], $o->source_generation)) {
+                $generation = $components[$key]['generation'];
+                if (! SourceStatusDurations::followsSourceEvent($o->source_event_id, $lastSourceId[$generation] ?? 0)) {
+                    $conflictingGenerations[$generation] = true;
+                }
+                $lastSourceId[$generation] = (int) $o->source_event_id;
                 $components[$key]['events'][] = $o;
             }
         }
         foreach ($components as $component) {
+            // Conflicting source chronology leaves the mapped exposure unknown.
+            if (isset($conflictingGenerations[$component['generation']])) {
+                continue;
+            }
             $timeline = [];
             foreach ($component['events'] as $e) {
                 $t = $this->seconds($e->occurred_at);
@@ -186,7 +197,10 @@ class OperationalAnalytics
                 if (isset($timeline[$t]) && $timeline[$t]['identity'] !== $state) {
                     $timeline[$t]['ambiguous'] = true;
                 } else {
-                    $timeline[$t] ??= ['identity' => $state, 'ambiguous' => false, 'fault' => $e->status === 'Faulted' || ! in_array($e->error_code, [null, 'NoError'], true), 'status' => $e->status];
+                    $timeline[$t] ??= [
+                        'identity' => $state, 'ambiguous' => false,
+                        'status' => SourceStatusDurations::observedStatus($component['protocol'], $e->status, $e->error_code),
+                    ];
                 }
             }
             $times = array_keys($timeline);
@@ -196,10 +210,10 @@ class OperationalAnalytics
             foreach ($times as $i => $t) {
                 $e = $timeline[$t];
                 $seconds = max(0, min($z, $t + 300, $times[$i + 1] ?? $z) - max($a, $t));
-                if ($e['ambiguous'] || ! in_array($e['status'], ['Available', 'Occupied', 'Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'], true)) {
+                if ($e['ambiguous'] || $e['status'] === null) {
                     continue;
                 } $known += $seconds;
-                if ($e['fault']) {
+                if ($e['status'] === 'Faulted') {
                     $fault += $seconds;
                 } elseif ($e['status'] === 'Unavailable') {
                     $unavailable += $seconds;

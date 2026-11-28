@@ -14,6 +14,32 @@ final class SourceStatusDurations
 
     public const MAX_EVENTS = 12000;
 
+    public static function observedStatus(string $protocol, string $status, ?string $errorCode): ?string
+    {
+        $statuses = match ($protocol) {
+            '1.6' => ['Available', 'Preparing', 'Charging', 'SuspendedEVSE', 'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'],
+            '2.0.1' => ['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'],
+            default => [],
+        };
+        if (! in_array($status, $statuses, true)) {
+            return null;
+        }
+        if (! in_array($errorCode, [null, '', 'NoError'], true)) {
+            return 'Faulted';
+        }
+        if ($protocol === '1.6' && $status === 'Available' && $errorCode !== 'NoError') {
+            // Missing OCPP 1.6 fault clearance cannot establish availability.
+            return null;
+        }
+
+        return $status;
+    }
+
+    public static function followsSourceEvent(mixed $id, int $previous): bool
+    {
+        return (is_int($id) || ctype_digit((string) $id)) && (int) $id > $previous;
+    }
+
     public function report(object $binding): array
     {
         $asOf = CarbonImmutable::now('UTC');
@@ -42,31 +68,16 @@ final class SourceStatusDurations
         // durations from such contradictory evidence.
         $lastSourceId = 0;
         foreach ($rows as $row) {
-            if (! is_int($row->source_event_id) && ! ctype_digit((string) $row->source_event_id)) {
-                return $base + ['state' => 'requires_review', 'reason' => 'source_event_order_conflict'];
-            }
-            if ((int) $row->source_event_id <= $lastSourceId) {
+            if (! self::followsSourceEvent($row->source_event_id, $lastSourceId)) {
                 return $base + ['state' => 'requires_review', 'reason' => 'source_event_order_conflict'];
             }
             $lastSourceId = (int) $row->source_event_id;
         }
         $components = [];
-        $statuses = match ($binding->protocol) {
-            '1.6' => ['Available', 'Preparing', 'Charging', 'SuspendedEVSE', 'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'],
-            '2.0.1' => ['Available', 'Occupied', 'Reserved', 'Unavailable', 'Faulted'],
-            default => [],
-        };
         foreach ($rows as $row) {
             $key = $row->evse_number.':'.$row->connector_number;
             $time = CarbonImmutable::parse($row->occurred_at, 'UTC')->getTimestamp();
-            $status = in_array($row->status, $statuses, true) ? $row->status : 'Unknown';
-            if ($status !== 'Unknown' && ! in_array($row->error_code, [null, '', 'NoError'], true)) {
-                $status = 'Faulted';
-            } elseif ($binding->protocol === '1.6' && $status === 'Available' && $row->error_code !== 'NoError') {
-                // Old or imported status rows must not turn missing OCPP 1.6
-                // fault clearance into observed healthy time.
-                $status = 'Unknown';
-            }
+            $status = self::observedStatus($binding->protocol, $row->status, $row->error_code) ?? 'Unknown';
             // Conflicting observations at the same instant have no defensible
             // winner. Preserve the ambiguity rather than choosing by record ID.
             $old = $components[$key][$time] ?? null;
