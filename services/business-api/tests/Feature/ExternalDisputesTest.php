@@ -14,6 +14,7 @@ use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
@@ -453,6 +454,57 @@ class ExternalDisputesTest extends TestCase
         ]);
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
         $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_fractional_provider_capture_cannot_release_existing_dispute_hold(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $this->body['status'] = 'won';
+        $this->fakeProvider(function ($request) {
+            if (str_contains($request->url(), '/charges/')) {
+                return Http::response(['id' => 'ch_Dispute', 'livemode' => false,
+                    'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true,
+                    'amount_captured' => 1000.5, 'currency' => 'aed']);
+            }
+
+            return Http::response($this->body);
+        });
+        $before = DB::table('finance_journals')->count();
+        $this->providerEvent('evt_FractionalCapture')->assertConflict();
+        $this->assertDatabaseHas('external_disputes', ['id' => $id, 'status' => 'needs_response', 'settlement_hold' => true]);
+        $this->assertDatabaseHas('gateway_cases', ['invoice_id' => $this->invoice->id, 'status' => 'open']);
+        $this->assertDatabaseCount('external_dispute_events', 1);
+        $this->assertDatabaseCount('finance_journals', $before);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_evidence_deadline_is_closed_at_exact_provider_cutoff_on_all_read_surfaces(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $base = '/dispute-test/commercial/external-disputes';
+        $due = Carbon::createFromTimestampUTC($this->body['evidence_details']['due_by']);
+        $this->actingAs($this->admin);
+        $before = DB::table('finance_journals')->count();
+        $this->travelTo($due->copy()->subSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', false);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', false);
+        $this->getJson($base.'/deadline-queue?window_hours=1')->assertOk()
+            ->assertJsonPath('data.0.urgency', 'evidence_due_soon');
+
+        $this->travelTo($due);
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.deadline_passed', true);
+        $this->getJson($base.'/deadline-queue?window_hours=0')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.urgency', 'deadline_passed')
+            ->assertJsonPath('data.0.deadline_passed', true)
+            ->assertJsonPath('data.0.settlement_hold', true);
+        $this->travelTo($due->copy()->addSecond());
+        $this->getJson($base.'/'.$id)->assertOk()->assertJsonPath('dispute.deadline_passed', true);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
     public function test_evidence_deadline_blocks_new_submission(): void
