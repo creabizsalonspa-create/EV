@@ -16,7 +16,7 @@ Map<String, dynamic> record(int id) => {
   'energy_state': 'recorded',
   'record_created_at': '2026-11-19T06:00:00.000000Z',
   'record_updated_at': '2026-11-19T06:01:00Z',
-  'stopped_at': null,
+  'stopped_at': '2026-11-19T06:00:00Z',
   'protocol': null,
   'evidence': 'SIMULATED',
   'physical_charging_verified': false,
@@ -202,6 +202,58 @@ Widget panel(
     onExpired: expired ?? () {},
   ),
 );
+
+class StaffStopApi extends OperationsApi {
+  bool lostStop = false;
+  final stops = <Map<String, dynamic>>[];
+  final sessions = StreamController<int>.broadcast(sync: true);
+  @override
+  Stream<int> get sessionEvents => sessions.stream;
+  void revoke() {
+    epoch++;
+    sessions.add(epoch);
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (method == 'POST') {
+      expect(path, 'vendor-ops/companies/4/charging-sessions/27/stop');
+      stops.add(body!);
+      if (lostStop) throw const ApiException(409, 'PRIVATE stop diagnostic');
+      return {
+        'scope': 'company_simulator_session_stop',
+        'company_id': 4,
+        'session_id': 27,
+        'command_id': 99,
+        'command_status': 'pending',
+        'session_status': 'stopping',
+        'evidence': 'SIMULATED_CSMS',
+        'physical_charging_verified': false,
+      };
+    }
+    reads.add(query);
+    return {
+      ...page(),
+      'staff_stop_grant': {'id': 42, 'version': 7},
+      'data': [
+        {
+          ...record(27),
+          'recorded_status': 'charging',
+          'stopped_at': null,
+          'protocol': '2.0.1',
+          'evidence': 'SIMULATED_CSMS',
+          'can_request_stop': true,
+        },
+      ],
+    };
+  }
+}
+
 void main() {
   test(
     'immutable projection does not retain unknown private response fields',
@@ -259,15 +311,28 @@ void main() {
         await tester.pumpWidget(panel(api, lang: lang));
         await tester.pumpAndSettle();
         expect(find.text('Owned station 27'), findsOneWidget);
+        final context = tester.element(find.text('Owned station 27'));
+        final localizations = MaterialLocalizations.of(context);
+        for (final minute in [0, 1, 2]) {
+          final localizedClock = localizations.formatTimeOfDay(
+            TimeOfDay(hour: 6, minute: minute),
+            alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+          );
+          expect(
+            find.textContaining(' · $localizedClock · \u2068UTC\u2069'),
+            findsOneWidget,
+          );
+        }
+        expect(find.textContaining('2026-11-19T06:'), findsNothing);
         expect(
-          Directionality.of(tester.element(find.text('Owned station 27'))),
+          Directionality.of(context),
           lang == 'ar' ? TextDirection.rtl : TextDirection.ltr,
         );
         final next = find.widgetWithText(
           OutlinedButton,
           lang == 'ar' ? 'التالي' : 'Next',
         );
-        await tester.ensureVisible(next);
+        expect(next.hitTestable(), findsOneWidget);
         await tester.tap(next);
         await tester.pumpAndSettle();
         expect(api.reads.last, {'page': '2'});
@@ -285,8 +350,7 @@ void main() {
       await tester.pumpAndSettle();
       api.fail = true;
       final next = find.widgetWithText(OutlinedButton, 'Next');
-      await tester.ensureVisible(next);
-      await tester.pumpAndSettle();
+      expect(next.hitTestable(), findsOneWidget);
       await tester.tap(next);
       await tester.pumpAndSettle();
       expect(find.text('Owned station 27'), findsNothing);
@@ -300,6 +364,70 @@ void main() {
       expect(find.text('Owned station 1'), findsOneWidget);
     },
   );
+  for (final lang in ['en', 'ar']) {
+    testWidgets(
+      '$lang explicit simulator stop matches the reviewed current staff grant',
+      (tester) async {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        final api = StaffStopApi()..lostStop = lang == 'ar';
+        addTearDown(api.sessions.close);
+        await tester.pumpWidget(panel(api, lang: lang));
+        await tester.pumpAndSettle();
+        final action = find.widgetWithText(
+          OutlinedButton,
+          lang == 'ar' ? 'طلب إيقاف جلسة محاكاة' : 'Request a simulator stop',
+        );
+        await tester.scrollUntilVisible(action, 200);
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+        expect(api.stops, isEmpty);
+        await tester.tap(
+          find.widgetWithText(
+            FilledButton,
+            lang == 'ar' ? 'إرسال الطلب' : 'Send request',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(api.stops, [
+          {'grant_id': 42, 'grant_version': 7, 'consent': true},
+        ]);
+        expect(api.reads, hasLength(1));
+        expect(action, findsNothing);
+        expect(
+          find.textContaining(
+            lang == 'ar' ? 'تعذر تأكيد نتيجة' : 'request recorded',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('PRIVATE'), findsNothing);
+      },
+    );
+  }
+
+  testWidgets('revoked staff cannot confirm a retained simulator stop', (
+    tester,
+  ) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final api = StaffStopApi();
+    addTearDown(api.sessions.close);
+    await tester.pumpWidget(panel(api));
+    await tester.pumpAndSettle();
+    final action = find.widgetWithText(
+      OutlinedButton,
+      'Request a simulator stop',
+    );
+    await tester.scrollUntilVisible(action, 200);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    api.revoke();
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Send request'));
+    await tester.pumpAndSettle();
+    expect(api.stops, isEmpty);
+    expect(find.text('Owned station 27'), findsNothing);
+  });
   testWidgets(
     'hidden mount and background erase records and require explicit foreground read',
     (tester) async {
