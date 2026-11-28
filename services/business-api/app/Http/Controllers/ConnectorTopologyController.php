@@ -90,8 +90,12 @@ class ConnectorTopologyController extends Controller
         $station = $this->scope($r, $company, $charger, true);
         abort_unless($evse->charger_id === $charger->id && $connector->charger_id === $charger->id, 404);
         $v = $r->validate(['source_connector_number' => 'nullable|integer|between:1,100']);
+        // The integer validator also accepts decimal strings such as "+7".
+        // Hash the exact typed value stored in the integer column, never the
+        // caller's lexical spelling of that same source connector number.
+        $sourceConnector = isset($v['source_connector_number']) ? (int) $v['source_connector_number'] : null;
 
-        return DB::transaction(function () use ($r, $company, $charger, $station, $evse, $connector, $v) {
+        return DB::transaction(function () use ($r, $company, $charger, $station, $evse, $connector, $sourceConnector) {
             Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             $this->scope($r, $company, $charger, true);
@@ -103,13 +107,13 @@ class ConnectorTopologyController extends Controller
             abort_if(DB::table('charger_commands')->where('station_id', $station->id)->whereNull('payload->session_id')->where('status', '!=', 'cancelled')->exists(), 409, 'Uncorrelated legacy commands require reconciliation before activation.');
             $key = null;
             if ($evse->mode === 'csms') {
-                abort_unless(isset($v['source_connector_number']), 422, 'An explicit source connector is required.');
-                $key = hash('sha256', $evse->binding_id.':'.$evse->source_evse_number.':'.$v['source_connector_number']);
+                abort_unless($sourceConnector !== null, 422, 'An explicit source connector is required.');
+                $key = hash('sha256', $evse->binding_id.':'.$evse->source_evse_number.':'.$sourceConnector);
                 abort_if(ConnectorMapping::where('source_target_key', $key)->exists(), 409, 'Source connector is already mapped.');
             } else {
-                abort_unless(empty($v['source_connector_number']), 422, 'Application simulators have no source connector.');
+                abort_unless($sourceConnector === null, 422, 'Application simulators have no source connector.');
             }
-            $map = ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => $v['source_connector_number'] ?? null, 'source_target_key' => $key]);
+            $map = ConnectorMapping::create(['station_id' => $station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => $sourceConnector, 'source_target_key' => $key]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charging.connector_mapped', 'subject' => (string) $map->id, 'created_at' => now()]);
 
             return response()->json($map, 201);
