@@ -134,6 +134,7 @@ class ChargerDiagnosticLogController extends Controller
                     abort_unless($fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
                     app(DiagnosticAuthority::class)->uploadConsent($fresh, $r->user(), $current);
                     $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+
                     return $source->submit($current, function () use ($credential, &$sent): string {
                         $token = $credential();
                         $sent = true;
