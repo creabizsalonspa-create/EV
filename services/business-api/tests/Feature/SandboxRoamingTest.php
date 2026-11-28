@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiRecord;
+use App\Models\User;
 use App\Services\Ocpi\RecordNormalizer;
 use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
@@ -53,6 +54,54 @@ class SandboxRoamingTest extends TestCase
             // Republished content never revives the original withdrawn consent.
             $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_contract_review_binds_new_offer_and_first_grant_without_replacing_existing_stop_authority(): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        $url = '/api/roaming/locations/'.$location->id;
+        $oldOffer = $this->actingAs($driver)->getJson($url.'/sandbox-offers')->assertOk()->json('offers.0');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1',
+            'tariff_id' => 'T1', 'offer_hash' => $oldOffer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        config(['ocpi.contract_review_authorization_required' => true]);
+        $this->getJson($url.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers')
+            ->assertJsonPath('location_name', '')->assertJsonPath('provider_name', '');
+        $this->postJson($url.'/sandbox-orders', $body)->assertConflict();
+        $this->assertCount(0, $this->writes);
+        $reviewUrl = '/api/ocpi/providers/'.$provider->id.'/contract-review';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $review = ['decision' => 'review', 'reference_id' => 'ROAMING-REVIEW-01', 'evidence_sha256' => str_repeat('a', 64),
+            'valid_until' => now('UTC')->addYear()->toDateString(), 'expected_revision' => 0,
+            'idempotency_key' => 'roaming-review-001', 'reason' => 'Synthetic contract review for sandbox grants.'];
+        $this->actingAs($admin)->postJson($reviewUrl, $review)->assertCreated();
+        $this->actingAs($driver)->postJson($url.'/sandbox-orders', $body)->assertConflict();
+        $this->assertCount(0, $this->writes);
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $authorize = '/api/roaming-protocol/2.2.1/tokens/'.$token['uid'].'/authorize?type=APP_USER';
+        $authorization = ['location_id' => 'L1', 'evse_uids' => ['E1']];
+        $rows = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
+        $rows->update(['evidence_sha256' => str_repeat('b', 64)]);
+        $this->withHeaders($this->peer())->postJson($authorize, $authorization)
+            ->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
+        $this->assertNull(DB::table('ocpi_roaming_orders')->find($id)->authorized_at);
+        $rows->update(['evidence_sha256' => $review['evidence_sha256']]);
+        $headers = $this->peer();
+        $this->withHeaders($headers)->postJson($authorize, $authorization)
+            ->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+        $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1',
+            $this->sourceSessionFixture($provider, $order, $token))->assertCreated();
+        $rows->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+        $this->withHeaders($headers)->postJson($authorize, $authorization)
+            ->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+        $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')
+            ->assertOk()->assertJsonPath('can_stop', true);
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+        $this->assertSame('S1', end($this->writes)['body']['session_id']);
+        $this->assertCount(3, $this->writes);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charging_sessions', 0);
     }
