@@ -66,6 +66,13 @@ final class OperationalIncidents
             // an earlier snapshot to reverse a fresher transition.
             $snapshot = $health->report();
             $conditions = $this->conditions($snapshot);
+            $present = array_keys(array_filter($conditions, static fn (?bool $condition): bool => $condition === true));
+            $willOpen = $present && DB::table('operational_incident_states')->whereIn('condition_key', $present)
+                ->where('state', 'open')->count() < count($present);
+            // Admin review and preference updates lock the current account first.
+            // Take recipient locks before any incident row so scan and review
+            // never form an account/incident lock cycle.
+            $recipients = $willOpen ? $this->lockSubscribers() : [];
             $result = ['skipped' => false, 'opened' => 0, 'resolved' => 0, 'uncertain' => 0, 'external_actions' => false];
             $now = now('UTC');
 
@@ -103,7 +110,7 @@ final class OperationalIncidents
                     'observed_at' => $now,
                 ]);
                 if ($present) {
-                    $this->notifySubscribers($key, $state ? (int) $state->transitions + 1 : 1);
+                    $this->notifySubscribers($recipients, $key, $state ? (int) $state->transitions + 1 : 1);
                 }
                 $result[$present ? 'opened' : 'resolved']++;
             }
@@ -147,22 +154,31 @@ final class OperationalIncidents
         return $enabled;
     }
 
-    private function notifySubscribers(string $key, int $revision): void
+    private function lockSubscribers(): array
     {
-        // The scanner already holds the global scan lock, so each committed
-        // opening, its timeline event and each recipient's inbox row are atomic.
-        DB::table('operational_incident_subscriptions')->select('user_id')->chunkById(100, function ($subscriptions) use ($key, $revision) {
+        $recipients = [];
+        DB::table('operational_incident_subscriptions')->select('user_id')->chunkById(100, function ($subscriptions) use (&$recipients) {
             foreach ($subscriptions as $subscription) {
                 $user = User::whereKey($subscription->user_id)->lockForUpdate()->first();
                 if ($user && $user->role === 'admin' && $user->account_status === 'active' && $this->subscribed($user)) {
-                    InboxNotification::create([
-                        'user_id' => $user->id,
-                        'kind' => InboxNotification::OPERATIONAL_INCIDENT_OPENED,
-                        'metadata' => ['condition_key' => $key, 'transition_revision' => $revision],
-                    ]);
+                    $recipients[] = $user->id;
                 }
             }
         }, 'user_id');
+
+        return $recipients;
+    }
+
+    private function notifySubscribers(array $recipients, string $key, int $revision): void
+    {
+        // Each opening, timeline event and alert commit under the same scan lock.
+        foreach ($recipients as $recipient) {
+            InboxNotification::create([
+                'user_id' => $recipient,
+                'kind' => InboxNotification::OPERATIONAL_INCIDENT_OPENED,
+                'metadata' => ['condition_key' => $key, 'transition_revision' => $revision],
+            ]);
+        }
     }
 
     /**

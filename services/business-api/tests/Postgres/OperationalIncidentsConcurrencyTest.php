@@ -2,6 +2,8 @@
 
 namespace Tests\Postgres;
 
+use App\Models\InboxNotification;
+use App\Models\User;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use Illuminate\Support\Facades\DB;
@@ -71,8 +73,33 @@ class OperationalIncidentsConcurrencyTest extends TestCase
         }
     }
 
+    public function test_scan_locks_recipients_before_incident_rows_shared_with_admin_review(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        DB::transaction(fn () => app(OperationalIncidents::class)->subscribe($admin, true));
+        $health = app(OperationalHealth::class);
+        $health->record('scheduler');
+        DB::table('operational_heartbeats')->update(['observed_at' => now()->subMinutes(4)]);
+
+        DB::enableQueryLog();
+        try {
+            $this->assertSame(1, app(OperationalIncidents::class)->scan($health)['opened']);
+            $locks = collect(DB::getQueryLog())->pluck('query')
+                ->filter(fn ($query) => str_contains($query, 'for update') &&
+                    (str_contains($query, 'from "users"') || str_contains($query, 'from "operational_incident_states"')))
+                ->values();
+            $this->assertGreaterThan(1, $locks->count());
+            $this->assertStringContainsString('from "users"', $locks[0]);
+            $this->assertStringContainsString('from "operational_incident_states"', $locks[1]);
+        } finally {
+            DB::disableQueryLog();
+        }
+    }
+
     public function test_independent_scanners_do_not_duplicate_open_or_recovery_transition(): void
     {
+        $admin = User::factory()->create(['role' => 'admin']);
+        DB::transaction(fn () => app(OperationalIncidents::class)->subscribe($admin, true));
         $health = app(OperationalHealth::class);
         $this->assertTrue($health->record('queue_worker'));
         $this->assertTrue($health->record('scheduler'));
@@ -80,12 +107,17 @@ class OperationalIncidentsConcurrencyTest extends TestCase
         $opened = $this->race();
         $this->assertSame(2, array_sum(array_column($opened, 'opened')));
         $this->assertDatabaseCount('operational_incident_events', 2);
+        $receipts = InboxNotification::where('kind', InboxNotification::OPERATIONAL_INCIDENT_OPENED)->get();
+        $this->assertCount(2, $receipts);
+        $this->assertSame([$admin->id], $receipts->pluck('user_id')->unique()->values()->all());
+        $this->assertEqualsCanonicalizing(['queue_worker_stale', 'scheduler_stale'], $receipts->pluck('metadata.condition_key')->all());
         $this->assertCount(2, app(OperationalIncidents::class)->summary()['open']);
         $this->assertSame('recent', app(OperationalIncidents::class)->summary()['scanner']['state']);
         DB::table('operational_heartbeats')->update(['observed_at' => now()]);
         $resolved = $this->race();
         $this->assertSame(2, array_sum(array_column($resolved, 'resolved')));
         $this->assertDatabaseCount('operational_incident_events', 4);
+        $this->assertDatabaseCount('inbox_notifications', 2);
         $this->assertSame([], app(OperationalIncidents::class)->summary()['open']);
         $this->assertDatabaseCount('jobs', 0);
         $this->assertDatabaseCount('charger_commands', 0);
