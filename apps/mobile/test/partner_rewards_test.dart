@@ -33,6 +33,8 @@ class PartnerRewardApi extends FixtureApi {
   bool verified = true;
   bool loseReply = false;
   bool malformed = false;
+  String offerClock = '2026-12-23 00:00:00';
+  String claimClock = '2026-11-22 08:00:00';
   bool rejectClaim = false;
   bool malformedCancellation = false;
   final cancelled = <String>{};
@@ -85,7 +87,7 @@ class PartnerRewardApi extends FixtureApi {
           'partner_name_ar': 'شريك تجريبي',
           'description': 'Test terms',
           'description_ar': 'شروط تجريبية',
-          'ends_at': '2026-12-23 00:00:00',
+          'ends_at': offerClock,
         },
       ]);
     }
@@ -123,7 +125,7 @@ class PartnerRewardApi extends FixtureApi {
         'id': 14,
         'review_id': 9,
         'redemption_id': 18,
-        'created_at': '2026-11-22 08:00:00',
+        'created_at': claimClock,
         'status': 'pending',
       },
     );
@@ -153,6 +155,47 @@ Future<void> tap(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('invalid offer clocks fail closed and stale claim callback cannot authorize another generation', (tester) async {
+    final api = PartnerRewardApi(1);
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, PartnerRewardStore(), 1));
+    await tester.pumpAndSettle();
+    final old = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Claim reward')).onPressed!;
+    expect(find.textContaining(api.offerClock), findsNothing);
+    expect(find.textContaining('UTC'), findsOneWidget);
+    api.offerClock = '2026-02-30T04:00:00Z';
+    await tap(tester, 'Refresh offers');
+    expect(find.text('Claim reward'), findsNothing);
+    old();
+    await tester.pumpAndSettle();
+    expect(find.text('Claim this reward?'), findsNothing);
+    expect(api.claimKeys, isEmpty);
+    api.offerClock = '2026-12-23T04:00:00+04:00';
+    await tap(tester, 'Refresh offers');
+    expect(find.text('Claim reward'), findsOneWidget);
+    old();
+    await tester.pumpAndSettle();
+    expect(find.text('Claim this reward?'), findsNothing);
+    expect(api.claimKeys, isEmpty);
+  });
+  testWidgets('invalid claim clock preserves saved request until authoritative receipt is valid', (tester) async {
+    final api = PartnerRewardApi(1)..claimClock = '2026-11-22T08:00:00';
+    final store = PartnerRewardStore();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api, store, 1));
+    await tester.pumpAndSettle();
+    await tap(tester, 'Claim reward');
+    await tap(tester, 'Claim');
+    final key = api.claimKeys.single;
+    expect(store.values.values.single['key'], key);
+    expect(find.text('Claim receipt'), findsNothing);
+    api.claims[key]!['created_at'] = '2026-11-22T12:00:00+04:00';
+    await tap(tester, 'Check saved claim receipt');
+    expect(find.text('Claim receipt'), findsOneWidget);
+    expect(find.textContaining('2026-11-22T12:00:00+04:00'), findsNothing);
+    expect(store.values, isEmpty);
+    expect(api.claimKeys, [key]);
+  });
   testWidgets('cancelled intent retains its exact key until verified server acknowledgement', (tester) async {
     final api = PartnerRewardApi(1)..rejectClaim = true;
     final store = PartnerRewardStore();
