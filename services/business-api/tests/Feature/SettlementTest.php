@@ -513,6 +513,73 @@ class SettlementTest extends TestCase
         }
     }
 
+    public function test_overcaptured_import_blocks_statements_earnings_and_new_settlements(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id;
+        $this->actingAs($this->vendor)->getJson($base.'/statement?currency=AED')->assertOk()
+            ->assertJsonPath('available_minor', 900);
+        // Insert a contradictory historical receipt without disabling immutable
+        // storage. The original invoice was already fully paid.
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id, 'kind' => 'payment',
+            'idempotency_key' => 'settlement-import-overcapture',
+            'fingerprint' => hash('sha256', 'settlement-import-overcapture'),
+            'currency' => 'AED', 'amount_minor' => 1, 'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            ['journal_id' => $journal, 'account' => 'cash:simulator', 'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now()],
+            ['journal_id' => $journal, 'account' => 'receivable:user:'.$this->customer->id, 'debit_minor' => 0, 'credit_minor' => 1, 'created_at' => now()],
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $this->customer->id, 'amount_minor' => 1,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->getJson($base.'/statement?currency=AED')->assertConflict();
+        $this->getJson($base.'/earnings?currency=AED')->assertConflict();
+        $this->postJson($base.'/settlements', [
+            'currency' => 'AED', 'idempotency_key' => 'overcapture-protected-draft',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_settlements', 0);
+        $this->assertDatabaseCount('finance_payments', 2);
+        $this->assertDatabaseCount('finance_journals', $before);
+    }
+
+    public function test_invoice_allocation_and_cumulative_reversal_bounds_are_exact(): void
+    {
+        $bounds = new \ReflectionMethod(SettlementService::class, 'requireInvoiceBounds');
+        // Original invoice 1050 = 900 vendor + 100 commission + 50 tax.
+        foreach ([
+            [1050, 1000, 900, 100, 50, 1050, 0, 0, 0, 0, 0],
+            [1050, 1000, 900, 100, 50, 1050, 0, 525, 450, 50, 25],
+            [1050, 1000, 900, 100, 50, 0, 1050, 0, 0, 0, 0],
+        ] as $valid) {
+            $bounds->invoke(null, ...$valid);
+            $this->addToAssertionCount(1);
+        }
+        foreach ([
+            [1050, 1000, 899, 100, 50, 1050, 0, 0, 0, 0, 0],
+            [1050, 1000, 900, 100, 49, 1050, 0, 0, 0, 0, 0],
+            [1050, 1000, 900, 100, 50, 1051, 0, 0, 0, 0, 0],
+            [1050, 1000, 900, 100, 50, 1, 1050, 0, 0, 0, 0],
+            [1050, 1000, 900, 100, 50, 10, 0, 11, 11, 0, 0],
+            [1050, 1000, 900, 100, 50, 1050, 0, 901, 901, 0, 0],
+            [1050, 1000, 900, 100, 50, 1050, 0, 101, 0, 101, 0],
+            [1050, 1000, 900, 100, 50, 1050, 0, 51, 0, 0, 51],
+            [1050, 1000, 900, 100, 50, 1050, 0, 50, 49, 0, 0],
+        ] as $invalid) {
+            try {
+                $bounds->invoke(null, ...$invalid);
+                $this->fail('Inconsistent settlement invoice amounts were accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+    }
+
     public function test_checked_balance_rejects_cross_adjustment_overflow_before_any_payable_draft(): void
     {
         $this->configure();
