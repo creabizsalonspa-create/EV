@@ -147,7 +147,14 @@ class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
       darkTheme: theme(Brightness.dark),
       home: preferences.ready
           ? Workspace(preferences: preferences, initialApi: widget.api)
-          : const Scaffold(body: Center(child: CircularProgressIndicator())),
+          : Builder(builder: (context) => Scaffold(body: Center(
+              child: Semantics(
+                liveRegion: true,
+                child: CircularProgressIndicator(
+                  semanticsLabel: EvStrings.of(context).t('loading'),
+                ),
+              ),
+            ))),
     ),
   );
   ThemeData theme(Brightness brightness) => ThemeData(
@@ -1437,8 +1444,10 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(),
-                Text(s.t('restoringSession')),
+                const ExcludeSemantics(child: CircularProgressIndicator()),
+                // The live linear progress node above already announces this
+                // status. Retain the visible copy without announcing it twice.
+                ExcludeSemantics(child: Text(s.t('restoringSession'))),
               ],
             ),
           )
@@ -1935,7 +1944,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       body: SafeArea(
         child: Column(
           children: [
-            if (busy) const LinearProgressIndicator(),
+            if (busy) Semantics(
+              liveRegion: true,
+              child: LinearProgressIndicator(
+                semanticsLabel: s.t(restoring ? 'restoringSession' : 'loading'),
+              ),
+            ),
             if (error != null ||
                 message != null ||
                 widget.preferences.storageError)
