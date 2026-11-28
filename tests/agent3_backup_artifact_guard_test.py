@@ -135,6 +135,35 @@ class ArchiveTests(unittest.TestCase):
             manifest.write_text(original)
             self.assertEqual(guard.main(['check'] + args), 0)
 
+    def test_manifest_requires_exact_json_field_types_and_bounded_nesting(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, private, manifest = root/'db.dump', root/'private.tar.gz', root/'proof.json'
+            sample_db(dump)
+            sample_tar(private)
+            args = ['--pg-dump', str(dump), '--private-tar', str(private),
+                    '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            original = manifest.read_text()
+            mutations = [
+                original.replace('"production_ready": false', '"production_ready": 0'),
+                original.replace('"gzip_trailer_verified": true', '"gzip_trailer_verified": 1'),
+                original.replace('"regular_files": 1', '"regular_files": true'),
+                original.replace('"regular_files": 1', '"regular_files": 1.0'),
+                original.replace('"regular_files": 1', '"regular_files": 1e0'),
+                original.replace('"regular_files": 1', '"regular_files": 1e999'),
+                '{"extra":' + '[' * 2000 + '0' + ']' * 2000 + '}',
+            ]
+            for hostile in mutations:
+                with self.subTest(case=hostile[:100]):
+                    self.assertNotEqual(hostile, original)
+                    manifest.write_text(hostile)
+                    self.assertEqual(guard.main(['check'] + args), 1)
+            # Whitespace and object ordering are immaterial, types are not.
+            manifest.write_text(json.dumps(json.loads(original), indent=None))
+            self.assertEqual(guard.main(['check'] + args), 0)
+
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);db=root/'db.dump';private=root/'p.tar.gz';manifest=root/'m.json'
