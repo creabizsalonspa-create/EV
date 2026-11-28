@@ -17,3 +17,6 @@
     direction: ltr;
     unicode-bidi: isolate;
 }
+.session-observation-time[data-en] {
+    direction: inherit;
+}

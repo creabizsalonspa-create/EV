@@ -32,6 +32,15 @@ window.EvCompanySessionObservations = (() => {
             throw Error("Invalid recorded time");
         return value;
     }
+    function eventTime(value) {
+        const time = window.EvStationTime.bindServerEventTime(
+            document.createElement("time"),
+            value,
+        );
+        time.dateTime = value;
+        time.className = "session-observation-time";
+        return time;
+    }
     function project(value, company, page, filter) {
         if (
             value?.scope !== "company_recorded_charging_sessions" ||
@@ -493,11 +502,17 @@ window.EvCompanySessionObservations = (() => {
                                 "تحديث السجل بالتوقيت العالمي",
                             ),
                         );
-                        const time = plain("time", record.updated);
-                        time.dateTime = record.updated;
-                        time.dir = "ltr";
-                        time.className = "session-observation-time";
-                        card.append(time);
+                        card.append(eventTime(record.updated));
+                        if (record.stopped !== null) {
+                            card.append(
+                                n(
+                                    "p",
+                                    "Recorded stop at UTC",
+                                    "التوقف المسجل بالتوقيت العالمي",
+                                ),
+                                eventTime(record.stopped),
+                            );
+                        }
                         const meters = n(
                             "button",
                             "Recorded meter history",
@@ -544,17 +559,13 @@ window.EvCompanySessionObservations = (() => {
                     ),
                 );
                 status.replaceChildren(pageInfo);
-                const observed = plain("time", data.asOf);
-                observed.dir = "ltr";
-                observed.dateTime = data.asOf;
-                observed.className = "session-observation-time";
                 status.append(
                     n(
                         "span",
                         "Observed at UTC",
                         "تمت الملاحظة بالتوقيت العالمي",
                     ),
-                    observed,
+                    eventTime(data.asOf),
                 );
             } catch (error) {
                 if (active(own) && [401, 409, 419].includes(error?.status)) {

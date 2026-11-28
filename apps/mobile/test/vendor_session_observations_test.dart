@@ -16,7 +16,7 @@ Map<String, dynamic> record(int id) => {
   'energy_state': 'recorded',
   'record_created_at': '2026-11-19T06:00:00.000000Z',
   'record_updated_at': '2026-11-19T06:01:00Z',
-  'stopped_at': null,
+  'stopped_at': '2026-11-19T06:00:00Z',
   'protocol': null,
   'evidence': 'SIMULATED',
   'physical_charging_verified': false,
@@ -259,8 +259,21 @@ void main() {
         await tester.pumpWidget(panel(api, lang: lang));
         await tester.pumpAndSettle();
         expect(find.text('Owned station 27'), findsOneWidget);
+        final context = tester.element(find.text('Owned station 27'));
+        final localizations = MaterialLocalizations.of(context);
+        for (final minute in [0, 1, 2]) {
+          final localizedClock = localizations.formatTimeOfDay(
+            TimeOfDay(hour: 6, minute: minute),
+            alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+          );
+          expect(
+            find.textContaining(' · $localizedClock · \u2068UTC\u2069'),
+            findsOneWidget,
+          );
+        }
+        expect(find.textContaining('2026-11-19T06:'), findsNothing);
         expect(
-          Directionality.of(tester.element(find.text('Owned station 27'))),
+          Directionality.of(context),
           lang == 'ar' ? TextDirection.rtl : TextDirection.ltr,
         );
         final next = find.widgetWithText(
