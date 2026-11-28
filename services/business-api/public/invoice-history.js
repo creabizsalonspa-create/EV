@@ -10,6 +10,9 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
         n.textContent = value ?? "—";
         return n;
     };
+    const eventTime = (value) => window.EvStationTime.bindServerEventTime(
+        document.createElement("p"), value,
+    );
     function clear() {
         generation++;
         detailVersion++;
@@ -107,7 +110,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 card.className = "station-card";
                 card.append(
                     raw("h3", invoice.number),
-                    raw("p", invoice.created_at),
+                    eventTime(invoice.created_at),
                 );
                 amount(card, "Total", invoice.total_minor, invoice.currency);
                 button(card, "View invoice", () =>
@@ -169,6 +172,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
             target.replaceChildren(
                 ui("h3", "Invoice details"),
                 raw("h4", invoice.number),
+                eventTime(invoice.created_at),
                 ui("p", "Invoice simulation disclaimer"),
             );
             const evidence = document.createElement("div");
@@ -331,7 +335,7 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                     const card = document.createElement("article");
                     card.className = "station-card";
                     amount(card, label, row.amount_minor, invoice.currency);
-                    card.append(raw("p", row.created_at));
+                    card.append(eventTime(row.created_at));
                     if (key === "refunds") card.append(raw("p", row.reason));
                     target.append(card);
                 }

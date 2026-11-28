@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
         for (const ar of [false, true]) {
             const page = await browser.newPage();
             await page.setContent(`<html lang="${ar ? 'ar' : 'en'}"><body><main id="host"></main></body></html>`);
+            await page.addScriptTag({path:'services/business-api/public/station-time.js'});
             await page.addScriptTag({path:'services/business-api/public/vendor-agreements.js'});
             await page.evaluate(async () => {
                 window.posts = []; window.accepted = false; window.authorized = true;
@@ -16,7 +17,12 @@ const assert = require('node:assert/strict');
                         // A committed write whose response is lost must be recovered by a read.
                         throw Object.assign(new Error('PRIVATE LOST RESPONSE'), {status:503});
                     }
-                    return {version, can_accept:!window.accepted, can_publish:false, acceptance:window.accepted ? {id:'receipt-1', created_at:'2026-11-14'} : null, history:{data:[],current_page:1,last_page:1}};
+                    const acceptance = {id:'receipt-1', created_at:'2026-11-14T08:00:00+04:00', version_sha256:'reviewed-sha'};
+                    if (path.endsWith('/receipts/receipt-1')) return {receipt:acceptance, version};
+                    const records = window.accepted
+                        ? [{id:'receipt-1', country:'AE', revision:1, created_at:'2026-02-30T00:00:00Z'}]
+                        : [];
+                    return {version, can_accept:!window.accepted, can_publish:false, acceptance:window.accepted ? acceptance : null, history:{data:records,current_page:1,last_page:1}};
                 };
                 await window.EvVendorAgreements.open({host:document.querySelector('#host'), api:window.agreementApi, company:{id:1}, current:()=>window.authorized, notice:()=>{}});
             });
@@ -28,7 +34,16 @@ const assert = require('node:assert/strict');
             assert.deepEqual(await page.evaluate(()=>window.posts),[{version_id:'v1',sha256:'reviewed-sha',accepted:true}]);
             assert.equal(await page.getByText('PRIVATE LOST RESPONSE').count(),0);
             await page.getByRole('button',{name:ar?'تحديث':'Refresh',exact:true}).click();
-            assert.equal(await page.getByText(/receipt-1/).count(),1);
+            const expectedClock = ar ? /(?:٠٤:٠٠|04:00).*UTC/ : /04:00.*UTC/;
+            const unavailable = ar ? 'وقت الحدث غير متاح' : 'Event time unavailable';
+            const acceptance = page.locator('p').filter({hasText:'receipt-1'});
+            assert.match(await acceptance.innerText(), expectedClock);
+            assert.equal(await page.getByText(unavailable,{exact:true}).count(),1);
+            assert.equal(await page.getByText(/2026-02-30|2026-11-14T08:00/).count(),0);
+            await page.getByRole('button',{name:ar?'قراءة الإيصال الثابت':'Read immutable receipt',exact:true}).click();
+            const receipt = page.locator('p').filter({hasText:'receipt-1'});
+            assert.match(await receipt.innerText(), expectedClock);
+            assert.match(await receipt.innerText(), /reviewed-sha/);
             assert.equal(await page.evaluate(()=>window.posts.length),1);
             await page.close();
         }
