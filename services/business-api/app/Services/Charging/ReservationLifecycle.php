@@ -17,6 +17,29 @@ class ReservationLifecycle
         return $reservation->status === 'confirmed' && $reservation->checked_in_at === null && now()->gte($start->subMinutes(15)) && now()->lt($start->addMinutes(30));
     }
 
+    /** Project the original expiry event, not mutable arrival fields. */
+    public function expiryOutcome(Reservation $reservation, ?object $event = null): ?string
+    {
+        if ($reservation->status === 'expired_unstarted') {
+            return 'expired_before_dispatch';
+        }
+        if ($reservation->status !== 'expired_unused' || $event === null || $event->actor_id !== null) {
+            return null;
+        }
+        $evidence = is_string($event->evidence) ? json_decode($event->evidence, true) : null;
+        if (! is_array($evidence)
+            || ($evidence['reason'] ?? null) !== 'window_elapsed_without_linked_session'
+            || ($evidence['financial_action'] ?? null) !== 'none'
+            || ($evidence['hardware_action'] ?? null) !== 'none'
+            || ! is_bool($evidence['self_reported_arrival'] ?? null)) {
+            return null;
+        }
+
+        return $evidence['self_reported_arrival']
+            ? 'unused_after_reported_arrival'
+            : 'unused_without_reported_arrival';
+    }
+
     public function checkIn(Reservation $reservation, int $actor): array
     {
         abort_unless($reservation->user_id === $actor, 404);

@@ -1000,6 +1000,21 @@ async function stations(query = "") {
         el("stations").append(a);
     }
 }
+const reservationExpiryCopy = new Map([
+    ["unused_without_reported_arrival", [
+        "Reservation expired unused with no recorded arrival report.",
+        "انتهى الحجز دون استخدام ولم يُسجّل وصول ذاتي.",
+    ]],
+    ["unused_after_reported_arrival", [
+        "Reservation expired unused after a self-reported arrival.",
+        "انتهى الحجز دون استخدام بعد تسجيل وصول ذاتي.",
+    ]],
+    ["expired_before_dispatch", [
+        "Reservation expired before the charging start request was sent.",
+        "انتهى الحجز قبل إرسال طلب بدء الشحن.",
+    ]],
+]);
+
 async function bookings(page = reservationPage) {
     if (!user || !Number.isSafeInteger(page) || page < 1) return;
     const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
@@ -1062,6 +1077,14 @@ async function bookings(page = reservationPage) {
                     time: r.checked_in_at,
                 }),
             );
+        const unused = r.status === 'expired_unused' && ['unused_without_reported_arrival', 'unused_after_reported_arrival'].includes(r.expiry_outcome);
+        const expiry = unused || (r.status === 'expired_unstarted' && r.expiry_outcome === 'expired_before_dispatch')
+            ? reservationExpiryCopy.get(r.expiry_outcome) : null;
+        if (expiry) {
+            const zeroFee = unused && window.EvReservationPolicy?.valid(r.reservation_terms_snapshot);
+            a.append(batteryNode("p", expiry[0] + (zeroFee ? " The no-show fee is zero." : ""),
+                expiry[1] + (zeroFee ? " رسوم عدم الحضور صفر." : "")));
+        }
         if (user.role === "customer" && r.can_check_in) {
             const arrival = ui("button", "Check in");
             arrival.type = "button";

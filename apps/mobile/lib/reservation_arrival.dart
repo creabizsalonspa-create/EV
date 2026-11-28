@@ -3,6 +3,20 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 
+String? reservationExpiryText(Object? outcome, {required Object? status, required bool arabic, bool zeroFee = false}) =>
+    switch ((status, outcome)) {
+      ('expired_unused', 'unused_without_reported_arrival') => arabic
+          ? 'انتهى الحجز دون استخدام ولم يُسجّل وصول ذاتي.' + (zeroFee ? ' رسوم عدم الحضور صفر.' : '')
+          : 'Reservation expired unused with no recorded arrival report.' + (zeroFee ? ' The no-show fee is zero.' : ''),
+      ('expired_unused', 'unused_after_reported_arrival') => arabic
+          ? 'انتهى الحجز دون استخدام بعد تسجيل وصول ذاتي.' + (zeroFee ? ' رسوم عدم الحضور صفر.' : '')
+          : 'Reservation expired unused after a self-reported arrival.' + (zeroFee ? ' The no-show fee is zero.' : ''),
+      ('expired_unstarted', 'expired_before_dispatch') => arabic
+          ? 'انتهى الحجز قبل إرسال طلب بدء الشحن.'
+          : 'Reservation expired before the charging start request was sent.',
+      _ => null,
+    };
+
 class ReservationArrivalButton extends StatefulWidget {
   final EvApi api;
   final int reservationId;

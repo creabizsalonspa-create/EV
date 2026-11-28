@@ -28,6 +28,7 @@ void main() {
         (r) => r['id'] == f['current'],
       );
       expect(current['can_check_in'], true);
+      expect(current['expiry_outcome'], isNull);
       final body = {'self_reported_arrival': true};
       final first = await api.request(
         'reservations/${f['current']}/check-in',
@@ -47,12 +48,22 @@ void main() {
         first['reservation']['checked_in_at'],
       );
       final rows = await api.request('reservations');
-      expect(
-        (rows['data'] as List).firstWhere(
-          (r) => r['id'] == f['unused'],
-        )['status'],
-        'expired_unused',
-      );
+      for (final (key, outcome) in [
+        ('unused', 'unused_without_reported_arrival'),
+        ('arrived_unused', 'unused_after_reported_arrival'),
+      ]) {
+        final row = (rows['data'] as List).singleWhere((r) => r['id'] == f[key]);
+        expect(row['status'], 'expired_unused');
+        expect(row['expiry_outcome'], outcome);
+        expect(row['physical_presence_verified'], false);
+        if (key == 'unused') {
+          expect(row['reservation_terms_snapshot'], isNull);
+          expect(row['checked_in_at'], isNull);
+        } else {
+          expect(row['reservation_terms_snapshot']['no_show_fee_minor'], 0);
+          expect(row['checked_in_at'], isNotNull);
+        }
+      }
       await expectLater(
         api.request(
           'reservations/${f['unused']}/check-in',
@@ -74,6 +85,15 @@ void main() {
       await assertNoSessionOrInvoice();
       await api.signOut();
       await api.signIn(f['owner'], f['password']);
+      final vendorRows = (await api.request('reservations'))['data'] as List;
+      for (final (key, outcome) in [
+        ('unused', 'unused_without_reported_arrival'),
+        ('arrived_unused', 'unused_after_reported_arrival'),
+      ]) {
+        final row = vendorRows.singleWhere((r) => r['id'] == f[key]);
+        expect(row['expiry_outcome'], outcome);
+        expect(row['physical_presence_verified'], false);
+      }
       await expectLater(
         api.request(
           'reservations/${f['current']}/check-in',

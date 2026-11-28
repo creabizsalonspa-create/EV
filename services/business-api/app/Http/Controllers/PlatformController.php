@@ -200,7 +200,16 @@ class PlatformController extends Controller
         // Station timezone is published location metadata, not private rider data.
         $zones = Station::whereIn('id', $page->getCollection()->pluck('station_id'))->pluck('timezone', 'id');
 
-        return response()->json($page->through(function ($reservation) use ($bound, $names, $zones, $r) {
+        $lifecycle = app(ReservationLifecycle::class);
+        // Scope to the authorized page and reject ambiguous duplicate events.
+        $unusedIds = $page->getCollection()->where('status', 'expired_unused')->pluck('id');
+        $uniqueExpiry = DB::table('reservation_lifecycle_events')
+            ->whereIn('reservation_id', $unusedIds)->where('event_type', 'expired_unused')
+            ->selectRaw('MIN(id) as event_id')->groupBy('reservation_id')->havingRaw('COUNT(*) = 1');
+        $expiryEvents = DB::table('reservation_lifecycle_events')->whereIn('id', $uniqueExpiry)
+            ->get(['reservation_id', 'actor_id', 'evidence'])->keyBy('reservation_id');
+
+        return response()->json($page->through(function ($reservation) use ($bound, $names, $zones, $r, $lifecycle, $expiryEvents) {
             $csms = $bound->has($reservation->station_id);
             if ($reservation->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($reservation->connector_mapping_id);
@@ -232,7 +241,8 @@ class PlatformController extends Controller
             }
 
             return $data + ['station_timezone' => $timezone, 'station_times' => $localTimes,
-                'csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+                'csms_bound' => $csms, 'can_check_in' => $lifecycle->eligible($reservation),
+                'physical_presence_verified' => false, 'expiry_outcome' => $lifecycle->expiryOutcome($reservation, $expiryEvents->get($reservation->id))];
         }))->header('Cache-Control', 'private, no-store');
     }
 

@@ -71,11 +71,15 @@ class ReservationLifecycleTest extends TestCase
         $service = app(ReservationLifecycle::class);
         $this->travelTo($end->subSecond());
         $this->assertSame(0, $service->expire()['expired']);
+        $this->getJson('/api/reservations')->assertJsonPath('data.0.expiry_outcome', null);
         $this->travelTo($end);
         $this->assertSame(1, $service->expire()['expired']);
         $this->assertSame(0, $service->expire()['expired']);
         $this->assertSame('expired_unused', $r->fresh()->status);
         $this->assertSame($arrived, $r->fresh()->checked_in_at !== null);
+        $this->getJson('/api/reservations')
+            ->assertJsonPath('data.0.expiry_outcome', $arrived ? 'unused_after_reported_arrival' : 'unused_without_reported_arrival')
+            ->assertJsonPath('data.0.physical_presence_verified', false);
         $event = DB::table('reservation_lifecycle_events')->where('event_type', 'expired_unused')->sole();
         $this->assertNull($event->actor_id);
         $e = json_decode($event->evidence, true);
@@ -85,6 +89,25 @@ class ReservationLifecycleTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->deleteJson('/api/reservations/'.$r->id)->assertConflict();
         Http::assertNothingSent();
+    }
+
+    public function test_expiry_outcome_requires_one_valid_event_and_retains_original_report(): void
+    {
+        $r = $this->booking();
+        $this->travelTo(CarbonImmutable::parse($r->starts_at, 'UTC')->addHour());
+        $r->update(['status' => 'expired_unused']);
+        $this->getJson('/api/reservations')->assertOk()->assertJsonPath('data.0.expiry_outcome', null);
+        $r->update(['status' => 'confirmed']);
+        $this->assertSame(1, app(ReservationLifecycle::class)->expire()['expired']);
+        $r->update(['checked_in_at' => now()]);
+        $this->getJson('/api/reservations')->assertOk()
+            ->assertJsonPath('data.0.expiry_outcome', 'unused_without_reported_arrival');
+        $event = DB::table('reservation_lifecycle_events')->where('reservation_id', $r->id)->sole();
+        DB::table('reservation_lifecycle_events')->where('id', $event->id)
+            ->update(['evidence' => json_encode(['self_reported_arrival' => 'false'], JSON_THROW_ON_ERROR)]);
+        $this->getJson('/api/reservations')->assertOk()->assertJsonPath('data.0.expiry_outcome', null);
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_existing_session_any_state_and_uncorrelated_commands_require_separate_reconciliation(): void
@@ -100,6 +123,7 @@ class ReservationLifecycleTest extends TestCase
         $this->assertSame(0, $service->expire()['examined']);
         $this->assertSame('confirmed', $r->fresh()->status);
         $this->assertDatabaseCount('reservation_lifecycle_events', 0);
+        $this->getJson('/api/reservations')->assertJsonPath('data.0.expiry_outcome', null);
     }
 
     public function test_scheduled_scan_is_bounded_and_resumes_past_reconciliation_records(): void
