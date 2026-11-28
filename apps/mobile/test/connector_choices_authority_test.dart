@@ -42,8 +42,6 @@ void main(){
   });
   for(final arabic in [false,true]){
     testWidgets('connector status announces the localized UTC observation ($arabic)', (tester) async {
-      final semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
       final rows = [
         {
           ...option(11, 7),
