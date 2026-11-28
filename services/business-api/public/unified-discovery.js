@@ -113,10 +113,27 @@
   const federationState=document.createElement('p'),federationPublished=document.createElement('div'),federationLicensed=document.createElement('div');
   federationState.setAttribute('role','status');federatedForm.append(federationSubmit);
   federation.append(federatedForm,federationState,federationPublished,federationLicensed);root.append(federation);
-  let federationTurn=0;
+  let federationTurn=0,federationMapRows=null,federationMapPublished=false;
+  const federationMapToken={};
+  function revokeFederationMap(){
+   federationMapRows=null;federationMapButton.disabled=true;
+   if(!federationMapPublished)return;
+   federationMapPublished=false;
+   window.dispatchEvent(new CustomEvent('unified-map-clear',{detail:federationMapToken}));
+  }
+  const federationMapButton=button('Map loaded nearby results','عرض النتائج القريبة المحملة على الخريطة',()=>{
+   if(federationMapButton.disabled||!federationMapRows||!owner||document.visibilityState==='hidden')return;
+   federationMapPublished=true;
+   const event=new CustomEvent('unified-map-data',{detail:federationMapRows.published});
+   event.evUnifiedPublication=federationMapToken;
+   event.evLicensedRows=federationMapRows.licensed;
+   window.dispatchEvent(event);
+   document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
+  });
+  federationMapButton.disabled=true;federation.append(federationMapButton);
   const labelValue=value=>typeof value==='string'?value.trim().slice(0,250):'';
   function clearFederation(){
-   federationTurn++;for(const control of Object.values(federationFields))control.value='';
+   federationTurn++;revokeFederationMap();for(const control of Object.values(federationFields))control.value='';
    federationCountry.value='';federationConsent.checked=false;federationSubmit.disabled=false;
    federationState.replaceChildren();federationPublished.replaceChildren();federationLicensed.replaceChildren();
   }
@@ -183,7 +200,7 @@
   federatedForm.onsubmit=async event=>{
    event.preventDefault();if(federationSubmit.disabled||!owner)return;
    const body={consent:true};const bounds={latitude:[-90,90],longitude:[-180,180],radius_km:[1,200]};
-   const turn=++federationTurn;federationPublished.replaceChildren();federationLicensed.replaceChildren();
+   const turn=++federationTurn;revokeFederationMap();federationPublished.replaceChildren();federationLicensed.replaceChildren();
    for(const [key,control] of Object.entries(federationFields)){
     const value=normalizeRate(control.value.trim()),number=Number(value),[low,high]=bounds[key];
     if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)||!Number.isFinite(number)||number<low||number>high){
@@ -201,6 +218,25 @@
     if(turn!==federationTurn)return;
     const [published,licensed]=federatedCards(reply);
     federationPublished.replaceChildren(...published);federationLicensed.replaceChildren(...licensed);
+    // Map eligibility is narrower than text visibility. The map consumer
+    // independently validates all three sources and owns their lifetimes.
+    const coordinate=value=>typeof value==='number'||(typeof value==='string'&&value.trim()!=='')
+      ? Number(value):NaN;
+    const plottable=row=>Number.isFinite(coordinate(row?.latitude))&&Math.abs(coordinate(row.latitude))<=85.05112878&&
+      Number.isFinite(coordinate(row?.longitude))&&Math.abs(coordinate(row.longitude))<=180;
+    const publishedPoints=reply.published.data.filter(row=>row.kind==='catalog'
+      ?catalogMetadataComplete(row)&&plottable(row.station)
+      :row.location_available!==false&&plottable(row.location));
+    const licensedPoints=reply.licensed.state==='observed'?reply.licensed.sample.results.filter(row=>
+      typeof row.latitude==='number'&&typeof row.longitude==='number'&&plottable(row)&&
+      row.reported_operational_evidence==='OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED'&&
+      (row.reported_operational===null||typeof row.reported_operational==='boolean')&&
+      row.reported_access_evidence==='OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED'&&
+      row.reported_cost_evidence==='OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED'&&
+      typeof row.reported_cost_note==='string'&&Array.from(row.reported_cost_note).length<=240&&
+      typeof row.reported_access==='string'):[];
+    federationMapRows={published:publishedPoints,licensed:licensedPoints};
+    federationMapButton.disabled=publishedPoints.length+licensedPoints.length===0;
     federationState.replaceChildren(text('span','Discovery only. Open the regular catalog to inspect booking options.','للاكتشاف فقط. افتح الكتالوج العادي للاطلاع على خيارات الحجز.'));
    }catch{
     if(turn===federationTurn)federationState.replaceChildren(text('span','Nearby search failed. Confirm consent and submit again.','تعذر البحث القريب. أكد الموافقة وأعد الإرسال.'));
