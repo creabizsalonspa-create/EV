@@ -728,6 +728,93 @@ window.EvPrivacyRequests = (() => {
                         },
                     );
                     card.append(history, historyHost);
+                    if (record.kind === "erasure" && record.status === "reviewing" &&
+                        record.owner?.id && record.owner.id !== user.id) {
+                        const planHost = el("div");
+                        const endpoint = "admin/privacy-requests/" + caseId + "/erasure-preparation";
+                        let planGeneration = 0;
+                        const validPlan = (p) => p?.request_id === caseId &&
+                            typeof p.review_revision === "string" && /^[1-9][0-9]{0,17}$/.test(p.review_revision) &&
+                            typeof p.review_scope === "string" && /^[a-f0-9]{64}$/.test(p.review_scope) &&
+                            p.disposition === "retain_pending_legal_and_external_review" &&
+                            p.execution_authorized === false && p.legal_retention_verified === false &&
+                            p.automated_erasure_performed === false &&
+                            (p.stage === "not_prepared" ? p.preparation_id === null && p.proposed_by === null && p.confirmed_by === null :
+                                typeof p.preparation_id === "string" && /^[1-9][0-9]{0,17}$/.test(p.preparation_id) &&
+                                Number.isSafeInteger(p.proposed_by) && p.proposed_by > 0 && p.proposed_by !== record.owner.id &&
+                                (p.stage === "awaiting_independent_review" ? p.confirmed_by === null :
+                                    p.stage === "assisted_review_prepared" && Number.isSafeInteger(p.confirmed_by) &&
+                                    p.confirmed_by > 0 && p.confirmed_by !== p.proposed_by && p.confirmed_by !== record.owner.id));
+                        async function readPlan() {
+                            if (!active(state, generation, controller)) return;
+                            const own = ++planGeneration;
+                            planHost.replaceChildren(el("p", "Loading assisted review preparation… / جارٍ تحميل إعداد المراجعة…"));
+                            try {
+                                const p = await state.request(endpoint, "GET", undefined, controller.signal);
+                                if (!active(state, generation, controller) || own !== planGeneration) return;
+                                if (!validPlan(p)) throw Error("Invalid preparation");
+                                renderPlan(p);
+                            } catch {
+                                if (active(state, generation, controller) && own === planGeneration)
+                                    planHost.replaceChildren(el("p", "Preparation unavailable; refresh explicitly. / الإعداد غير متاح؛ حدّث صراحة."));
+                            }
+                        }
+                        function renderPlan(p) {
+                            const own = planGeneration;
+                            const currentPlan = () => active(state, generation, controller) && own === planGeneration;
+                            const labels = {
+                                not_prepared: "Not prepared / لم يُعدّ",
+                                awaiting_independent_review: "Awaiting independent reviewer / بانتظار مراجع مستقل",
+                                assisted_review_prepared: "Assisted review prepared / تم إعداد المراجعة المساعدة",
+                            };
+                            planHost.replaceChildren(el("p", labels[p.stage]),
+                                el("p", "Retain records pending legal and external review. No deletion is authorized. / احتفظ بالسجلات حتى المراجعة القانونية والخارجية؛ لا يوجد تصريح بالحذف."));
+                            const action = p.stage === "not_prepared" ? "propose" :
+                                p.stage === "awaiting_independent_review" && p.proposed_by !== user.id ? "confirm" : null;
+                            if (!action) return;
+                            const form = el("form");
+                            form.setAttribute("aria-label", "Assisted erasure preparation " + caseId);
+                            const password = el("input");
+                            password.type = "password";
+                            password.autocomplete = "current-password";
+                            password.required = true;
+                            const reason = el("textarea");
+                            reason.required = true; reason.minLength = 10; reason.maxLength = 2000;
+                            state.secrets.add(password); state.secrets.add(reason);
+                            const submit = button(action === "propose" ?
+                                "Propose assisted review / اقتراح مراجعة مساعدة" :
+                                "Independently confirm preparation / تأكيد الإعداد بشكل مستقل", () => {});
+                            submit.type = "submit";
+                            form.append(field("Administrator password / كلمة مرور المسؤول", password),
+                                field("Private reason / سبب خاص", reason), submit);
+                            form.onsubmit = async event => {
+                                event.preventDefault();
+                                if (!currentPlan() || submit.disabled || !password.value || reason.value.trim().length < 10) return;
+                                const payload = {action, review_revision:p.review_revision, review_scope:p.review_scope,
+                                    password:password.value, reason:reason.value.trim()};
+                                if (action === "confirm") payload.preparation_id = p.preparation_id;
+                                password.value = ""; reason.value = ""; submit.disabled = true;
+                                try {
+                                    const receipt = await state.request(endpoint, "POST", payload, controller.signal);
+                                    if (!currentPlan()) return;
+                                    if (!validPlan(receipt) || receipt.review_scope !== p.review_scope ||
+                                        receipt.review_revision !== p.review_revision ||
+                                        (action === "propose" && (receipt.stage !== "awaiting_independent_review" || receipt.proposed_by !== user.id)) ||
+                                        (action === "confirm" && (receipt.stage !== "assisted_review_prepared" ||
+                                            receipt.preparation_id !== p.preparation_id || receipt.proposed_by !== p.proposed_by ||
+                                            receipt.confirmed_by !== user.id))) throw Error("Unverified preparation receipt");
+                                    planGeneration++; renderPlan(receipt);
+                                } catch {
+                                    if (currentPlan()) {
+                                        planGeneration++;
+                                        planHost.replaceChildren(el("p", "Preparation outcome unconfirmed; reload before another decision. / لم تتأكد النتيجة؛ حدّث قبل قرار آخر."));
+                                    }
+                                } finally { submit.disabled = false; }
+                            };
+                            planHost.append(form);
+                        }
+                        card.append(button("Load erasure preparation / تحميل إعداد الحذف", readPlan), planHost);
+                    }
                     const choices =
                         record.owner?.id === user.id
                             ? []
