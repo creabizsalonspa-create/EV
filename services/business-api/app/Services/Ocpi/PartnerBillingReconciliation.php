@@ -6,7 +6,9 @@ use App\Models\Finance\Invoice;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\InvoiceReconciliationAudit;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /** Read-only lineage into the canonical ledger; no partner settlement authority. */
 class PartnerBillingReconciliation
@@ -86,6 +88,21 @@ class PartnerBillingReconciliation
             $verified = false;
         }
         if (! $verified) {
+            return ['status' => 'source_requires_review'];
+        }
+        // A balanced aggregate is not sufficient: a capture posted to the
+        // wrong account or an orphan journal must not certify partner billing.
+        // Keep the existing review DTO and never disclose contradictory totals.
+        try {
+            $audit = app(InvoiceReconciliationAudit::class)->inspect($invoice);
+        } catch (HttpException $error) {
+            if ($error->getStatusCode() !== 409) {
+                throw $error;
+            }
+
+            return ['status' => 'source_requires_review'];
+        }
+        if ($audit['status'] !== 'reconciled') {
             return ['status' => 'source_requires_review'];
         }
         $summary = app(FinanceService::class)->summary($invoice);
