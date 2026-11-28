@@ -223,7 +223,7 @@ class OperatingCalendarTest extends TestCase
         $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $this->station->id, 'vendor_charger_id' => $charger->id, 'identifier' => 'ev-test-calendar-source', 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
         $evse = Evse::create(['charger_id' => $charger->id, 'number' => 1, 'mode' => 'csms', 'binding_id' => $binding, 'source_evse_number' => $protocol === '1.6' ? 0 : 1]);
         $connector = VendorConnector::create(['charger_id' => $charger->id, 'connector_number' => 1, 'connector_type' => 'CCS2', 'max_power_kw' => 50]);
-        $map = ConnectorMapping::create(['station_id' => $this->station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => 1, 'source_target_key' => hash('sha256', 'calendar-source')]);
+        $map = ConnectorMapping::create(['station_id' => $this->station->id, 'evse_id' => $evse->id, 'connector_id' => $connector->id, 'source_connector_number' => 1, 'source_target_key' => hash('sha256', $binding.':'.$evse->source_evse_number.':1')]);
         $this->publish($this->details());
         $id = $this->book('2026-11-16T04:00:00Z', 'source-booking', ['connector_mapping_id' => $map->id])->assertCreated()->json('id');
         $this->travelTo(CarbonImmutable::parse('2026-11-16 04:00:00 UTC'));
