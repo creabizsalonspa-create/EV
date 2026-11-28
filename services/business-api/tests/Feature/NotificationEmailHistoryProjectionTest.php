@@ -39,6 +39,7 @@ class NotificationEmailHistoryProjectionTest extends TestCase
             ->assertJsonPath('receipts.data.0.evidence', null)->assertJsonPath('receipts.data.0.failure_code', null)
             ->assertJsonPath('delivery_confirmed', false)->assertJsonPath('automatic_retry', false);
         $this->assertStringNotContainsString('PRIVATE-', $response->getContent());
+        $this->getJson($url.'?page=100001')->assertUnprocessable();
         $this->assertDatabaseHas('notification_email_outbox', ['id' => $row->id, 'state' => 'handed_off',
             'evidence' => 'PRIVATE-TRANSPORT-SECRET', 'failure_code' => 'PRIVATE-EXCEPTION']);
         $this->actingAs(User::factory()->create())->getJson($url)->assertOk()->assertJsonPath('receipts.total', 0);

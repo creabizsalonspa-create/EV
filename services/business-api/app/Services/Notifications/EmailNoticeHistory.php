@@ -3,6 +3,7 @@
 namespace App\Services\Notifications;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Throwable;
 
 /** Private, allowlisted history projection. Never interprets transport handoff as delivery. */
@@ -23,7 +24,7 @@ final class EmailNoticeHistory
             return null;
         }
         try {
-            new DateTimeImmutable($value);
+            new DateTimeImmutable($value, new DateTimeZone('UTC'));
 
             return $value;
         } catch (Throwable) {
@@ -46,9 +47,19 @@ final class EmailNoticeHistory
             && (($row->claimed_at ?? null) === null || $claimed !== null)
             && (($row->completed_at ?? null) === null || $completed !== null);
         if ($known) {
+            // Naive database timestamps use the configured UTC storage contract.
+            // Compare actual instants, not lexical values or timezone spellings.
+            $utc = new DateTimeZone('UTC');
+            $createdInstant = new DateTimeImmutable($created, $utc);
+            $claimedInstant = $claimed === null ? null : new DateTimeImmutable($claimed, $utc);
+            $completedInstant = $completed === null ? null : new DateTimeImmutable($completed, $utc);
+            $known = ($claimedInstant === null || $claimedInstant >= $createdInstant)
+                && ($completedInstant === null || $completedInstant >= ($claimedInstant ?? $createdInstant));
+        }
+        if ($known) {
             $known = match ($state) {
                 'queued' => $claimed === null && $completed === null && $failure === null,
-                'claimed' => $completed === null && $failure === null,
+                'claimed' => $claimed !== null && $completed === null && $failure === null,
                 'handed_off' => $claimed !== null && $completed !== null && $failure === null,
                 'cancelled', 'outcome_unknown' => $completed !== null && in_array($failure, self::FAILURES[$state], true),
                 default => false,

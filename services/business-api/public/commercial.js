@@ -79,6 +79,45 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         cache = new Map();
         reportQuery = {};
     }
+    // Match the native diagnostic: malformed totals must never be rendered
+    // as a reconciled invoice, but genuine signed audit findings remain visible.
+    function validateInvoiceAuditRow(item, currency, previousId) {
+        const issueCodes = new Set([
+            "invoice_component_mismatch", "invoice_journal_mismatch",
+            "payment_journal_mismatch", "refund_journal_mismatch",
+            "refund_component_mismatch", "refund_allocation_exceeded",
+            "unpaid_credit_journal_mismatch", "unpaid_credit_component_mismatch",
+            "invalid_journal_entry", "journal_accounts_mismatch", "journal_unbalanced",
+            "journal_currency_mismatch", "unexpected_journal_kind",
+            "unlinked_financial_journal", "collection_out_of_bounds",
+        ]);
+        const fields = ["invoiced_minor", "paid_minor", "refunded_minor",
+            "unpaid_credited_minor", "net_collected_minor", "amount_due_minor"];
+        const fail = () => { throw Error("Invalid internal audit source."); };
+        if (!item || !Number.isSafeInteger(item.invoice_id) || item.invoice_id < 1 ||
+            item.invoice_id >= previousId || item.currency !== currency ||
+            item.evidence !== "SIMULATED_CANONICAL_LEDGER" ||
+            item.external_psp_or_bank_verified !== false ||
+            typeof item.invoice_number !== "string" || !item.invoice_number.length ||
+            item.invoice_number.length > 255 ||
+            !Number.isInteger(item.minor_units) || item.minor_units < 0 || item.minor_units > 3 ||
+            !Number.isSafeInteger(item.journal_count) || item.journal_count < 0 || item.journal_count > 500 ||
+            !["reconciled", "attention_required"].includes(item.status) ||
+            !Array.isArray(item.issues) || !item.issues.every(issue => issueCodes.has(issue)) ||
+            new Set(item.issues).size !== item.issues.length ||
+            (item.status === "reconciled") !== (item.issues.length === 0) ||
+            !fields.every(field => Number.isSafeInteger(item[field]))) fail();
+        const issued = BigInt(item.invoiced_minor), paid = BigInt(item.paid_minor),
+            refunded = BigInt(item.refunded_minor), credited = BigInt(item.unpaid_credited_minor);
+        const due = issued - paid - credited;
+        if (BigInt(item.net_collected_minor) !== paid - refunded ||
+            BigInt(item.amount_due_minor) !== (due < 0n ? 0n : due) ||
+            (item.status === "reconciled" &&
+                (issued < 0n || paid < 0n || refunded < 0n || credited < 0n ||
+                    paid + credited > issued || refunded > paid || item.journal_count < 1))) fail();
+        return item;
+    }
+
     function money(amount, currency, digits = 2) {
         return `${currency} ${amount < 0 ? "−" : ""}${EvMoney.format(Math.abs(Number(amount)), Number(digits))}`;
     }
@@ -2247,38 +2286,117 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     () => showEarnings(1));
                 const auditPane = document.createElement("section");
                 auditPane.dataset.financialIntegrity = "true";
-                detail.append(auditPane);
-                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
-                    async () => {
-                        // Admin scans all accessible invoices in this currency, not only
-                        // the selected vendor. Vendors remain scoped server-side.
-                        const query = new URLSearchParams({ currency, per_page: "10" });
-                        const report = await api("finance/reconciliation-audit?" + query,
-                            "GET", undefined, controller.signal);
-                        if (current !== epoch || !detail.isConnected) return;
-                        auditPane.replaceChildren(
-                            translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
-                            translated("p",
-                                "Simulated source-only audit, not bank or PSP reconciliation",
-                                "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                const auditControls = document.createElement("div");
+                auditControls.className = "finance-form";
+                const auditFrom = document.createElement("input");
+                const auditTo = document.createElement("input");
+                auditFrom.type = auditTo.type = "date";
+                auditFrom.dataset.auditFrom = "true";
+                auditTo.dataset.auditTo = "true";
+                for (const [input, en, ar] of [
+                    [auditFrom, "Audit from date (UTC)", "تاريخ بدء التدقيق (UTC)"],
+                    [auditTo, "Audit to date (UTC)", "تاريخ انتهاء التدقيق (UTC)"],
+                ]) {
+                    const label = document.createElement("label");
+                    label.append(translated("span", en, ar), input);
+                    auditControls.append(label);
+                }
+                detail.append(
+                    translated("p", "Internal audit is scoped to the selected vendor and currency.",
+                        "التدقيق الداخلي محدد بالمورد والعملة المختارين."),
+                    auditControls, auditPane,
+                );
+                let auditGeneration = 0;
+                function clearAudit() {
+                    auditGeneration++;
+                    auditPane.replaceChildren();
+                }
+                auditFrom.addEventListener("input", clearAudit);
+                auditTo.addEventListener("input", clearAudit);
+                document.addEventListener("visibilitychange", () => {
+                    if (document.hidden) {
+                        clearAudit();
+                        auditFrom.value = auditTo.value = "";
+                    }
+                }, { signal: controller.signal });
+
+                async function showAudit(page = 1, applied = null) {
+                    const request = ++auditGeneration;
+                    auditPane.replaceChildren();
+                    if (current !== epoch || !detail.isConnected || document.hidden) return;
+                    if (!Number.isSafeInteger(Number(vendorId)) || Number(vendorId) < 1 ||
+                        !Number.isSafeInteger(page) || page < 1 || page > 10000)
+                        throw Error("Invalid audit scope.");
+                    const query = applied ? new URLSearchParams(applied) :
+                        new URLSearchParams({ currency, vendor_id: vendorId, per_page: "10" });
+                    if (!applied) {
+                        if (auditFrom.value) query.set("from", auditFrom.value);
+                        if (auditTo.value) query.set("to", auditTo.value);
+                    }
+                    if (query.has("from") && query.has("to") && query.get("from") > query.get("to"))
+                        throw Error("Invalid audit date range.");
+                    query.set("page", String(page));
+                    const report = await api("finance/reconciliation-audit?" + query,
+                        "GET", undefined, controller.signal);
+                    if (current !== epoch || request !== auditGeneration ||
+                        !detail.isConnected || document.hidden) return;
+                    const scope = report.scope;
+                    if (report.evidence !== "SIMULATED_INTERNAL_RECONCILIATION" ||
+                        report.external_psp_or_bank_verified !== false ||
+                        !scope || scope.vendor_id !== Number(vendorId) || scope.currency !== currency ||
+                        scope.from !== query.get("from") || scope.to !== query.get("to") ||
+                        !Array.isArray(report.data) || report.current_page !== page ||
+                        report.per_page !== 10 || !Number.isSafeInteger(report.total) ||
+                        report.total < 0 || report.last_page !== Math.max(1, Math.ceil(report.total / 10)) ||
+                        report.data.length !== Math.min(10, Math.max(0, report.total - (page - 1) * 10)))
+                        throw Error("Internal audit response cannot be verified.");
+
+                    const cards = [];
+                    let previousId = Number.MAX_SAFE_INTEGER + 1;
+                    for (const item of report.data) {
+                        validateInvoiceAuditRow(item, currency, previousId);
+                        previousId = item.invoice_id;
+                        const row = document.createElement("article");
+                        row.className = "finance-row";
+                        row.dataset.auditInvoiceId = String(item.invoice_id);
+                        row.append(
+                            text("h5", item.invoice_number),
+                            text("p", item.status + " · " + item.issues.join(", ")),
+                            text("p", money(item.invoiced_minor, currency, item.minor_units) + " · Invoiced / الفاتورة"),
+                            text("p", money(item.net_collected_minor, currency, item.minor_units) + " · Recorded collection / التحصيل المسجل"),
+                            text("p", money(item.amount_due_minor, currency, item.minor_units) + " · Due / المستحق"),
                         );
-                        for (const item of report.data || []) {
-                            const row = document.createElement("article");
-                            row.className = "finance-row";
-                            row.dataset.auditInvoiceId = String(item.invoice_id);
-                            row.append(
-                                text("h5", item.invoice_number),
-                                text("p", item.status + " · " + (item.issues || []).join(", ")),
-                            );
-                            auditPane.append(row);
-                        }
-                        if (!(report.data || []).length)
-                            auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
-                        const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
-                        link.href = "/api/finance/reconciliation-audit/export?" + query;
-                        link.download = "simulated-finance-reconciliation-page.csv";
-                        auditPane.append(link);
-                    });
+                        cards.push(row);
+                    }
+                    auditPane.replaceChildren(
+                        translated("h4", "Internal ledger integrity", "سلامة السجل المالي الداخلي"),
+                        translated("p", "Simulated source-only audit, not bank or PSP reconciliation",
+                            "تدقيق داخلي لسجلات اختبارية وليس مطابقة مصرفية"),
+                        ...cards,
+                    );
+                    if (!cards.length)
+                        auditPane.append(translated("p", "No matching invoices.", "لا توجد فواتير مطابقة."));
+                    const pager = document.createElement("div");
+                    pager.className = "finance-pagination";
+                    pager.append(text("p", String(page) + " / " + String(report.last_page)));
+                    if (page > 1)
+                        button(pager, "Previous audit page", "صفحة التدقيق السابقة",
+                            () => showAudit(page - 1, query));
+                    if (page < report.last_page && page < 10000)
+                        button(pager, "Next audit page", "صفحة التدقيق التالية",
+                            () => showAudit(page + 1, query));
+                    auditPane.append(pager);
+                    const link = translated("a", "Download integrity CSV", "تنزيل تقرير السلامة CSV");
+                    link.href = "/api/finance/reconciliation-audit/export?" + query;
+                    link.download = "simulated-finance-reconciliation-page.csv";
+                    link.onclick = event => {
+                        if (current !== epoch || request !== auditGeneration ||
+                            !link.isConnected || document.hidden) event.preventDefault();
+                    };
+                    auditPane.append(link);
+                }
+                button(detail, "Inspect accessible ledger integrity", "فحص سلامة السجل المالي المتاح",
+                    () => showAudit());
                 if (statement.eligible_to_request)
                     form(
                         detail,

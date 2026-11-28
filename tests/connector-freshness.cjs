@@ -75,6 +75,9 @@ test('unresolved evidence stays unknown after expiry and malformed UTC never bec
   {observed_at: '2026-11-14T05:04:00.000002Z', checked_at: '2026-11-14T05:04:00.000001Z', valid_until: '2026-11-14T05:09:00.000002Z'},
  ]) assert.equal(state({...value, ...update}, 60000), 'unknown');
  assert.equal(state({...value, state: 'stale'}), 'unknown');
+ assert.equal(state({...value, checked_at: value.valid_until}), 'unknown');
+ assert.equal(state({...value, state: 'stale', checked_at: value.valid_until}), 'unknown');
+ assert.equal(state({...value, state: 'stale', reported_status: undefined, checked_at: value.valid_until}), 'unknown');
  assert.equal(state({...value, state: 'stale', reported_status: null, checked_at: value.valid_until}), 'stale');
 });
 
@@ -91,7 +94,7 @@ test('contradictory or incomplete source evidence hides time even after expiry',
   const element={dataset:{},isConnected:true};
   const env={window:{},document:{documentElement:{lang},createElement:()=>element},performance:{now:()=>480000},setInterval:()=>1,clearInterval:()=>{}};
   vm.runInNewContext(fs.readFileSync('services/business-api/public/connector-freshness.js','utf8'),env);
-  for(const update of [{state:'unknown'},{reported_status:null},{state:'stale'},{max_age_seconds:301},{checked_at:'2026-11-14T05:04:00Z\n'},{valid_until:'2026-11-14T05:05:00.000001Z'}]){
+  for(const update of [{state:'unknown'},{reported_status:null},{state:'stale'},{state:'stale',checked_at:value.valid_until},{checked_at:value.valid_until},{max_age_seconds:301},{checked_at:'2026-11-14T05:04:00Z\n'},{valid_until:'2026-11-14T05:05:00.000001Z'}]){
    const claim={...value,...update};
    assert.equal(state(claim,480000),'unknown');
    env.window.EvConnectorFreshness.attach({append:()=>{}},claim,480000);

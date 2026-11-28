@@ -99,10 +99,20 @@ class InvoiceAuditPage {
   final List<InvoiceAuditRow> rows;
   final int page, last, total;
   InvoiceAuditPage._(this.rows, this.page, this.last, this.total);
-  factory InvoiceAuditPage.parse(dynamic raw, String currency, int requested) {
+  factory InvoiceAuditPage.parse(dynamic raw, String currency, int requested, {
+    int? vendorId, String? from, String? to,
+  }) {
     if (raw is! Map || raw['evidence'] != 'SIMULATED_INTERNAL_RECONCILIATION' ||
         raw['external_psp_or_bank_verified'] != false || raw['data'] is! List) {
       throw const FormatException('Invalid audit authority.');
+    }
+    final scope = raw['scope'];
+    if (scope is! Map ||
+        !['vendor_id', 'currency', 'from', 'to'].every(scope.containsKey) ||
+        scope['vendor_id'] != vendorId ||
+        (vendorId != null && scope['vendor_id'] is! int) ||
+        scope['currency'] != currency || scope['from'] != from || scope['to'] != to) {
+      throw const FormatException('Invalid private audit scope.');
     }
     final page = _exact(raw['current_page'], positive: true);
     final last = _exact(raw['last_page'], positive: true);
@@ -288,7 +298,8 @@ class _AuditState extends State<InvoiceReconciliationView> with WidgetsBindingOb
       role = me['role'] as String;
       final raw = await api.request('finance/reconciliation-audit', query: query);
       if (!current()) return;
-      final result = InvoiceAuditPage.parse(raw, widget.currency, page);
+      final result = InvoiceAuditPage.parse(raw, widget.currency, page,
+        vendorId: role == 'vendor' ? id : null, from: query['from'], to: query['to']);
       setState(() { data = result; applied = query; });
     } catch (error) {
       if (mounted && identical(api, widget.api) &&

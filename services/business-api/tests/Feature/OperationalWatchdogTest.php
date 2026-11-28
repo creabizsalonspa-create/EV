@@ -81,6 +81,18 @@ class OperationalWatchdogTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_scan_liveness_keeps_utc_in_a_non_utc_database_session(): void
+    {
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement("SET LOCAL TIME ZONE 'Asia/Dubai'");
+        }
+        $incidents = app(OperationalIncidents::class);
+        $incidents->scan(app(OperationalHealth::class));
+
+        $this->assertSame('recent', $incidents->summary()['scanner']['state']);
+        $this->assertSame(now('UTC')->toISOString(), $incidents->summary()['scanner']['last_completed_at']);
+    }
+
     public function test_future_or_invalid_scanner_evidence_fails_closed(): void
     {
         $health = app(OperationalHealth::class);
@@ -88,7 +100,7 @@ class OperationalWatchdogTest extends TestCase
         $health->record('scheduler');
         app(OperationalIncidents::class)->scan($health);
         DB::table('operational_incident_scan_locks')->where('id', 1)
-            ->update(['last_completed_at' => now()->addMinutes(10)]);
+            ->update(['last_completed_at' => now()->addMinutes(10)->toISOString()]);
         $this->assertSame('unknown', app(OperationalIncidents::class)->summary()['scanner']['state']);
         $this->assertContains('incident_scanner_unknown', $this->probe()['signals']);
         $this->assertDatabaseCount('operational_incident_events', 0);

@@ -196,6 +196,32 @@ class FinanceReconciliationAuditTest extends TestCase
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
     }
 
+    public function test_selected_vendor_and_date_scope_is_identical_for_admin_json_and_csv(): void
+    {
+        [$owner, $customer, $invoice] = $this->fixture();
+        [$foreignOwner, $foreignCustomer, $foreignInvoice] = $this->fixture();
+        $before = DB::table('finance_journals')->count();
+        $scope = '?vendor_id='.$owner->id.'&currency=AED&from='.now()->toDateString().'&to='.now()->toDateString();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson($this->url().$scope)->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('scope.vendor_id', $owner->id)
+            ->assertJsonPath('scope.currency', 'AED')
+            ->assertJsonPath('scope.from', now()->toDateString())
+            ->assertJsonPath('scope.to', now()->toDateString());
+        $csv = $this->get($this->url().'/export'.$scope)->assertOk()->streamedContent();
+        $this->assertStringContainsString($invoice->number, $csv);
+        $this->assertStringNotContainsString($foreignInvoice->number, $csv);
+        $this->getJson($this->url().'?vendor_id=0001')->assertUnprocessable();
+        $this->get($this->url().'/export?vendor_id=0001')->assertUnprocessable();
+        $this->getJson($this->url().'?to=1900-01-01')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($owner)->getJson($this->url().'?vendor_id='.$foreignOwner->id)->assertNotFound();
+        $this->get($this->url().'/export?vendor_id='.$foreignOwner->id)->assertNotFound();
+        $this->getJson($this->url().$scope)->assertOk()->assertJsonPath('total', 1);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+    }
+
     public function test_reconciliation_csv_is_spreadsheet_literal_and_exact_without_changing_immutable_invoices(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();
