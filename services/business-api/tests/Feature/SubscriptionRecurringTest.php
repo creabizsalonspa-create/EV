@@ -10,9 +10,11 @@ use App\Services\Commercial\SubscriptionGateway;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SubscriptionRecurringTest extends TestCase
@@ -222,6 +224,28 @@ class SubscriptionRecurringTest extends TestCase
         $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/payment_intents'));
     }
 
+    public function test_previously_returned_sca_operation_cannot_disclose_another_action_url_after_policy_disabled(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $this->outcome = 'requires_action';
+        $collections->scan(25);
+        $checkout = DB::table('subscription_gateway_checkouts')->first();
+        $path = '/recurring-test/commercial/subscription-checkouts/'.$checkout->id.'/authentication';
+        $this->postJson($path)->assertOk()->assertJsonPath('hosted_action_supported', true);
+        $collections->policy($u, $subscription, false, null, 1);
+        $posts = collect($this->sent)->filter(fn ($r) => $r[0] === 'POST')->count();
+
+        $this->postJson($path)->assertConflict()->assertJsonMissingPath('hosted_url');
+        $this->assertSame($posts, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST')->count());
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 1);
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'attempts' => 1]);
+    }
+
     public function test_wrong_provider_owner_and_expired_or_changed_consent_never_enable_collection(): void
     {
         $u = User::factory()->create();
@@ -250,11 +274,117 @@ class SubscriptionRecurringTest extends TestCase
         $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll'];
         $this->postJson('/recurring-test/commercial/payment-enrollments', $body)->assertStatus(503);
         $this->assertDatabaseHas('payment_enrollments', ['status' => 'uncertain']);
+        $this->assertSame('cus_Contract', Crypt::decryptString(DB::table('payment_customer_accounts')->value('provider_customer')));
+        $this->assertNull(DB::table('payment_enrollments')->value('lease'));
+        $this->assertDatabaseCount('payment_mandates', 0);
         $this->postJson('/recurring-test/commercial/payment-enrollments', array_replace($body, ['idempotency_key' => 'replacement']))->assertConflict();
         $this->session['status'] = 'complete';
         $this->session['setup_intent'] = ['id' => 'seti_Contract', 'livemode' => false, 'customer' => 'cus_Contract', 'status' => 'succeeded', 'usage' => 'off_session', 'metadata' => $this->session['metadata'], 'payment_method' => 'pm_Contract'];
         $this->postJson('/recurring-test/commercial/payment-enrollments/'.DB::table('payment_enrollments')->value('id').'/inspect')->assertOk()->assertJsonPath('status', 'completed');
         $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+    }
+
+    public function test_hosted_enrollment_replay_inspects_existing_identity_and_never_reopens_expired_session(): void
+    {
+        $u = User::factory()->create();
+        $base = '/recurring-test/commercial/payment-enrollments';
+        $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll-replay'];
+        $this->actingAs($u)->postJson($base, $body)->assertCreated()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $id = DB::table('payment_enrollments')->value('id');
+        $this->postJson($base, $body)->assertCreated()->assertJsonPath('id', $id)->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+
+        config(['payments.mandate_consent_version' => 'recurring-v2']);
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', null);
+        $this->postJson($base, $body)->assertConflict();
+        $this->assertDatabaseCount('payment_mandates', 0);
+
+        config(['payments.mandate_consent_version' => 'recurring-v1']);
+        $this->session['status'] = 'unknown';
+        $this->postJson($base.'/'.$id.'/inspect')->assertConflict();
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+        $this->session['status'] = 'expired';
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'expired')
+            ->assertJsonPath('hosted_url', null);
+        $before = count($this->sent);
+        $this->session['status'] = 'open';
+        $this->postJson($base, $body)->assertCreated()->assertJsonPath('id', $id)
+            ->assertJsonPath('status', 'expired')->assertJsonPath('hosted_url', null);
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'expired')
+            ->assertJsonPath('hosted_url', null);
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('payment_enrollments', 1);
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+    }
+
+    public function test_inspection_resolves_expired_execution_lease_without_reissuing_hosted_session(): void
+    {
+        $u = User::factory()->create();
+        $base = '/recurring-test/commercial/payment-enrollments';
+        $body = ['consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'abandoned-lease'];
+        $this->actingAs($u)->postJson($base, $body)->assertCreated();
+        $id = DB::table('payment_enrollments')->value('id');
+        DB::table('payment_enrollments')->where('id', $id)->update([
+            'status' => 'executing', 'lease' => str_repeat('l', 48), 'lease_until' => now()->addMinute(),
+        ]);
+        $before = count($this->sent);
+        $this->postJson($base.'/'.$id.'/inspect')->assertConflict();
+        $this->assertCount($before, $this->sent);
+        $this->travel(2)->minutes();
+        $this->postJson($base.'/'.$id.'/inspect')->assertOk()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('hosted_url', 'https://checkout.stripe.com/c/pay/test');
+        $this->assertDatabaseHas('payment_enrollments', [
+            'id' => $id, 'status' => 'pending', 'lease' => null, 'lease_until' => null,
+        ]);
+        $this->assertCount(1, collect($this->sent)->filter(fn ($r) => $r[0] === 'POST' && $r[1] === '/v1/checkout/sessions'));
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+    }
+
+    public function test_suspended_owner_callback_and_changed_terms_cannot_activate_hosted_mandate(): void
+    {
+        $u = User::factory()->create();
+        $this->actingAs($u)->postJson('/recurring-test/commercial/payment-enrollments', [
+            'consent' => true, 'consent_version' => 'recurring-v1', 'idempotency_key' => 'enroll',
+        ])->assertCreated();
+        $id = DB::table('payment_enrollments')->value('id');
+        $this->session['status'] = 'complete';
+        $this->session['setup_intent'] = ['id' => 'seti_Contract', 'livemode' => false,
+            'customer' => 'cus_Contract', 'status' => 'succeeded', 'usage' => 'off_session',
+            'metadata' => $this->session['metadata'], 'payment_method' => 'pm_Contract'];
+        $event = ['id' => 'evt_SuspendedOwner', 'livemode' => false, 'type' => 'checkout.session.completed', 'data' => ['object' => $this->session]];
+        $send = function () use ($event) {
+            $raw = json_encode($event, JSON_THROW_ON_ERROR);
+            $time = time();
+
+            return $this->call('POST', '/recurring-test/callback', [], [], [], [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_STRIPE_SIGNATURE' => 't='.$time.',v1='.hash_hmac('sha256', $time.'.'.$raw, config('payments.stripe_test_webhook_secret')),
+            ], $raw);
+        };
+        $before = count($this->sent);
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'suspended']);
+        $send()->assertConflict();
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'active']);
+        config(['payments.mandate_consent_version' => 'recurring-v2']);
+        $send()->assertConflict();
+        $this->assertDatabaseCount('payment_mandates', 0);
+        $this->assertDatabaseHas('payment_enrollments', ['id' => $id, 'status' => 'pending']);
+        $this->assertSame(0, DB::table('recurring_payment_events')->where('kind', 'provider_callback_verified')->count());
+
+        config(['payments.mandate_consent_version' => 'recurring-v1']);
+        $send()->assertOk()->assertJsonPath('duplicate', false);
+        $send()->assertOk()->assertJsonPath('duplicate', true);
+        $this->assertDatabaseCount('payment_mandates', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
     }
 
     public function test_signed_enrollment_callback_duplicate_replay_and_session_binding(): void
@@ -277,6 +407,108 @@ class SubscriptionRecurringTest extends TestCase
         $send($event)->assertConflict();
         $this->assertDatabaseCount('payment_mandates', 1);
         $this->assertSame(1, DB::table('recurring_payment_events')->where('kind', 'provider_callback_verified')->count());
+    }
+
+    public function test_saved_checkout_authority_rechecks_due_invoice_and_cancellation_under_current_consent(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $checkout = app(SubscriptionGateway::class)->checkout($u, $subscription, $invoice, 'due-checkout', $method, 1);
+        $this->assertSame('pm_Contract', $collections->authorize($u, $checkout)['method']);
+        $before = count($this->sent);
+        $this->travel(-1)->seconds();
+        try {
+            $collections->authorize($u, $checkout);
+            $this->fail('A future invoice must not authorize saved collection.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->travel(1)->seconds();
+        // Synthetic state boundary: a previously prepared checkout is not
+        // authority to charge after the subscription becomes ineligible.
+        DB::table('commercial_subscriptions')->where('id', $subscription)->update(['cancel_at_period_end' => true]);
+        try {
+            $collections->authorize($u, $checkout);
+            $this->fail('A subscription scheduled to stop must not authorize saved collection.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseHas('subscription_gateway_checkouts', ['id' => $checkout->id, 'status' => 'pending']);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        DB::table('commercial_subscriptions')->where('id', $subscription)->update(['cancel_at_period_end' => false]);
+        $this->assertSame('pm_Contract', $collections->authorize($u, $checkout)['method']);
+    }
+
+    public function test_suspended_owner_cannot_start_collection_but_valid_consent_can_resume_after_reactivation(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $before = count($this->sent);
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'suspended']);
+        $collections->collect($invoice);
+        $this->assertSame(0, $collections->scan(1));
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('subscription_collections', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+
+        DB::table('users')->where('id', $u->id)->update(['account_status' => 'active']);
+        $this->assertSame(1, $collections->scan(1));
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'state' => 'collected', 'attempts' => 1]);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
+    public function test_changed_account_audience_cannot_start_saved_collection(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$subscription, $invoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $collections->policy($u, $subscription, true, $method, 0);
+        $before = count($this->sent);
+        DB::table('users')->where('id', $u->id)->update(['role' => 'vendor']);
+        $collections->collect($invoice);
+        $this->assertSame(0, $collections->scan(1));
+        $this->assertCount($before, $this->sent);
+        $this->assertDatabaseCount('subscription_collections', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 0);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+
+        DB::table('users')->where('id', $u->id)->update(['role' => 'customer']);
+        $this->assertSame(1, $collections->scan(1));
+        $this->assertDatabaseHas('subscription_collections', [
+            'invoice_id' => $invoice, 'state' => 'collected', 'attempts' => 1,
+        ]);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+    }
+
+    public function test_cancelled_unattempted_invoice_cannot_starve_next_subscription_in_bounded_scan(): void
+    {
+        $u = User::factory()->create();
+        $method = $this->enroll($u);
+        [$old, $oldInvoice] = $this->subscription($u);
+        $collections = app(SubscriptionCollections::class);
+        $service = app(SubscriptionService::class);
+        $collections->policy($u, $old, true, $method, 0);
+        $service->change($u, $old, 'cancel_now', null, 'cancel-first');
+        $plan = DB::table('commercial_subscriptions')->where('id', $old)->value('plan_id');
+        $new = $service->subscribe($u, $plan, 'new-subscription');
+        $invoice = $new['invoices']->first()->id;
+        $collections->policy($u, $new['subscription']->id, true, $method, 0);
+
+        $this->assertSame(1, $collections->scan(1));
+        $this->assertDatabaseMissing('subscription_collections', ['invoice_id' => $oldInvoice]);
+        $this->assertDatabaseHas('subscription_collections', ['invoice_id' => $invoice, 'state' => 'collected', 'attempts' => 1]);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseHas('commercial_subscription_receipts', ['invoice_id' => $invoice]);
     }
 
     public function test_cancelled_subscription_cannot_be_collected(): void
