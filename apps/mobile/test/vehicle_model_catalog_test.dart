@@ -15,6 +15,7 @@ class _ModelsApi extends EvApi {
   final catalogQueries = <Map<String, String>>[];
   final requestPaths = <String>[];
   Completer<void>? holdVehicle12;
+  Completer<void>? holdVehicleSave;
   bool denyNewAccount = false;
   bool poisonNextVehicleGet=false, poisonNextCatalogGet=false, poisonNextSave=false;
 
@@ -98,6 +99,7 @@ class _ModelsApi extends EvApi {
       };
     }
     if (path == 'vehicles/12/model' && method == 'PUT') {
+      if (holdVehicleSave != null) await holdVehicleSave!.future;
       final payload = Map<String, dynamic>.from(body!);
       writes.add(payload);
       selectedModel = payload['model_id'] as int?;
@@ -120,6 +122,40 @@ class _ModelsApi extends EvApi {
 }
 
 void main() {
+  testWidgets('a queued keyboard search cannot interrupt a pending model link',
+      (tester) async {
+    final api = _ModelsApi()..holdVehicleSave = Completer<void>();
+    addTearDown(api.close);
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final search = find.byKey(const Key('model-search'));
+    final queuedSearch = tester.widget<TextField>(search).onSubmitted!;
+    expect(find.byTooltip('Search vehicle models'), findsOneWidget);
+    final save = find.byKey(const Key('model-link-save'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pump();
+    expect(tester.widget<TextField>(search).readOnly, isTrue);
+    expect(find.bySemanticsLabel('Updating vehicle model link'), findsOneWidget);
+    queuedSearch('Demo');
+    await tester.pump();
+    expect(api.catalogQueries, hasLength(1));
+
+    api.holdVehicleSave!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Vehicle model association saved.'), findsOneWidget);
+    expect(find.bySemanticsLabel('Updating vehicle model link'), findsNothing);
+    expect(tester.widget<TextField>(search).readOnly, isFalse);
+    expect(api.writes, hasLength(1));
+  });
+
+
   testWidgets('customer links a curated compatible model without changing connector',
       (tester) async {
     final api = _ModelsApi();
