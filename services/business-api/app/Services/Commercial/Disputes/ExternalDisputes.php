@@ -80,6 +80,17 @@ class ExternalDisputes
         return $counts;
     }
 
+    private static function exactPositive(mixed $value): int
+    {
+        abort_unless(is_int($value) || (is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value)),
+            409, 'Dispute capture amount is not an exact positive integer.');
+        $amount = filter_var($value, FILTER_VALIDATE_INT);
+        abort_unless($amount !== false && $amount > 0 && $amount <= 9_007_199_254_740_991,
+            409, 'Dispute capture amount exceeds exact bounds.');
+
+        return $amount;
+    }
+
     public function apply(array $body, string $event, string $hash, string $type, ?User $actorSnapshot = null): object
     {
         abort_unless(($body['livemode'] ?? null) === false && preg_match('/^dp_[A-Za-z0-9]+$/D', $body['id'] ?? '') && preg_match('/^ch_[A-Za-z0-9]+$/D', $body['charge'] ?? '') && preg_match('/^pi_[A-Za-z0-9]+$/D', $body['payment_intent'] ?? ''), 422, 'Invalid provider dispute identity.');
@@ -88,9 +99,16 @@ class ExternalDisputes
         $charge = $this->provider->request('/charges/'.$body['charge']);
         abort_unless(($charge['id'] ?? '') === $body['charge'] && ($charge['payment_intent'] ?? '') === $body['payment_intent'] && ($charge['paid'] ?? false) === true && ($charge['captured'] ?? false) === true, 409, 'Disputed charge does not prove a captured payment.');
         $checkout = DB::table('gateway_checkouts')->where('provider', 'stripe_test')->where('provider_reference', $body['payment_intent'])->first();
-        abort_unless($checkout && $checkout->status === 'captured' && strtoupper($body['currency'] ?? '') === $checkout->currency && strtoupper($charge['currency'] ?? '') === $checkout->currency && (int) ($charge['amount_captured'] ?? -1) === (int) $checkout->amount_minor && is_int($body['amount'] ?? null) && $body['amount'] > 0 && $body['amount'] <= (int) $checkout->amount_minor, 409, 'Dispute amount, currency or captured checkout mismatch.');
+        abort_unless(is_int($charge['amount_captured'] ?? null) && is_int($body['amount'] ?? null)
+            && is_string($body['currency'] ?? null) && is_string($charge['currency'] ?? null), 409, 'Invalid provider dispute denomination.');
+        $captured = self::exactPositive($charge['amount_captured']);
+        $disputed = self::exactPositive($body['amount']);
+        abort_unless($checkout && $checkout->status === 'captured'
+            && strtoupper($body['currency']) === $checkout->currency && strtoupper($charge['currency']) === $checkout->currency
+            && $captured === self::exactPositive($checkout->amount_minor) && $disputed <= $captured,
+            409, 'Dispute amount, currency or captured checkout mismatch.');
 
-        return DB::transaction(function () use ($body, $event, $hash, $type, $status, $checkout, $actorSnapshot) {
+        return DB::transaction(function () use ($body, $event, $hash, $type, $status, $checkout, $actorSnapshot, $captured) {
             // No provider HTTP under locks. The account-first lock ensures
             // a revoked request cannot alter a case/settlement hold merely
             // because the provider inspection started while Admin was valid.
@@ -98,6 +116,19 @@ class ExternalDisputes
                 app(CurrentFinanceReader::class)->requireSnapshot($actorSnapshot);
             }
             $invoice = Invoice::whereKey($checkout->invoice_id)->lockForUpdate()->firstOrFail();
+            // Recheck the captured checkout after obtaining the canonical
+            // invoice lock. Provider GET results cannot authorize a changed
+            // local identity, amount, or currency.
+            $locked = DB::table('gateway_checkouts')->where('id', $checkout->id)->lockForUpdate()->first();
+            abort_unless($locked && (int) $locked->invoice_id === (int) $invoice->id
+                && (int) $locked->user_id === (int) $invoice->user_id
+                && $locked->provider === 'stripe_test' && $locked->status === 'captured'
+                && $locked->provider_reference === $body['payment_intent']
+                && $locked->currency === $checkout->currency && $invoice->currency === $locked->currency
+                && self::exactPositive($locked->amount_minor) === $captured
+                && $captured <= self::exactPositive($invoice->getRawOriginal('total_minor')),
+                409, 'Captured dispute source changed or requires reconciliation.');
+            $checkout = $locked;
             if ($prior = DB::table('external_dispute_events')->where('event_reference', $event)->first()) {
                 abort_unless(hash_equals($prior->fingerprint, $hash), 409);
 
@@ -112,7 +143,7 @@ class ExternalDisputes
                 || ($row->evidence_due_at ? Carbon::parse($row->evidence_due_at, 'UTC')->getTimestamp() : null) !== $due
                 || $row->reason !== $values['reason'];
             if ($row) {
-                abort_unless((int) $row->checkout_id === (int) $checkout->id && $row->charge_reference === $body['charge'] && (int) $row->amount_minor === $body['amount'] && $row->currency === $checkout->currency, 409, 'Historical dispute economics changed.');
+                abort_unless((int) $row->checkout_id === (int) $checkout->id && $row->charge_reference === $body['charge'] && self::exactPositive($row->amount_minor) === $body['amount'] && $row->currency === $checkout->currency, 409, 'Historical dispute economics changed.');
                 DB::table('external_disputes')->where('id', $row->id)->update($values);
                 $id = $row->id;
                 $case = $row->case_id;
