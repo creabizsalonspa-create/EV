@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Security\AdminTransactionAuthority;
 use App\Security\PrivacyOwnerAuthority;
 use App\Services\Privacy\AccountDataExport;
+use App\Services\Privacy\ErasureRetentionAssessment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -195,6 +196,25 @@ class AccountPrivacyController extends Controller
      * Private append-only decision history. Customers see request status,
      * not internal reviewer notes or other accounts' confidential records.
      */
+    public function erasureAssessment(Request $request, AccountPrivacyRequest $privacyCase, ErasureRetentionAssessment $assessment)
+    {
+        return DB::transaction(function () use ($request, $privacyCase, $assessment) {
+            $admin = AdminTransactionAuthority::requireCurrent($this->admin($request));
+            abort_if($privacyCase->user_id === $admin->id, 403);
+            $owner = User::whereKey($privacyCase->user_id)->lockForUpdate()->firstOrFail();
+            $case = AccountPrivacyRequest::whereKey($privacyCase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($case->user_id === $owner->id && $case->user_id !== $admin->id
+                && $case->kind === 'erasure' && in_array($case->status, ['pending', 'reviewing', 'blocked_external'], true), 409);
+            $report = $assessment->inspect($owner, $case);
+            DB::table('audit_events')->insert([
+                'actor_id' => $admin->id, 'action' => 'privacy.erasure.retention_assessed',
+                'subject' => (string) $case->id, 'created_at' => now(),
+            ]);
+
+            return response()->json($report)->header('Cache-Control', 'no-store, private');
+        }, 3);
+    }
+
     public function adminHistory(Request $request, AccountPrivacyRequest $privacyCase)
     {
         $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
