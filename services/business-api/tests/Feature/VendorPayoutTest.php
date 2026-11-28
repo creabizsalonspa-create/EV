@@ -354,6 +354,28 @@ class VendorPayoutTest extends TestCase
         });
     }
 
+    public function test_obsolete_consent_cannot_prepare_or_approve_new_payout_but_cancellation_remains_available(): void
+    {
+        $f = $this->fixture();
+        $service = app(PayoutService::class);
+        $service->verify($f['account']->id, $f['maker']->id);
+        config(['payouts.consent_version' => 'published-v2']);
+        $this->actingAs($f['maker'])->postJson('/payout-test/commercial/settlements/'.$f['settlement']->id.'/payouts', [
+            'account_id' => $f['account']->id, 'idempotency_key' => 'stale-consent',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_payouts', 0);
+        config(['payouts.consent_version' => 'vendor-payout-v1']);
+        $id = $this->prepared($f, 'valid-consent');
+        config(['payouts.consent_version' => 'published-v2']);
+        $this->actingAs($f['checker'])->postJson($this->path($id, 'approve'))->assertConflict();
+        $this->assertDatabaseHas('commercial_payouts', ['id' => $id, 'status' => 'prepared']);
+        $this->assertDatabaseCount('commercial_payout_attempts', 0);
+        $this->postJson($this->path($id, 'cancel'))->assertOk()->assertJsonPath('payout.status', 'cancelled');
+        $this->assertDatabaseHas('commercial_settlements', ['id' => $f['settlement']->id, 'state' => 'approved']);
+        $this->assertDatabaseCount('finance_payments', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_mock_payout_has_maker_checker_source_state_and_no_invoice_cash_mutation(): void
     {
         $f = $this->fixture();
