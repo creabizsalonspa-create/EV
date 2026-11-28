@@ -9,6 +9,8 @@ class BlockApi extends EvApi {
   BlockApi():super(Uri.parse('https://example.invalid'));
   final writes=<Map<String,dynamic>>[];
   bool expired = false, invalidSource = false, invalidReceipt = false;
+  String? receiptStart;
+  bool failFirstWrite = true;
   final reads = <int>[];
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
@@ -21,8 +23,8 @@ class BlockApi extends EvApi {
         : <dynamic>[]};
     }
     writes.add({'path':path,...?body});
-    if(writes.length==1 && !invalidReceipt)throw const ApiException(503,'Uncertain');
-    return {...?body, 'station_id':7,
+    if(failFirstWrite && writes.length==1 && !invalidReceipt)throw const ApiException(503,'Uncertain');
+    return {...?body, if(receiptStart!=null) 'starts_at':receiptStart, 'station_id':7,
       'id':'11111111-1111-4111-8111-111111111111',
       'revision':1, 'scope':'STATION_WIDE_OPERATOR_POLICY',
       'cancelled':false, 'physical_availability_verified':invalidReceipt};
@@ -31,6 +33,7 @@ class BlockApi extends EvApi {
 class CancellationApi extends EvApi {
   CancellationApi():super(Uri.parse('https://example.invalid'));
   int reads=0, writes=0, epoch=0;
+  bool matchingCancel = false;
   final changes = StreamController<int>.broadcast(sync: true);
   @override
   Stream<int> get sessionEvents => changes.stream;
@@ -48,11 +51,51 @@ class CancellationApi extends EvApi {
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}}) async {
     if(method=='GET'){reads++;return {'station_id':7,'data':[block]};}
     writes++;
-    return {...block,'id':'22222222-2222-4222-8222-222222222222',
+    return {...block,
+      if(!matchingCancel) 'id':'22222222-2222-4222-8222-222222222222',
+      if(matchingCancel) 'starts_at':'2026-11-17T13:00:00+04:00',
+      if(matchingCancel) 'ends_at':'2026-11-17T14:00:00+04:00',
       'cancelled':true,'revision':2};
   }
 }
 void main(){
+ testWidgets('native rejects invalid draft and subsecond receipt, then confirms equivalent offset',(tester) async {
+  tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
+  addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  final api=BlockApi()..failFirstWrite=false..receiptStart='2026-11-17T09:00:00.000001Z';
+  addTearDown(api.close);
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(api:api,stationId:7)));
+  await tester.pumpAndSettle();
+  for(final entry in {'starts_at':'2026-02-30T09:00:00Z','ends_at':'2026-11-17T10:00:00Z','reason_en':'Maintenance','reason_ar':'صيانة'}.entries) {
+    await tester.enterText(find.byKey(Key('block-${entry.key}')),entry.value);
+  }
+  await tester.tap(find.text('Publish station block'));await tester.pumpAndSettle();
+  expect(api.writes,isEmpty);
+  expect(find.textContaining('Choose a valid increasing UTC interval'),findsOneWidget);
+  await tester.enterText(find.byKey(const Key('block-starts_at')),'2026-11-17T09:00:00Z');
+  await tester.tap(find.text('Publish station block'));await tester.pumpAndSettle();
+  expect(api.writes,hasLength(1));expect(api.reads,hasLength(1));
+  expect(find.text('Retry same block request'),findsOneWidget);
+  api.receiptStart='2026-11-17T13:00:00+04:00';
+  await tester.tap(find.text('Retry same block request'));await tester.pumpAndSettle();
+  expect(api.writes,hasLength(2));expect(api.writes.first,api.writes.last);
+  expect(api.reads,hasLength(2));expect(find.text('Publish station block'),findsOneWidget);
+ });
+ testWidgets('native cancellation accepts equivalent offset but rejects invalid active revision',(tester) async {
+  tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
+  addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  final api=CancellationApi()..matchingCancel=true;
+  addTearDown(api.close);
+  await tester.pumpWidget(MaterialApp(home:StationAvailabilityBlocksView(api:api,stationId:7)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Cancel this block'));await tester.pumpAndSettle();
+  expect(api.writes,1);expect(api.reads,2);
+  expect(find.textContaining('Action not confirmed.'),findsNothing);
+  api.block['revision']=2147483647;
+  await tester.tap(find.text('Refresh station blocks'));await tester.pumpAndSettle();
+  expect(find.text('Cancel this block'),findsNothing);
+  expect(find.textContaining('Action not confirmed.'),findsOneWidget);
+ });
  testWidgets('invalid source interval retires old cancellation grant', (tester) async {
   tester.view.physicalSize=const Size(900,1600);tester.view.devicePixelRatio=1;
   addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);

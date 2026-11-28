@@ -76,7 +76,7 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       row['reason_en'] is String &&
       row['reason_ar'] is String &&
       row['revision'] is int &&
-      row['revision'] > 0 &&
+      row['revision'] == (cancelled ? 2 : 1) &&
       row['scope'] == 'STATION_WIDE_OPERATOR_POLICY' &&
       row['cancelled'] == cancelled &&
       row['physical_availability_verified'] == false;
@@ -84,7 +84,7 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
   DateTime? sourceInstant(dynamic raw) {
     if (raw is! String) return null;
     final match = RegExp(
-      r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$',
+      r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.0{1,6})?(Z|[+-]\d{2}:\d{2})$',
     ).firstMatch(raw);
     if (match == null || match.end != raw.length) return null;
     final p = [for (var i = 1; i <= 6; i++) int.parse(match.group(i)!)];
@@ -150,8 +150,28 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       });
     } finally {if(current(ticket))setState(()=>busy=false);}
   }
-  Future<void> publish() => act((ticket) async {
-    pending ??= {'idempotency_key':operationKey(),for(final entry in fields.entries)entry.key:entry.value.text.trim()};
+  Future<void> publish() async {
+    if (!mounted || busy || background || !owner()) return;
+    if (pending == null) {
+      final draft = <String,dynamic>{
+        for (final entry in fields.entries) entry.key:entry.value.text.trim(),
+      };
+      final utc = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$');
+      if (!utc.hasMatch(draft['starts_at'] as String) ||
+          !utc.hasMatch(draft['ends_at'] as String) ||
+          !validInterval(draft['starts_at'],draft['ends_at']) ||
+          (draft['reason_en'] as String).isEmpty ||
+          (draft['reason_ar'] as String).isEmpty) {
+        setState(() => message=t(
+          'Choose a valid increasing UTC interval and both public reasons.',
+          'اختر فترة UTC صحيحة ومتزايدة والسببين المنشورين.'));
+        return;
+      }
+      pending = Map<String,dynamic>.unmodifiable({
+        'idempotency_key':operationKey(), ...draft,
+      });
+    }
+    await act((ticket) async {
     final result=await widget.api.request(path,method:'POST',body:pending);
     if(!current(ticket))return;
     if (result is! Map || !validReceipt(result, result['cancelled'] == true) ||
@@ -163,7 +183,8 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
       throw const ApiException(502, 'Invalid block receipt');
     }
     pending=null;for(final controller in fields.values)controller.clear();await read(ticket);
-  });
+    });
+  }
   Future<void> cancel(Map<String, dynamic> row) => act((ticket) async {
     if (!rows.any((item) => identical(item, row))) return;
     final result = await widget.api.request('$path/${row['id']}/cancel',
@@ -172,8 +193,8 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
     if (result is! Map || !validReceipt(result, true) ||
         result['id'] != row['id'] ||
         result['revision'] != (row['revision'] as int) + 1 ||
-        result['starts_at'] != row['starts_at'] ||
-        result['ends_at'] != row['ends_at'] ||
+        !sameInstant(result['starts_at'],row['starts_at']) ||
+        !sameInstant(result['ends_at'],row['ends_at']) ||
         result['reason_en'] != row['reason_en'] ||
         result['reason_ar'] != row['reason_ar']) {
       throw const ApiException(502, 'Invalid cancellation receipt');
@@ -192,7 +213,9 @@ class _StationBlocksState extends State<StationAvailabilityBlocksView> with Widg
     return Scaffold(appBar:AppBar(title:Text(t('Station availability blocks','فترات حجب المحطة'))),
     body:background||!owner()?const SizedBox.shrink():ListView(padding:const EdgeInsets.all(16),children:[
       Text(t('Station-wide operator policy. Blocks prevent new bookings and starts; active charging can finish. Times are UTC. No physical command is sent.','سياسة المشغل للمحطة كاملة. يمنع الحجب الحجوزات وبدء الشحن الجديدة ويمكن إكمال الشحن الجاري. الأوقات UTC ولا ترسل أوامر فعلية.')),
-      if(busy)const LinearProgressIndicator(),if(message!=null)Text(message!),
+      if(busy)Semantics(liveRegion:true,child:LinearProgressIndicator(
+        semanticsLabel:t('Reading or updating station policy','جارٍ قراءة سياسة المحطة أو تحديثها'))),
+      if(message!=null)Semantics(liveRegion:true,child:Text(message!)),
       OutlinedButton(onPressed:busy?null:(){if(current(viewEpoch))act(read);},child:Text(t('Refresh station blocks','تحديث فترات الحجب'))),
       for(final row in rows)...[
         Text('${serverEventTime(context, row['starts_at'])} → ${serverEventTime(context, row['ends_at'])}'),
