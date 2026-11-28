@@ -35,8 +35,14 @@ class ConnectorTopology
         $binding = $evse->binding_id ? DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first() : null;
         if ($evse->mode === 'csms') {
             abort_unless($binding && $binding->station_id === $station->id && $binding->vendor_charger_id === $charger->id && $binding->protocol === $charger->ocpp_protocol && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $binding->identifier) && $map->source_connector_number >= 1 && ($binding->protocol === '1.6' ? $evse->source_evse_number === 0 : $evse->source_evse_number >= 1), 409, 'Canonical simulator source is unavailable.');
+            abort_unless(SourceTargetIdentity::matches(
+                $binding->protocol, $binding->id, $evse->source_evse_number,
+                $map->source_connector_number, $map->source_target_key
+            ), 409, 'Canonical connector target identity changed.');
         } else {
-            abort_unless($evse->mode === 'application' && $binding === null, 409);
+            abort_unless($evse->mode === 'application' && $binding === null
+                && $evse->binding_id === null && $evse->source_evse_number === 0
+                && $map->source_connector_number === null && $map->source_target_key === null, 409);
         }
 
         return compact('map', 'evse', 'connector', 'charger', 'site', 'company', 'binding');
@@ -50,6 +56,9 @@ class ConnectorTopology
         $target = null;
         try {
             $target = $this->target($station, $map->id);
+            $map = $target['map'];
+            $evse = $target['evse'];
+            $connector = $target['connector'];
             app(MaintenancePolicy::class)->requireAvailable($connector->id);
         } catch (HttpException $e) {
             $ready = false;
@@ -67,7 +76,22 @@ class ConnectorTopology
             $evse = Evse::findOrFail($map->evse_id);
             abort_unless($map->station_id === $reservation->station_id && $evse->id === $reservation->charging_evse_id, 409, 'Reservation mapping changed.');
 
-            return $evse->binding_id ? DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first() : null;
+            if ($evse->binding_id === null) {
+                abort_unless($evse->mode === 'application' && $evse->source_evse_number === 0
+                    && $map->source_connector_number === null && $map->source_target_key === null, 409,
+                    'Unbound reservation target is not an application connector; reconcile before continuing.');
+
+                return null;
+            }
+            $binding = DB::table('csms_bindings')->where('id', $evse->binding_id)->when($lock, fn ($q) => $q->lockForUpdate())->first();
+            abort_unless($binding && $evse->mode === 'csms'
+                && $binding->station_id === $reservation->station_id
+                && $binding->vendor_charger_id === $evse->charger_id
+                && SourceTargetIdentity::matches($binding->protocol, $binding->id, $evse->source_evse_number,
+                    $map->source_connector_number, $map->source_target_key), 409,
+                'Canonical reservation source target changed; reconcile before continuing.');
+
+            return $binding;
         }
         $bindings = DB::table('csms_bindings')->where('station_id', $reservation->station_id)->when($lock, fn ($q) => $q->lockForUpdate())->get();
         abort_if($bindings->count() > 1, 409, 'Legacy source is ambiguous.');
