@@ -178,6 +178,12 @@
       "test_result": "passed",
       "merge_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
       "evidence": "docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json"
+    },
+    "pr408-coverage-quality": {
+      "source_sha": "3f77e94e750464965421615bf03d4e6ba5f6cc2d",
+      "test_result": "passed",
+      "merge_sha": "3b164f9a9a36a9c519719cba59a042e64b2cae05",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr408-coverage-quality.json"
     }
   },
   "production_acceptance": null,
@@ -1958,9 +1964,9 @@
     {
       "prd": "6.2",
       "requirement": "Licensed discovery providers",
-      "implemented_code_scope": "Open Charge Map licensed discovery adapter with a fixed HTTPS origin, server-only API key, explicit approved-terms and location-consent gates, per-record open-license/attribution validation and truthful source-only capabilities. Bounded results, radius/deduplication, byte/redirect/MIME/calendar validation, credential-scoped shared quota/cache/cooldown/lease and cache revalidation are integrated through PR193. Web EN/AR provider search/map/quality UI exists; complete required native integration and broader operator coverage-quality monitoring remain separate uncredited scope. PR #197 completes the consented Open Charge Map frontend for authenticated customers and vendors on Flutter, complementing the existing web interface.",
-      "automated_evidence_scope": "OpenChargeMapDiscoveryTest24/271 plus real Laravel/Chromium licensed discovery, mixed-map and projection/transport regressions. PR193 final sourceeae11308840fc679a6b553e7c365586c76736f66 passed all8 applicable exact-source gates, including platform, both PostgreSQL matrices, CSMS, staging, both native platforms and dependent recovery, then mergedf4f22e800ad9b98dcd12a97621ba486b9e9ce047 with identical tested/integrated trees. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. No live provider access, legal activation approval, national coverage or production SLA accepted. PR #197 passed eight exact-source hosted jobs including Linux and macOS native validation. The validated frontend source and shared contract fixture match the integrated versions.",
-      "remaining_scope": "Broader operator coverage-quality monitoring (6.2.4) and external licensing, live provider activation and coverage acceptance.",
+      "implemented_code_scope": "Open Charge Map licensed discovery adapter with a fixed HTTPS origin, server-only API key, explicit approved-terms and location-consent gates, per-record open-license/attribution validation and truthful source-only capabilities. Bounded results, radius/deduplication, byte/redirect/MIME/calendar validation, credential-scoped shared quota/cache/cooldown/lease and cache revalidation are integrated through PR193. Web EN/AR provider search/map/quality UI exists; per-query quality counts distinguish missing and stale source evidence. PR #197 completes the consented Open Charge Map frontend for authenticated customers and vendors on Flutter, complementing the existing web interface. PR #408 completes the operator coverage-quality monitoring software through cold-fetch quality and current benchmark tools plus opt-in cache-only scheduled hourly history (168 hours).",
+      "automated_evidence_scope": "OpenChargeMapDiscoveryTest24/271 plus real Laravel/Chromium licensed discovery, mixed-map and projection/transport regressions. PR193 final sourceeae11308840fc679a6b553e7c365586c76736f66 passed all8 applicable exact-source gates, including platform, both PostgreSQL matrices, CSMS, staging, both native platforms and dependent recovery, then mergedf4f22e800ad9b98dcd12a97621ba486b9e9ce047 with identical tested/integrated trees. Proof: docs/evidence/integrated-checkpoints-20261121/pr193-verified.json. No live provider access, legal activation approval, national coverage or production SLA accepted. PR #197 passed eight exact-source hosted jobs including Linux and macOS native validation. The validated frontend source and shared contract fixture match the integrated versions. PR #408 exact source 3f77e94e750464965421615bf03d4e6ba5f6cc2d passed eight Platform/Native jobs, including the full Laravel feature suite; all eight residual files match current canonical source. LicensedCoverageHistoryTest covers hourly deduplication, source expiry, observed-empty/unobserved/unverified distinction, credential and benchmark scope, revoked terms, privacy, corrupt cache and explicit scheduler opt-in. Evidence: docs/evidence/integrated-checkpoints-20261128/pr408-coverage-quality.json.",
+      "remaining_scope": "External licensing, approved live provider activation, representative benchmark selection, real coverage and SLA acceptance remain external; no production acceptance inferred.",
       "atoms": [
         {
           "id": "6.2.1",
@@ -1986,9 +1992,9 @@
         {
           "id": "6.2.4",
           "software_atom": "Coverage-quality monitoring",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr408-coverage-quality",
+          "note": "Verified software scope: consented per-query source-quality samples on web/Flutter; operator cold-fetch aggregates, current approved public benchmark coverage and bounded hourly history with opt-in cache-only capture. Missing, observed-empty, malformed, and stale evidence remain distinct. Live provider licensing, representative geographic coverage and SLA acceptance remain external; no production credit."
         }
       ]
     },

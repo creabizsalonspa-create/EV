@@ -180,18 +180,24 @@
       "test_result": "passed",
       "merge_sha": "ae92e14eb211eed52b0bb74775e8e1363cede168",
       "evidence": "docs/evidence/integrated-checkpoints-20261126/pr397-discovery-closure.json"
+    },
+    "pr408-coverage-quality": {
+      "source_sha": "3f77e94e750464965421615bf03d4e6ba5f6cc2d",
+      "test_result": "passed",
+      "merge_sha": "3b164f9a9a36a9c519719cba59a042e64b2cae05",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr408-coverage-quality.json"
     }
   },
   "weighted_percent": {
-    "coded": "61.99",
-    "tested": "61.99",
-    "merged": "61.99",
+    "coded": "62.59",
+    "tested": "62.59",
+    "merged": "62.59",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "781901/1261260",
-    "tested": "781901/1261260",
-    "merged": "781901/1261260",
+    "coded": "1578817/2522520",
+    "tested": "1578817/2522520",
+    "merged": "1578817/2522520",
     "production_accepted": "0"
   },
   "categories": [
@@ -3385,9 +3391,9 @@
       "requirement": "Licensed discovery providers",
       "atoms": 4,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -3433,13 +3439,13 @@
         {
           "id": "6.2.4",
           "software_atom": "Coverage-quality monitoring",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr408-coverage-quality",
+          "note": "Verified software scope: consented per-query source-quality samples on web/Flutter; operator cold-fetch aggregates, current approved public benchmark coverage and bounded hourly history with opt-in cache-only capture. Missing, observed-empty, malformed, and stale evidence remain distinct. Live provider licensing, representative geographic coverage and SLA acceptance remain external; no production credit.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }
