@@ -60,6 +60,35 @@ class ChargerResetTest extends TestCase
         });
     }
 
+    public function test_reset_rejects_credential_rotation_during_final_idle_read_for_both_protocols(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            config(['csms.operations_auth_mode' => 'development']);
+            $issued = false;
+            $rotated = false;
+            $this->source($f, duringToken: function () use (&$issued) {
+                $issued = true;
+            }, duringSource: function () use (&$issued, &$rotated) {
+                if ($issued) {
+                    config(['csms.operations_auth_mode' => 'oauth2']);
+                    $rotated = true;
+                }
+            });
+            $body = ['reason' => 'Review credentials after the final idle inspection', 'idempotency_key' => 'final-credential-'.$protocol];
+            $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()
+                ->assertJsonPath('status', 'outcome_unknown')->assertJsonPath('capacity_released', false)->json('id');
+            $this->assertTrue($rotated);
+            config(['csms.operations_auth_mode' => 'development']);
+            $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id)->assertJsonPath('status', 'outcome_unknown');
+            Http::assertSentCount(7);
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/configuration/reset?'));
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null]);
+            $this->assertDatabaseCount('charger_commands', 0);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+    }
+
     public function test_both_safe_reset_types_are_one_shot_and_do_not_release_capacity(): void
     {
         foreach (['1.6', '2.0.1'] as $protocol) {

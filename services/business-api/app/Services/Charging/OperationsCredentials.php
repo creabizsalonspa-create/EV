@@ -67,6 +67,26 @@ class OperationsCredentials
         }
     }
 
+    /** Keep the issued token bound to its captured trust policy until wire dispatch. */
+    public function tokenForDispatch(string $operationsBase): \Closure
+    {
+        $authority = $this->authority();
+        $token = $this->token($operationsBase);
+        $this->requireAuthority($authority);
+
+        return function () use ($authority, $token, $operationsBase): string {
+            $this->requireAuthority($authority);
+            if ($authority['mode'] === 'oauth2') {
+                // Local checks and source reads may have consumed the token's
+                // usable lifetime or changed the pinned keyring since issuance.
+                $this->verify($token, $operationsBase, $authority['scope'], $authority);
+            }
+            $this->requireAuthority($authority);
+
+            return $token;
+        };
+    }
+
     private function url(string $url, bool $tls): void
     {
         $parts = parse_url($url);

@@ -313,12 +313,12 @@ class ChargerFirmwareController extends Controller
             'Supported signed firmware source is not verified.');
     }
 
-    private function compatibleSource(object $binding, VendorCharger $charger, object $release): void
+    private function compatibleSource(object $binding, VendorCharger $charger, object $release): array
     {
-        $data = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier]);
+        $data = app(RemoteSessionAuthorization::class)->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id chargePointVendor chargePointModel firmwareVersion protocol}}', ['name' => $binding->identifier]);
         $rows = $data['ChargingStations'] ?? null;
         abort_unless(is_array($rows) && array_is_list($rows) && count($rows) === 1 &&
-            is_array($rows[0]) &&
+            is_array($rows[0]) && is_int($rows[0]['id'] ?? null) && $rows[0]['id'] > 0 &&
             is_string($rows[0]['chargePointVendor'] ?? null) &&
             is_string($rows[0]['chargePointModel'] ?? null) &&
             is_string($rows[0]['firmwareVersion'] ?? null) &&
@@ -328,6 +328,8 @@ class ChargerFirmwareController extends Controller
             in_array($rows[0]['protocol'], [$binding->protocol, 'ocpp'.$binding->protocol], true),
             409, 'Source model, protocol or manufacturer changed.');
         app(FirmwareCompatibility::class)->source($release, $binding->protocol, $rows[0]);
+
+        return [$rows[0]['id'], $rows[0]['firmwareVersion']];
     }
 
     private function bytes(object $release): string
@@ -390,9 +392,10 @@ class ChargerFirmwareController extends Controller
             $this->bytes($release);
             abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists() || DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the existing maintenance operation first.');
             $authority = $this->sourceAuthority();
-            $guard->idle($b);
+            $sourceStation = $guard->idle($b);
             $this->sourceAuthority($authority);
-            $this->compatibleSource($b, $charger, $release);
+            $sourceIdentity = $this->compatibleSource($b, $charger, $release);
+            abort_unless($sourceIdentity[0] === $sourceStation, 409, 'Firmware source station changed during admission.');
             $this->sourceAuthority($authority);
             $this->sourceCapability($b);
             $this->sourceAuthority($authority);
@@ -407,7 +410,7 @@ class ChargerFirmwareController extends Controller
 
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.deployment_requested', 'subject' => (string) $id, 'created_at' => now()]);
 
-            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true, 'authority' => $authority];
+            return ['row' => DB::table('charger_firmware_operations')->find($id), 'created' => true, 'authority' => $authority, 'source_identity' => $sourceIdentity];
         });
         $row = $created['row'];
         if ($created['created'] && DB::table('charger_firmware_operations')->where('id', $row->id)->where('status', 'requested')->update(['status' => 'dispatching', 'attempted_at' => now(), 'updated_at' => now()])) {
@@ -428,9 +431,11 @@ class ChargerFirmwareController extends Controller
                     $release = DB::table('charger_firmware_releases')->where('id', $row->release_id)->whereNull('revoked_at')->lockForUpdate()->firstOrFail();
                     $this->bytes($release);
                     $authority = $this->sourceAuthority($created['authority']);
-                    $guard->idle($b);
+                    $sourceStation = $guard->idle($b);
                     $this->sourceAuthority($authority);
-                    $this->compatibleSource($b, $charger, $release);
+                    abort_unless($sourceStation === $created['source_identity'][0]
+                        && $this->compatibleSource($b, $charger, $release) === $created['source_identity'], 409,
+                        'Firmware source station or version changed after admission.');
                     $this->sourceAuthority($authority);
                     $this->sourceCapability($b);
                     $this->sourceAuthority($authority);
@@ -439,10 +444,22 @@ class ChargerFirmwareController extends Controller
                     $payload = json_decode($serialized, true, 32, JSON_THROW_ON_ERROR);
                     abort_unless(($payload['requestId'] ?? null) === (int) $current->id && ($payload['firmware']['signature'] ?? null) === $release->signature && ($payload['firmware']['signingCertificate'] ?? null) === $release->signing_certificate, 409, 'Approved release lineage changed.');
                     $operationsBase = $authority[2];
-                    $token = app(OperationsCredentials::class)->token($operationsBase);
+                    $credential = app(OperationsCredentials::class)->tokenForDispatch($operationsBase);
                     $this->sourceAuthority($authority);
                     $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
-                    abort_unless(is_string($token) && $token !== '', 503);
+                    // Token acquisition may overlap a source reconnect, firmware
+                    // change, new charging activity or capability withdrawal.
+                    $this->sourceCapability($b);
+                    $this->sourceAuthority($authority);
+                    abort_unless($this->compatibleSource($b, $charger, $release) === $created['source_identity'], 409,
+                        'Firmware source station or version changed after authentication.');
+                    $this->sourceAuthority($authority);
+                    abort_unless($guard->idle($b) === $created['source_identity'][0], 409,
+                        'Firmware source station changed during final idle review.');
+                    $this->sourceAuthority($authority);
+                    $this->requireCurrentDeployment($r, $company, $charger, $b, $release, $guard);
+                    $guard->requireOperationGeneration($current, $b);
+                    $token = $credential();
                     $action = $b->protocol === '1.6' ? 'signedUpdateFirmware' : 'updateFirmware';
                     $wireAttempted = true; // From here even an exception is an uncertain command outcome.
                     $reply = Http::timeout(10)->withoutRedirecting()->withToken($token)->post($operationsBase.'/ocpp/'.$b->protocol.'/configuration/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload);
