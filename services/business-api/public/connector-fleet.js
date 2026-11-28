@@ -18,6 +18,17 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
     const t = (en, ar) => document.documentElement.lang === 'ar' ? ar : en;
     const node = (tag, text) => { const n = document.createElement(tag); n.textContent = text; return n; };
     const current = n => !disposed && panel.isConnected && !document.hidden && actor() === viewer && n === generation;
+    const sourceClock = raw => typeof raw === 'string' && raw === raw.trim() &&
+        window.EvStationTime?.displayStationTime(raw,'UTC','en') ? Date.parse(raw) : NaN;
+    const clockLine = (en, ar, raw) => {
+        const p = node('p','');
+        const label = language => window.EvStationTime?.serverEventTime(raw,language) ||
+            (language === 'ar' ? 'وقت الحدث غير متاح' : 'Event time unavailable');
+        p.dataset.en = en + ': ' + label('en');
+        p.dataset.ar = ar + ': ' + label('ar');
+        p.textContent = t(p.dataset.en,p.dataset.ar);
+        return p;
+    };
     const button = (label, fn) => {
         const b = node('button', label); b.type = 'button'; b.onclick = fn; panel.append(b); return b;
     };
@@ -67,31 +78,40 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
                 ['physical_availability_verified','remote_control','billing_authority'].some(k=>data[k] !== false) ||
                 !Array.isArray(data.connectors?.data) || data.connectors.data.length > 25 ||
                 !Number.isSafeInteger(data.connectors.current_page) || !Number.isSafeInteger(data.connectors.last_page) ||
-                data.connectors.current_page !== page || data.connectors.last_page < 1 || typeof data.as_of !== 'string') throw Error('Invalid snapshot');
+                data.connectors.current_page !== page || data.connectors.last_page < page ||
+                !Number.isFinite(sourceClock(data.as_of)) ||
+                new Set(data.connectors.data.map(row => row?.mapping_id)).size !== data.connectors.data.length) throw Error('Invalid snapshot');
             for (const row of data.connectors.data) {
                 const f = row.status_freshness;
                 if (row.operations_target != null && !['company_id','charger_id'].every(k => Number.isSafeInteger(row.operations_target[k]) && row.operations_target[k] > 0)) throw Error('Invalid navigation target');
-                if (!Number.isSafeInteger(row.mapping_id) || !Number.isSafeInteger(row.station_id) || typeof row.station_name !== 'string' ||
+                if (!Number.isSafeInteger(row.mapping_id) || row.mapping_id < 1 ||
+                    !Number.isSafeInteger(row.station_id) || row.station_id < 1 ||
+                    (selectedStation && row.station_id !== Number(selectedStation)) || typeof row.station_name !== 'string' ||
                     ![null,'1.6','2.0.1'].includes(row.protocol) || typeof row.inventory_eligible_at_read !== 'boolean' ||
                     !f || !['recent','stale','unknown'].includes(f.state) || f.evidence !== 'SIMULATED_SOURCE' || f.physical_availability_verified !== false ||
                     (f.state === 'recent' && !['Available','Occupied','Preparing','Charging','SuspendedEV','SuspendedEVSE','Finishing','Reserved','Unavailable','Faulted'].includes(f.reported_status))) throw Error('Invalid source');
             }
             reset();
-            panel.append(node('p', t('Snapshot time: ', 'وقت اللقطة: ') + data.as_of));
+            const rendered = generation;
+            panel.append(clockLine('Snapshot time','وقت اللقطة',data.as_of));
             for (const row of data.connectors.data) {
                 const f = row.status_freshness, card = document.createElement('article');
                 card.append(node('h4', `${row.station_name} · #${row.mapping_id}`), node('p', `${t('Protocol', 'البروتوكول')}: ${row.protocol ?? t('No qualified source', 'لا يوجد مصدر مؤهل')}`));
+                // Check the existing strict source freshness contract at the
+                // recorded read instant, never against the device clock.
+                const sourceState = sourceClock(f.checked_at) <= sourceClock(data.as_of)
+                    ? window.EvConnectorFreshness?.state(f,0) ?? 'unknown' : 'unknown';
                 card.append(node('p', !row.inventory_eligible_at_read ? t('Inventory unavailable or maintenance blocked', 'المخزون غير متاح أو محظور للصيانة') :
-                    f.state === 'recent' ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + (window.EvConnectorFreshness?.label(f.reported_status, document.documentElement.lang === 'ar') ?? f.reported_status) :
-                    f.state === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
-                if (f.observed_at) card.append(node('p', `${t('Source timestamp', 'وقت المصدر')}: ${f.observed_at}`));
+                    f.state === 'recent' && sourceState === f.reported_status ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + window.EvConnectorFreshness.label(f.reported_status, document.documentElement.lang === 'ar') :
+                    sourceState === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
+                if (f.observed_at != null) card.append(clockLine('Source timestamp','وقت المصدر',f.observed_at));
                 if (row.operations_target && typeof openDiagnostics === 'function') {
                     const b = node('button', t('Open source diagnostics', 'فتح تشخيص المصدر')); b.type = 'button';
                     b.onclick = async () => {
-                        if (actor() !== viewer || !panel.isConnected || document.hidden || b.disabled) return;
+                        if (!current(rendered) || !b.isConnected || b.disabled) return;
                         b.disabled = true;
                         try { await openDiagnostics(row.operations_target.company_id, row.operations_target.charger_id); }
-                        catch { if (actor() === viewer && b.isConnected) card.append(node('p', t('Diagnostics unavailable. Recheck current access.', 'التشخيص غير متاح. تحقق من الوصول الحالي.'))); }
+                        catch { if (current(rendered) && b.isConnected) card.append(node('p', t('Diagnostics unavailable. Recheck current access.', 'التشخيص غير متاح. تحقق من الوصول الحالي.'))); }
                         finally { if (b.isConnected) b.disabled = false; }
                     };
                     card.append(b);
@@ -101,7 +121,11 @@ window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics, filter
             if (!data.connectors.data.length) panel.append(node('p', t('No mapped connectors in this scope.', 'لا توجد موصلات مرتبطة ضمن هذا النطاق.')));
             const stationSnapshot = selectedStation;
             for (const [label, next, enabled] of [[t('Previous','السابق'), page - 1, page > 1], [t('Next','التالي'), page + 1, page < data.connectors.last_page]]) {
-                button(label, () => {selectedStation = stationSnapshot; void load(next);}).disabled = !enabled;
+                const b = button(label, () => {
+                    if (!current(rendered) || !b.isConnected || b.disabled || !enabled) return;
+                    selectedStation = stationSnapshot; void load(next);
+                });
+                b.disabled = !enabled;
             }
         } catch (e) {
             if (!current(n)) return;
