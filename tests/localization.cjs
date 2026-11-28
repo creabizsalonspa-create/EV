@@ -222,6 +222,9 @@ const fs = require("node:fs"),
     assert.equal(await page.locator("#fleets").isVisible(), false);
     await page.reload();
     await page.locator("#stations h3").waitFor();
+    // The catalog can render before the initial account session read settles.
+    // Wait for the account form to release its intentional interaction fence.
+    await page.locator('#account[aria-busy="false"]').waitFor();
     assert.equal(await page.locator("html").getAttribute("lang"), "ar");
     // Test the actual account keyboard path at narrow reflow widths, in
     // both directions. A wrapping sticky header must not cover focused inputs.
