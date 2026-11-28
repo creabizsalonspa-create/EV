@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'connector_freshness.dart';
 import 'charger_diagnostics.dart';
+import 'reservation_times.dart' show serverEventTime;
 
 class ConnectorFleetView extends StatefulWidget {
   final EvApi api;
@@ -209,7 +210,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
           if (busy) const LinearProgressIndicator(),
           if (foreground && authorized() && error != null) Text(error!),
           if (visible != null) ...[
-            Text('${t('Snapshot time', 'وقت اللقطة')}: ${visible['as_of']}'),
+            Text('${t('Snapshot time', 'وقت اللقطة')}: ${serverEventTime(context, visible['as_of'])}'),
             for (final row in p['data'])
               Card(
                 child: Padding(
@@ -264,7 +265,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
                       ),
                       if (row['status_freshness']['observed_at'] != null)
                         Text(
-                          '${t('Source timestamp', 'وقت المصدر')}: ${row['status_freshness']['observed_at']}',
+                          '${t('Source timestamp', 'وقت المصدر')}: ${serverEventTime(context, row['status_freshness']['observed_at'])}',
                         ),
                     ],
                   ),

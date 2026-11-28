@@ -1,4 +1,6 @@
 import 'package:creabiz_ev/charger_firmware.dart';
+import 'package:creabiz_ev/charger_diagnostics.dart';
+import 'package:creabiz_ev/connector_fleet.dart';
 import 'package:creabiz_ev/charger_logs.dart';
 import 'package:creabiz_ev/charger_repairs.dart';
 import 'package:creabiz_ev/charging_operations.dart';
@@ -7,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'charger_firmware_test.dart' show FirmwareApi;
+import 'charger_diagnostics_test.dart' show DiagnosticsApi;
+import 'connector_fleet_test.dart' show FleetApi;
 import 'charger_logs_test.dart' show LogsApi;
 import 'charging_operations_test.dart' show OpsApi;
 import 'charger_repairs_test.dart' show RepairApi;
@@ -82,10 +86,51 @@ class RegionalOpsApi extends OpsApi {
   }
 }
 
+class RegionalDiagnosticsApi extends DiagnosticsApi {
+  @override
+  Future<dynamic> request(String path, {
+    String method = 'GET', Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    final result = await super.request(path, method: method, body: body, query: query);
+    result['last_message_at'] = validClock;
+    result['events'][0]['timestamp'] = invalidClock;
+    return result;
+  }
+}
+
 void main() {
   for (final language in ['en', 'ar']) {
     final ar = language == 'ar';
     final unavailable = ar ? 'وقت الحدث غير متاح' : 'Event time unavailable';
+    testWidgets('source diagnostics and fleet clocks are localized ($language)', (tester) async {
+      tester.view.physicalSize = const Size(1100, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(regionalApp(language, ChargerDiagnosticsView(
+        api: RegionalDiagnosticsApi(), companyId: 1, chargerId: 2, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      final ctx = tester.element(find.byType(ChargerDiagnosticsView));
+      expect(find.text(serverEventTime(ctx, validClock)), findsOneWidget);
+      expect(find.text('1/1 · $unavailable'), findsOneWidget);
+      expect(find.textContaining(invalidClock), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      final fleet = FleetApi();
+      await tester.pumpWidget(regionalApp(language, ConnectorFleetView(
+        api: fleet, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(ar ? 'قراءة لقطة الموصلات' : 'Read connector snapshot'));
+      await tester.pumpAndSettle();
+      final fleetCtx = tester.element(find.byType(ConnectorFleetView));
+      final snapshot = serverEventTime(fleetCtx, '2026-11-15T12:00:00Z');
+      final observed = serverEventTime(fleetCtx, '2026-11-15T11:59:00Z');
+      expect(find.text('${ar ? 'وقت اللقطة' : 'Snapshot time'}: $snapshot'), findsOneWidget);
+      expect(find.text('${ar ? 'وقت المصدر' : 'Source timestamp'}: $observed'), findsOneWidget);
+      expect(fleet.reads, 1);
+    });
     testWidgets('diagnostic receipt and retention are distinct source clocks ($language)', (tester) async {
       tester.view.physicalSize = const Size(1100, 1800);
       tester.view.devicePixelRatio = 1;
