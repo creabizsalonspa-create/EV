@@ -28,7 +28,9 @@ const assert = require("node:assert/strict"),
         { encoding: "utf8" },
       ),
     );
-  const f = invoke("seed", password, "meters"),
+  const stopProtocol = process.env.EV_NATIVE_STAFF_STOP_PROTOCOL;
+  assert([undefined, "1.6", "2.0.1"].includes(stopProtocol));
+  const f = invoke("seed", password, stopProtocol ? `stop-${stopProtocol}` : "meters"),
     before = invoke("snapshot"),
     owner = new BusinessClient({ base: base.origin });
   owner.csrf = (await owner.request("csrf")).token;
@@ -37,7 +39,10 @@ const assert = require("node:assert/strict"),
   await owner.request(
     `vendor-ops/companies/${f.company_id}/staff/${f.membership_id}/permissions`,
     "PATCH",
-    { expected_version: 1, permissions: ["charging.read"] },
+    {
+      expected_version: 1,
+      permissions: stopProtocol ? ["charging.read", "charging.stop"] : ["charging.read"],
+    },
   );
   const directory = mkdtempSync(
     join(tmpdir(), "ev-native-staff-observations-"),
@@ -64,10 +69,17 @@ const assert = require("node:assert/strict"),
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-  assert.deepEqual(invoke("snapshot"), before);
-  console.log(
-    "PASS: native staff observations retained unchanged synthetic session, command and finance storage.",
-  );
+  const after = invoke("snapshot");
+  if (stopProtocol) {
+    assert.equal(after.commands, before.commands + 1);
+    assert.equal(after.rows, before.rows);
+    assert.equal(after.canonical_finance_hash, before.canonical_finance_hash);
+    assert.equal(after.meter_history_hash, before.meter_history_hash);
+    console.log(`PASS: native staff OCPP ${stopProtocol} stop recorded a single synthetic command with unchanged finance and meter evidence.`);
+  } else {
+    assert.deepEqual(after, before);
+    console.log("PASS: native staff observations retained unchanged synthetic session, command and finance storage.");
+  }
 })().catch(() => {
   console.error(
     "FAIL: native staff observation contract (private details omitted)",

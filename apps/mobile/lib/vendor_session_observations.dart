@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'reservation_times.dart';
 
 const vendorSessionStates = [
   'pending_start',
@@ -32,6 +35,7 @@ class VendorSessionObservation {
   final String stationName, state, energyState, created, updated, evidence;
   final String? stopped, protocol;
   final int? energyWh;
+  final bool canRequestStop;
   const VendorSessionObservation._(
     this.id,
     this.stationId,
@@ -44,6 +48,7 @@ class VendorSessionObservation {
     this.stopped,
     this.protocol,
     this.evidence,
+    this.canRequestStop,
   );
   factory VendorSessionObservation.parse(Map<String, dynamic> row) {
     final energy = row['energy_wh'], energyState = row['energy_state'];
@@ -63,6 +68,11 @@ class VendorSessionObservation {
         ].contains(row['evidence']) ||
         (row['evidence'] == 'SIMULATED_CSMS' && row['protocol'] == null) ||
         (row['evidence'] == 'SIMULATED' && row['protocol'] != null) ||
+        (row.containsKey('can_request_stop') &&
+            row['can_request_stop'] is! bool) ||
+        (row['can_request_stop'] == true &&
+            (row['evidence'] != 'SIMULATED_CSMS' ||
+                !['charging', 'stopping'].contains(row['recorded_status']))) ||
         row['physical_charging_verified'] != false ||
         row['live_availability_verified'] != false) {
       throw const FormatException('Unsupported session observation.');
@@ -79,6 +89,7 @@ class VendorSessionObservation {
       row['stopped_at'] == null ? null : _instant(row['stopped_at']),
       row['protocol'],
       row['evidence'],
+      row['can_request_stop'] == true,
     );
   }
 }
@@ -87,12 +98,14 @@ class VendorSessionObservationPage {
   final List<VendorSessionObservation> items;
   final int current, last, total;
   final String asOf;
+  final ({int id, int version})? stopGrant;
   const VendorSessionObservationPage._(
     this.items,
     this.current,
     this.last,
     this.total,
     this.asOf,
+    this.stopGrant,
   );
   factory VendorSessionObservationPage.parse(
     dynamic value, {
@@ -126,6 +139,16 @@ class VendorSessionObservationPage {
         throw const FormatException('Invalid observation row.');
       return VendorSessionObservation.parse(Map<String, dynamic>.from(row));
     }).toList();
+    final grant = value['staff_stop_grant'];
+    if (value.containsKey('staff_stop_grant') &&
+        (grant is! Map ||
+            !_integer(grant['id'], positive: true) ||
+            !_integer(grant['version'], positive: true))) {
+      throw const FormatException('Invalid stop grant.');
+    }
+    if (grant == null && rows.any((row) => row.canRequestStop)) {
+      throw const FormatException('Missing stop grant.');
+    }
     final int total = value['total'], last = value['last_page'];
     if (last != (total == 0 ? 1 : (total - 1) ~/ 25 + 1) ||
         rows.length > total ||
@@ -143,6 +166,9 @@ class VendorSessionObservationPage {
       last,
       total,
       _instant(value['as_of']),
+      grant == null
+          ? null
+          : (id: grant['id'] as int, version: grant['version'] as int),
     );
   }
 }
@@ -290,9 +316,11 @@ class _VendorSessionObservationsState
   int? through;
   late bool Function() authorized;
   late bool foreground;
-  bool busy = false;
+  bool busy = false, confirmingStop = false;
   int generation = 0, target = 1;
   String? status, error;
+  bool? stopRecorded;
+  StreamSubscription<int>? sessionChanges;
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   bool current(int run) =>
@@ -304,6 +332,8 @@ class _VendorSessionObservationsState
     through = null;
     error = null;
     busy = false;
+    confirmingStop = false;
+    stopRecorded = null;
     target = 1;
     status = null;
   }
@@ -311,11 +341,21 @@ class _VendorSessionObservationsState
   @override
   void initState() {
     super.initState();
-    authorized = widget.api.sessionFence();
+    bindSession();
     foreground =
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     if (foreground) load();
+  }
+
+  void bindSession() {
+    unawaited(sessionChanges?.cancel());
+    final api = widget.api;
+    authorized = api.sessionFence();
+    sessionChanges = api.sessionEvents.listen((_) {
+      if (mounted && identical(api, widget.api) && !authorized())
+        setState(clear);
+    });
   }
 
   @override
@@ -326,7 +366,7 @@ class _VendorSessionObservationsState
         old.sessionId != widget.sessionId) {
       clear();
       status = null;
-      authorized = widget.api.sessionFence();
+      if (!identical(old.api, widget.api)) bindSession();
       if (foreground) load();
     }
   }
@@ -343,12 +383,14 @@ class _VendorSessionObservationsState
   @override
   void dispose() {
     generation++;
+    unawaited(sessionChanges?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> load({int page = 1, bool refresh = false}) async {
-    if (!mounted || !foreground || !authorized() || busy) return;
+    if (!mounted || !foreground || !authorized() || busy || confirmingStop)
+      return;
     if (!_integer(widget.companyId, positive: true) ||
         (widget.sessionId != null &&
             !_integer(widget.sessionId, positive: true))) {
@@ -364,6 +406,7 @@ class _VendorSessionObservationsState
     setState(() {
       busy = true;
       error = null;
+      stopRecorded = null;
       data = null;
       meterData = null;
       if (refresh) through = null;
@@ -430,6 +473,102 @@ class _VendorSessionObservationsState
     }
   }
 
+  Future<void> requestStop(
+    VendorSessionObservation row,
+    ({int id, int version}) grant,
+    int reviewed,
+  ) async {
+    if (!current(reviewed) ||
+        busy ||
+        confirmingStop ||
+        data?.items.contains(row) != true ||
+        data?.stopGrant != grant)
+      return;
+    final api = widget.api;
+    final company = widget.companyId;
+    setState(() => confirmingStop = true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) {
+        final arabic = Localizations.localeOf(dialog).languageCode == 'ar';
+        return AlertDialog(
+          title: Text(
+            arabic ? 'طلب إيقاف جلسة محاكاة' : 'Request a simulator stop',
+          ),
+          content: Text(
+            arabic
+                ? 'إرسال طلب إيقاف المحاكاة للجلسة رقم ${row.id}؟ يتطلب الإيقاف تأكيداً مسجلاً من المصدر.'
+                : 'Request a simulator stop for session #${row.id}? The stop requires a recorded source confirmation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: Text(arabic ? 'إلغاء' : 'Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(arabic ? 'إرسال الطلب' : 'Send request'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!current(reviewed)) return;
+    setState(() => confirmingStop = false);
+    if (confirmed != true) return;
+    final run = ++generation;
+    setState(() {
+      busy = true;
+      data = null;
+      stopRecorded = null;
+    });
+    try {
+      final reply = await api.request(
+        'vendor-ops/companies/$company/charging-sessions/${row.id}/stop',
+        method: 'POST',
+        body: {
+          'grant_id': grant.id,
+          'grant_version': grant.version,
+          'consent': true,
+        },
+      );
+      if (!current(run)) return;
+      if (reply is! Map ||
+          reply['scope'] != 'company_simulator_session_stop' ||
+          reply['company_id'] != company ||
+          reply['session_id'] != row.id ||
+          !_integer(reply['command_id'], positive: true) ||
+          reply['evidence'] != 'SIMULATED_CSMS' ||
+          reply['physical_charging_verified'] != false ||
+          ![
+            'pending',
+            'dispatching',
+            'submitted',
+            'source_observed',
+            'rejected',
+            'outcome_unknown',
+          ].contains(reply['command_status']) ||
+          ![
+            'charging',
+            'stopping',
+            'stopped',
+          ].contains(reply['session_status'])) {
+        throw const FormatException('Invalid stop receipt.');
+      }
+      setState(() => stopRecorded = true);
+    } catch (failure) {
+      if (!current(run)) return;
+      if (failure is ApiException && [401, 419].contains(failure.status)) {
+        setState(clear);
+        widget.onExpired();
+        return;
+      }
+      setState(() => stopRecorded = false);
+    } finally {
+      if (current(run)) setState(() => busy = false);
+    }
+  }
+
   String stateLabel(String state) => switch (state) {
     'pending_start' => t('Recorded start pending', 'بدء مسجل قيد الانتظار'),
     'charging' => t('Recorded charging', 'شحن مسجل'),
@@ -449,9 +588,13 @@ class _VendorSessionObservationsState
   };
   VoidCallback? readAction(int page, {bool refresh = false}) {
     final run = generation, request = widget.api, allowed = authorized;
-    if (busy || !foreground || !allowed()) return null;
+    if (busy || confirmingStop || !foreground || !allowed()) return null;
     return () {
-      if (current(run) && request == widget.api && allowed() && !busy)
+      if (current(run) &&
+          request == widget.api &&
+          allowed() &&
+          !busy &&
+          !confirmingStop)
         load(page: page, refresh: refresh);
     };
   }
@@ -461,9 +604,14 @@ class _VendorSessionObservationsState
         request = widget.api,
         company = widget.companyId,
         allowed = authorized;
-    if (busy || !foreground || !allowed()) return null;
+    if (busy || confirmingStop || !foreground || !allowed()) return null;
     return () {
-      if (!current(run) || request != widget.api || !allowed()) return;
+      if (!current(run) ||
+          busy ||
+          confirmingStop ||
+          request != widget.api ||
+          !allowed())
+        return;
       setState(clear);
       final destination = generation;
       Navigator.of(context).push(
@@ -545,7 +693,7 @@ class _VendorSessionObservationsState
               ),
               if (p.protocol != null) Text('OCPP ${p.protocol}'),
               Text(t('Observed at UTC', 'تمت الملاحظة بالتوقيت العالمي')),
-              Text(p.asOf, textDirection: TextDirection.ltr),
+              Text(serverEventTime(context, p.asOf)),
               if (p.items.isEmpty)
                 Text(
                   t(
@@ -649,8 +797,8 @@ class _VendorSessionObservationsState
           children: [
             Text(
               t(
-                'Company-scoped, read-only records. Only currently owned stations linked to this company are included. Customer identities, financial fields and charger controls are excluded. Recorded state is not live availability or verified physical charging.',
-                'سجلات للقراءة فقط ضمن الشركة. تُدرج فقط المحطات المملوكة حالياً والمرتبطة بهذه الشركة. تُستبعد هوية العملاء والحقول المالية والتحكم بالشواحن. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً.',
+                'Company-scoped, read-only records. Only currently owned stations linked to this company are included. Customer identities and financial fields are excluded. Staff stop requests require a current simulator grant. Recorded state is not live availability or verified physical charging.',
+                'سجلات للقراءة فقط ضمن الشركة. تُدرج فقط المحطات المملوكة حالياً والمرتبطة بهذه الشركة. تُستبعد هوية العملاء والحقول المالية. يتطلب طلب إيقاف المحاكاة صلاحية موظف سارية. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً.',
               ),
             ),
             const SizedBox(height: 12),
@@ -675,13 +823,14 @@ class _VendorSessionObservationsState
                     ),
                   ),
               ],
-              onChanged: busy || !foreground || !authorized()
+              onChanged: busy || confirmingStop || !foreground || !authorized()
                   ? null
                   : (value) {
                       if (!current(filterRun) ||
                           filterApi != widget.api ||
                           !filterFence() ||
                           busy ||
+                          confirmingStop ||
                           (value != '' && !vendorSessionStates.contains(value)))
                         return;
                       setState(() {
@@ -714,6 +863,21 @@ class _VendorSessionObservationsState
                   'ملاحظات الجلسات غير متاحة. أعد القراءة صراحة؛ لم يُرسل أمر.',
                 ),
               ),
+            if (stopRecorded != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  stopRecorded!
+                      ? t(
+                          'Simulator stop request recorded. Read the current session state before continuing.',
+                          'تم تسجيل طلب إيقاف المحاكاة. اقرأ حالة الجلسة الحالية قبل المتابعة.',
+                        )
+                      : t(
+                          'Simulator stop outcome was not confirmed. Read the current session state before another request.',
+                          'تعذر تأكيد نتيجة إيقاف المحاكاة. اقرأ حالة الجلسة الحالية قبل إرسال طلب آخر.',
+                        ),
+                ),
+              ),
             if (p != null) ...[
               Text(
                 t(
@@ -722,7 +886,32 @@ class _VendorSessionObservationsState
                 ),
               ),
               Text(t('Observed at UTC', 'تمت الملاحظة بالتوقيت العالمي')),
-              Text(p.asOf, textDirection: TextDirection.ltr),
+              Text(serverEventTime(context, p.asOf)),
+              Wrap(
+                spacing: 4,
+                children: [
+                  Text(t('Page', 'الصفحة')),
+                  Text(
+                    '${p.current} / ${p.last}',
+                    textDirection: TextDirection.ltr,
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: p.current > 1 ? readAction(p.current - 1) : null,
+                    child: Text(t('Previous', 'السابق')),
+                  ),
+                  OutlinedButton(
+                    onPressed: p.current < p.last
+                        ? readAction(p.current + 1)
+                        : null,
+                    child: Text(t('Next', 'التالي')),
+                  ),
+                ],
+              ),
               if (p.items.isEmpty)
                 Text(
                   t(
@@ -753,6 +942,19 @@ class _VendorSessionObservationsState
                               : '${t('Recorded energy', 'الطاقة المسجلة')}: ${row.energyWh} Wh',
                         ),
                         Text(evidenceLabel(row.evidence)),
+                        if (row.canRequestStop && p.stopGrant != null)
+                          OutlinedButton(
+                            onPressed: busy || confirmingStop
+                                ? null
+                                : () =>
+                                      requestStop(row, p.stopGrant!, filterRun),
+                            child: Text(
+                              t(
+                                'Request a simulator stop',
+                                'طلب إيقاف جلسة محاكاة',
+                              ),
+                            ),
+                          ),
                         OutlinedButton(
                           key: ValueKey('meter-history-${row.id}'),
                           onPressed: meterAction(row.id),
@@ -766,7 +968,7 @@ class _VendorSessionObservationsState
                             'تحديث السجل بالتوقيت العالمي',
                           ),
                         ),
-                        Text(row.updated, textDirection: TextDirection.ltr),
+                        Text(serverEventTime(context, row.updated)),
                         if (row.stopped != null) ...[
                           Text(
                             t(
@@ -774,37 +976,12 @@ class _VendorSessionObservationsState
                               'التوقف المسجل بالتوقيت العالمي',
                             ),
                           ),
-                          Text(row.stopped!, textDirection: TextDirection.ltr),
+                          Text(serverEventTime(context, row.stopped)),
                         ],
                       ],
                     ),
                   ),
                 ),
-              Wrap(
-                spacing: 4,
-                children: [
-                  Text(t('Page', 'الصفحة')),
-                  Text(
-                    '${p.current} / ${p.last}',
-                    textDirection: TextDirection.ltr,
-                  ),
-                ],
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  OutlinedButton(
-                    onPressed: p.current > 1 ? readAction(p.current - 1) : null,
-                    child: Text(t('Previous', 'السابق')),
-                  ),
-                  OutlinedButton(
-                    onPressed: p.current < p.last
-                        ? readAction(p.current + 1)
-                        : null,
-                    child: Text(t('Next', 'التالي')),
-                  ),
-                ],
-              ),
             ],
           ],
         ),

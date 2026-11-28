@@ -10,7 +10,7 @@ class ChargerCommand extends Model
 {
     protected $guarded = ['id'];
 
-    protected $hidden = ['consent_auth_epoch'];
+    protected $hidden = ['consent_auth_epoch', 'staff_stop_authority'];
 
     protected $attributes = ['status' => 'pending'];
 
@@ -81,6 +81,6 @@ class ChargerCommand extends Model
 
     protected function casts(): array
     {
-        return ['consent_auth_epoch' => 'integer', 'payload' => 'array', 'confirmation' => 'array'];
+        return ['consent_auth_epoch' => 'integer', 'staff_stop_authority' => 'array', 'payload' => 'array', 'confirmation' => 'array'];
     }
 }

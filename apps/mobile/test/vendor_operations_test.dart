@@ -241,14 +241,30 @@ void main() {
     final dialog=find.byType(AlertDialog);
     final confirm=find.descendant(of:dialog,matching:find.widgetWithText(FilledButton,'Confirm'));
     expect(t.widget<FilledButton>(confirm).onPressed,isNull);
-    await t.tap(find.descendant(of:dialog,matching:find.text('Read recorded charging sessions')));
+    final read = find.descendant(of: dialog, matching: find.text('Read recorded charging sessions'));
+    final stop = find.descendant(of: dialog,
+      matching: find.widgetWithText(CheckboxListTile, 'Request a simulator stop'));
+    expect(t.widget<CheckboxListTile>(stop).onChanged, isNull);
+    await t.tap(read);
+    await t.pumpAndSettle();
+    expect(t.widget<CheckboxListTile>(stop).value, false);
+    await t.tap(stop);
+    await t.pumpAndSettle();
+    expect(t.widget<CheckboxListTile>(stop).value, true);
+    await t.tap(read);
+    await t.pumpAndSettle();
+    expect(t.widget<CheckboxListTile>(stop).value, false);
+    expect(t.widget<CheckboxListTile>(stop).onChanged, isNull);
+    await t.tap(read);
+    await t.pumpAndSettle();
+    await t.tap(stop);
     await t.pumpAndSettle();
     await t.tap(confirm);
     await t.pumpAndSettle();
     expect(api.writes.single['path'],'vendor-ops/companies/1/staff/7/permissions');
     expect(api.writes.single['method'],'PATCH');
     expect(api.writes.single['expected_version'],3);
-    expect(api.writes.single['permissions'],['inventory.read','charging.read']);
+    expect(api.writes.single['permissions'],['inventory.read','charging.read','charging.stop']);
     expect(find.text('Invited'),findsOneWidget);
   });
   testWidgets('old staff review cannot submit after credential rotation', (t) async {

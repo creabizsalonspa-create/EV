@@ -32,6 +32,15 @@ window.EvCompanySessionObservations = (() => {
             throw Error("Invalid recorded time");
         return value;
     }
+    function eventTime(value) {
+        const time = window.EvStationTime.bindServerEventTime(
+            document.createElement("time"),
+            value,
+        );
+        time.dateTime = value;
+        time.className = "session-observation-time";
+        return time;
+    }
     function project(value, company, page, filter) {
         if (
             value?.scope !== "company_recorded_charging_sessions" ||
@@ -62,6 +71,9 @@ window.EvCompanySessionObservations = (() => {
             (page > value.last_page && value.data.length)
         )
             throw Error("Invalid company observation page");
+        const grant = value.staff_stop_grant;
+        if (grant !== undefined && (!grant || !integer(grant.id, true) || !integer(grant.version, true)))
+            throw Error("Invalid stop grant");
         const records = value.data.map((row) => {
             if (
                 !row ||
@@ -83,12 +95,16 @@ window.EvCompanySessionObservations = (() => {
                 ].includes(row.evidence) ||
                 (row.evidence === "SIMULATED_CSMS" && row.protocol === null) ||
                 (row.evidence === "SIMULATED" && row.protocol !== null) ||
+                (row.can_request_stop !== undefined && typeof row.can_request_stop !== "boolean") ||
+                (row.can_request_stop === true && (!grant || row.evidence !== "SIMULATED_CSMS" ||
+                    !["charging", "stopping"].includes(row.recorded_status))) ||
                 row.physical_charging_verified !== false ||
                 row.live_availability_verified !== false
             )
                 throw Error("Invalid session observation");
             return Object.freeze({
                 id: row.id,
+                canStop: row.can_request_stop === true,
                 station: row.station_name,
                 state: row.recorded_status,
                 energy: row.energy_wh,
@@ -108,6 +124,7 @@ window.EvCompanySessionObservations = (() => {
             throw Error("Invalid session ordering");
         return Object.freeze({
             records: Object.freeze(records),
+            grant: grant === undefined ? null : Object.freeze({ id: grant.id, version: grant.version }),
             current: page,
             last: value.last_page,
             total: value.total,
@@ -253,10 +270,10 @@ window.EvCompanySessionObservations = (() => {
             n(
                 "p",
                 session === null
-                    ? "Read-only company records from currently owned, linked stations. Customer identities, financial fields and charger actions are excluded. Recorded state is not live availability or verified physical charging."
+                    ? "Read-only company records from currently owned, linked stations. Customer identities and financial fields are excluded. Staff stop requests require a current simulator grant. Recorded state is not live availability or verified physical charging."
                     : "Source counter readings are not consumed or billed energy. This snapshot covers retained applied events; it does not verify physical charging or a complete history.",
                 session === null
-                    ? "سجلات للقراءة فقط من المحطات المملوكة والمرتبطة بالشركة حالياً. تُستبعد هوية العملاء والحقول المالية وإجراءات الشواحن. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً."
+                    ? "سجلات للقراءة فقط من المحطات المملوكة والمرتبطة بالشركة حالياً. تُستبعد هوية العملاء والحقول المالية. يتطلب طلب إيقاف المحاكاة صلاحية موظف سارية. الحالة المسجلة ليست إتاحة مباشرة أو شحناً فعلياً موثقاً."
                     : "قراءات عداد المصدر ليست طاقة مستهلكة أو مفوترة. تعرض اللقطة الأحداث المطبقة المحتفظ بها؛ لا توثق الشحن الفعلي أو اكتمال السجل.",
             ),
         );
@@ -345,6 +362,57 @@ window.EvCompanySessionObservations = (() => {
                     read(1);
                 }
             };
+        }
+        async function requestStop(record, grant, reviewed) {
+            if (!active(reviewed) || busy) return;
+            const ar = document.documentElement.lang === "ar";
+            if (!window.confirm(ar
+                ? `إرسال طلب إيقاف المحاكاة للجلسة رقم ${record.id}؟ يتطلب الإيقاف تأكيداً مسجلاً من المصدر.`
+                : `Request a simulator stop for session #${record.id}? The stop requires a recorded source confirmation.`
+            ) || !active(reviewed) || busy) return;
+            const own = ++run;
+            busy = true;
+            hasData = false;
+            rows.replaceChildren();
+            bind();
+            status.replaceChildren(n("span", "Requesting simulator stop…", "جارٍ طلب إيقاف المحاكاة…"));
+            try {
+                const reply = await api(
+                    `vendor-ops/companies/${company.id}/charging-sessions/${record.id}/stop`,
+                    "POST",
+                    { grant_id: grant.id, grant_version: grant.version, consent: true },
+                );
+                if (!active(own)) return;
+                if (reply?.scope !== "company_simulator_session_stop" ||
+                    reply.company_id !== company.id || reply.session_id !== record.id ||
+                    !integer(reply.command_id, true) || reply.evidence !== "SIMULATED_CSMS" ||
+                    reply.physical_charging_verified !== false ||
+                    !["pending", "dispatching", "submitted", "source_observed", "rejected", "outcome_unknown"].includes(reply.command_status) ||
+                    !["charging", "stopping", "stopped"].includes(reply.session_status))
+                    throw Error("Invalid stop receipt");
+                status.replaceChildren(n(
+                    "span",
+                    "Simulator stop request recorded. Read the current session state before continuing.",
+                    "تم تسجيل طلب إيقاف المحاكاة. اقرأ حالة الجلسة الحالية قبل المتابعة.",
+                ));
+            } catch (error) {
+                if (!active(own)) return;
+                if ([401, 419].includes(error?.status)) {
+                    cleanup();
+                    onExpired?.();
+                    return;
+                }
+                status.replaceChildren(n(
+                    "span",
+                    "Simulator stop outcome was not confirmed. Read the current session state before another request.",
+                    "تعذر تأكيد نتيجة إيقاف المحاكاة. اقرأ حالة الجلسة الحالية قبل إرسال طلب آخر.",
+                ));
+            } finally {
+                if (active(own)) {
+                    busy = false;
+                    bind();
+                }
+            }
         }
         async function read(target, refresh = false) {
             if (!live() || busy) return;
@@ -493,11 +561,17 @@ window.EvCompanySessionObservations = (() => {
                                 "تحديث السجل بالتوقيت العالمي",
                             ),
                         );
-                        const time = plain("time", record.updated);
-                        time.dateTime = record.updated;
-                        time.dir = "ltr";
-                        time.className = "session-observation-time";
-                        card.append(time);
+                        card.append(eventTime(record.updated));
+                        if (record.stopped !== null) {
+                            card.append(
+                                n(
+                                    "p",
+                                    "Recorded stop at UTC",
+                                    "التوقف المسجل بالتوقيت العالمي",
+                                ),
+                                eventTime(record.stopped),
+                            );
+                        }
                         const meters = n(
                             "button",
                             "Recorded meter history",
@@ -516,6 +590,14 @@ window.EvCompanySessionObservations = (() => {
                                 });
                         };
                         card.append(meters);
+                        if (record.canStop) {
+                            const stop = n("button", "Request a simulator stop", "طلب إيقاف جلسة محاكاة");
+                            stop.type = "button";
+                            stop.onclick = () => {
+                                if (stop.isConnected) requestStop(record, data.grant, own);
+                            };
+                            card.append(stop);
+                        }
                         rows.append(card);
                     }
                 }
@@ -544,17 +626,13 @@ window.EvCompanySessionObservations = (() => {
                     ),
                 );
                 status.replaceChildren(pageInfo);
-                const observed = plain("time", data.asOf);
-                observed.dir = "ltr";
-                observed.dateTime = data.asOf;
-                observed.className = "session-observation-time";
                 status.append(
                     n(
                         "span",
                         "Observed at UTC",
                         "تمت الملاحظة بالتوقيت العالمي",
                     ),
-                    observed,
+                    eventTime(data.asOf),
                 );
             } catch (error) {
                 if (active(own) && [401, 409, 419].includes(error?.status)) {

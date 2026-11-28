@@ -115,6 +115,10 @@ jobs:
       - run: npm run test:vendor
       - name: Verify real vendor station policy and charger operations via Laravel
         run: node tests/charger-operations.cjs
+      - name: Verify explicit delegated simulator stop in English and Arabic through Laravel
+        run: |
+          node tests/vendor-staff-permission-editor.cjs
+          node tests/vendor-staff-stop-e2e.cjs
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
       - run: npm run test:ocpi-provisioning
       - name: Financial browser workflows

@@ -85,6 +85,7 @@ const vendorOpsEn = {
   'permissions': 'Permissions',
   'company.read': 'Read company profile',
   'charging.read': 'Read recorded charging sessions',
+  'charging.stop': 'Request a simulator stop',
   'inventory.read': 'Read inventory',
   'inventory.write': 'Manage inventory',
   'inviteNotice':
@@ -196,6 +197,7 @@ const vendorOpsAr = {
   'permissions': 'الصلاحيات',
   'company.read': 'قراءة ملف الشركة',
   'charging.read': 'قراءة جلسات الشحن المسجلة',
+  'charging.stop': 'طلب إيقاف جلسة محاكاة',
   'inventory.read': 'قراءة المخزون',
   'inventory.write': 'إدارة المخزون',
   'inviteNotice':

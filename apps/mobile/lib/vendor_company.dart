@@ -32,6 +32,7 @@ const vendorPermissions = [
   'inventory.read',
   'inventory.write',
   'charging.read',
+  'charging.stop',
 ];
 
 class VendorEvidence {
@@ -590,10 +591,15 @@ class _VendorRecordsState extends State<VendorRecordsView> with WidgetsBindingOb
               for(final permission in vendorPermissions) CheckboxListTile(
                 value:desired.contains(permission),
                 title:Text(t(permission)),
-                onChanged:(value) => update(() {
-                  if(value == true) { desired.add(permission); }
-                  else { desired.remove(permission); }
-                }),
+                onChanged: permission == 'charging.stop' && !desired.contains('charging.read')
+                  ? null : (value) => update(() {
+                    if (value == true) {
+                      desired.add(permission);
+                    } else {
+                      desired.remove(permission);
+                      if (permission == 'charging.read') desired.remove('charging.stop');
+                    }
+                  }),
               ),
             ],
           )),
@@ -974,9 +980,20 @@ class _VendorInviteState extends State<VendorInviteView>
             CheckboxListTile(
               value: scopes.contains(p),
               title: Text(t(p)),
-              onChanged: busy || uncertain
+              onChanged: busy || uncertain ||
+                  (p == 'charging.stop' && !scopes.contains('charging.read'))
                   ? null
-                  : (v) { if (editable()) setState(() => v == true ? scopes.add(p) : scopes.remove(p)); },
+                  : (v) {
+                      if (!editable()) return;
+                      setState(() {
+                        if (v == true) {
+                          scopes.add(p);
+                        } else {
+                          scopes.remove(p);
+                          if (p == 'charging.read') scopes.remove('charging.stop');
+                        }
+                      });
+                    },
             ),
           FilledButton(
             onPressed: busy || uncertain ? null : () { if (editable()) send(); },

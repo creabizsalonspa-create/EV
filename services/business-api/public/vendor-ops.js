@@ -30,9 +30,16 @@ window.createVendorWorkspace = ({
         ({
             "company.read": "Read company",
             "charging.read": "Read recorded charging sessions",
+            "charging.stop": "Request a simulator stop",
             "inventory.read": "Read inventory",
             "inventory.write": "Manage inventory",
         })[value] || value;
+    function validateStaffPermissions(values) {
+        if (!values.length) throw new Error("Choose at least one staff permission.");
+        if (values.includes("charging.stop") && !values.includes("charging.read")) {
+            throw new Error(EvLocale.text("Simulator stop access requires recorded session read access."));
+        }
+    }
     function permissions(values) {
         const list = document.createElement("ul");
         for (const value of values)
@@ -604,7 +611,8 @@ window.createVendorWorkspace = ({
                         label: "Staff access",
                         checks: {
                             "company.read": "Read company",
-            "charging.read": "Read recorded charging sessions",
+                            "charging.read": "Read recorded charging sessions",
+                            "charging.stop": "Request a simulator stop",
                             "inventory.read": "Read inventory",
                             "inventory.write": "Manage inventory",
                         },
@@ -612,10 +620,7 @@ window.createVendorWorkspace = ({
                 ],
                 async (v, f, e) => {
                     const permissions = v.permissions;
-                    if (!permissions.length)
-                        throw new Error(
-                            "Choose at least one staff permission.",
-                        );
+                    validateStaffPermissions(permissions);
                     await api(
                         base + "companies/" + company.id + "/staff",
                         "POST",
@@ -654,17 +659,15 @@ window.createVendorWorkspace = ({
                                     label: "New staff permissions",
                                     checks: {
                                         "company.read": "Read company",
-            "charging.read": "Read recorded charging sessions",
+                                        "charging.read": "Read recorded charging sessions",
+                                        "charging.stop": "Request a simulator stop",
                                         "inventory.read": "Read inventory",
                                         "inventory.write": "Manage inventory",
                                     },
                                 },
                             ],
                             async (v, f, eventEpoch) => {
-                                if (!v.permissions.length)
-                                    throw new Error(
-                                        "Choose at least one staff permission.",
-                                    );
+                                validateStaffPermissions(v.permissions);
                                 if (
                                     !confirm(
                                         EvLocale.text(
