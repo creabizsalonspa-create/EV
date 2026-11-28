@@ -182,6 +182,31 @@ class CorporateBillingTest extends TestCase
         $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
+    public function test_unallocated_corporate_receipt_cannot_claim_a_collected_statement(): void
+    {
+        $a = $this->agreement();
+        $claim = $this->approved($a, $this->invoice());
+        $s = $this->issue($a, [$claim])->assertCreated()->json('statement');
+        DB::table('corporate_receipts')->insert([
+            'statement_id' => $s['id'], 'actor_id' => $this->owner->id,
+            'number' => 'SIM-CORP-UNALLOCATED', 'amount_minor' => $s['total_minor'],
+            'request_key' => hash('sha256', 'unallocated-corporate-receipt'),
+            'fingerprint' => hash('sha256', 'unallocated-corporate-source'),
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($this->owner)->getJson($this->url('statements/'.$s['id']))->assertConflict();
+        $this->get($this->url('statements/'.$s['id'].'/export'))->assertConflict();
+        $this->getJson($this->url('agreements/'.$a['id'].'/statements'))->assertConflict();
+        $this->postJson($this->url('statements/'.$s['id'].'/simulate-payment'), [
+            'idempotency_key' => 'blocked-unallocated-receipt',
+        ])->assertConflict();
+        $this->assertDatabaseCount('corporate_receipts', 1);
+        $this->assertDatabaseCount('corporate_receipt_payments', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_journals', $before);
+    }
+
     public function test_complete_claim_consolidation_cost_center_statement_and_atomic_canonical_simulated_receipts(): void
     {
         $a = $this->agreement();
@@ -530,6 +555,57 @@ class CorporateBillingTest extends TestCase
         $foreign = Fleet::create(['name' => 'Foreign fleet', 'country' => 'AE', 'owner_id' => $this->owner->id]);
         $center = DB::table('cost_centers')->insertGetId(['fleet_id' => $foreign->id, 'code' => 'FOREIGN', 'name' => 'Private', 'created_at' => now(), 'updated_at' => now()]);
         $this->actingAs($this->driver)->postJson($this->url('agreements/'.$a['id'].'/claims'), ['invoice_id' => $invoice->id, 'cost_center_id' => $center, 'idempotency_key' => 'foreign-center'])->assertNotFound();
+    }
+
+    public function test_internal_corporate_service_cannot_mutate_or_replay_as_suspended_accounts(): void
+    {
+        $agreement = $this->agreement();
+        $claim = $this->approved($agreement, $this->invoice());
+        $statement = $this->issue($agreement, [$claim])->assertCreated()->json('statement');
+        $service = app(CorporateBilling::class);
+        $freshInvoice = $this->invoice();
+        $counts = [];
+        foreach (['corporate_agreements', 'corporate_agreement_acceptances', 'corporate_claims',
+            'corporate_claim_decisions', 'corporate_statements', 'corporate_receipts',
+            'finance_journals', 'finance_payments'] as $table) {
+            $counts[$table] = DB::table($table)->count();
+        }
+
+        $operations = [
+            [$this->admin, fn () => $service->publish($this->fleet->id, $this->admin->id, [
+                'currency' => 'AED', 'minor_units' => 2, 'credit_limit_minor' => 10000,
+                'payment_terms_days' => 30, 'billing_day' => 1, 'effective_from' => now()->addYears(2),
+                'expires_at' => now()->addYears(3), 'legal_name' => 'Future contract',
+                'terms' => 'Synthetic test contract', 'idempotency_key' => 'suspended-publish',
+            ])],
+            [$this->owner, fn () => $service->accept($agreement['id'], $this->owner->id)],
+            [$this->driver, fn () => $service->claim($agreement['id'], $this->driver->id, [
+                'invoice_id' => $freshInvoice->id, 'cost_center_id' => $this->center,
+                'idempotency_key' => 'suspended-claim',
+            ])],
+            [$this->owner, fn () => $service->decide($claim['id'], $this->owner->id, 'approved', 'Authorized business charging')],
+            [$this->owner, fn () => $service->issue($agreement['id'], $this->owner->id, [
+                'period' => now()->format('Y-m'), 'claim_ids' => [$claim['id']], 'idempotency_key' => 'statement',
+            ])],
+            [$this->owner, fn () => $service->simulatePayment($statement['id'], $this->owner->id, 'suspended-payment')],
+        ];
+        foreach ($operations as [$account, $operation]) {
+            DB::table('users')->where('id', $account->id)->update(['account_status' => 'suspended']);
+            try {
+                $operation();
+                $this->fail('Suspended account reached the corporate service.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+            DB::table('users')->where('id', $account->id)->update(['account_status' => 'active']);
+        }
+        foreach ($counts as $table => $count) {
+            $this->assertDatabaseCount($table, $count);
+        }
+        $this->assertSame($agreement['id'], $service->accept($agreement['id'], $this->owner->id)->id);
+        $this->assertSame($statement['id'], $service->issue($agreement['id'], $this->owner->id, [
+            'period' => now()->format('Y-m'), 'claim_ids' => [$claim['id']], 'idempotency_key' => 'statement',
+        ])->id);
     }
 
     public function test_only_administrator_can_publish_and_only_owner_can_accept(): void
