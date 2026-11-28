@@ -92,6 +92,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
 Route::get('/api/admin/operations/map', [AdminOperationsMapController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/operational-health', [AdminOperationalHealthController::class, 'show'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::post('/api/admin/operational-health/acknowledge', [AdminOperationalHealthController::class, 'acknowledge'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::put('/api/admin/operational-health/subscription', [AdminOperationalHealthController::class, 'updateSubscription'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
 Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);

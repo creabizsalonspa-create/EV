@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\InboxNotification;
 use App\Models\User;
+use App\Services\Notifications\EmailNotices;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use Carbon\CarbonImmutable;
@@ -111,6 +113,61 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_new_incident_notifies_only_current_opted_in_admin_once_per_opening(): void
+    {
+        $url = '/api/admin/operational-health/subscription';
+        $admin = User::factory()->create(['role' => 'admin']);
+        $otherAdmin = User::factory()->create(['role' => 'admin']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $this->putJson($url, ['enabled' => true])->assertUnauthorized();
+        $this->actingAs($vendor)->putJson($url, ['enabled' => true])->assertForbidden();
+        $this->actingAs($admin)->putJson($url, ['enabled' => true, 'user_id' => $otherAdmin->id])->assertUnprocessable();
+        config(['notification_email.enabled' => true, 'app.url' => 'https://platform.example',
+            'mail.default' => 'array', 'mail.from.address' => 'notices@example.test']);
+        $this->putJson('/api/notifications/email', ['enabled' => true, 'confirmed' => true, 'expected_revision' => '0'])->assertOk();
+        $this->putJson($url, ['enabled' => true])->assertOk()->assertJsonPath('enabled', true);
+        $this->putJson($url, ['enabled' => true])->assertOk()->assertJsonPath('enabled', true);
+        $this->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('incidents.inbox_alerts_enabled', true);
+        $this->actingAs($otherAdmin)->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('incidents.inbox_alerts_enabled', false);
+
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $alerts = InboxNotification::where('kind', InboxNotification::OPERATIONAL_INCIDENT_OPENED);
+        $alert = (clone $alerts)->sole();
+        $this->assertSame($admin->id, $alert->user_id);
+        $this->assertSame(['condition_key' => 'scheduler_stale', 'transition_revision' => 1], $alert->metadata);
+        $this->assertSame(0, app(EmailNotices::class)->prepare());
+        $this->assertSame(0, InboxNotification::visibleTo($otherAdmin)->whereKey($alert->id)->count());
+
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame(2, (clone $alerts)->count());
+        $this->assertSame(3, (clone $alerts)->latest('id')->first()->metadata['transition_revision']);
+        $this->actingAs($admin)->putJson($url, ['enabled' => false])->assertOk()->assertJsonPath('enabled', false);
+        $this->putJson($url, ['enabled' => false])->assertOk();
+        $this->assertSame(2, DB::table('audit_events')->whereIn('action', [
+            'operations.incident_alerts_enabled', 'operations.incident_alerts_disabled',
+        ])->count());
+        $this->putJson($url, ['enabled' => true])->assertOk();
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer', 'auth_epoch' => 1]);
+        $this->assertSame(0, InboxNotification::visibleTo($admin->fresh())->whereKey($alert->id)->count());
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'admin', 'auth_epoch' => 2]);
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame(2, $alerts->count());
+        $this->assertDatabaseCount('notification_email_outbox', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_unknown_startup_does_not_fabricate_alerts_or_recovery(): void
     {
         $scanner = app(OperationalIncidents::class);
@@ -165,6 +222,35 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseHas('operational_incident_states', ['condition_key' => 'scheduler_stale', 'state' => 'open', 'transitions' => 3]);
         $this->assertSame([], $scanner->summary()['resolved']);
         $this->assertDatabaseCount('operational_incident_events', 6);
+    }
+
+    public function test_queue_backlog_uses_configured_count_and_age_boundaries_and_exposes_effective_thresholds(): void
+    {
+        config(['operational_health.queue_backlog_ready_count' => '2',
+            'operational_health.queue_backlog_age_seconds' => 60]);
+        $scanner = app(OperationalIncidents::class);
+        $health = app(OperationalHealth::class);
+        $enqueue = static fn () => DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => 'PRIVATE-QUEUE-PAYLOAD', 'attempts' => 0,
+            'reserved_at' => null, 'available_at' => now()->timestamp - 59, 'created_at' => now()->timestamp - 59,
+        ]);
+
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $enqueue();
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->travel(1)->second();
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertDatabaseHas('operational_incident_states', ['condition_key' => 'queue_backlog', 'state' => 'open']);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/admin/operational-health')
+            ->assertOk()->assertJsonPath('incidents.queue_backlog_thresholds', ['ready_count' => 2, 'age_seconds' => 60])
+            ->assertDontSee('PRIVATE-QUEUE-PAYLOAD');
+
+        config(['operational_health.queue_backlog_ready_count' => '1e2',
+            'operational_health.queue_backlog_age_seconds' => 3601]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame(['ready_count' => 25, 'age_seconds' => 300], $scanner->summary()['queue_backlog_thresholds']);
     }
 
     public function test_private_payloads_are_never_duplicated_into_incidents_and_no_work_is_retried(): void

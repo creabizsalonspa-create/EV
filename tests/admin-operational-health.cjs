@@ -149,3 +149,49 @@ test('local review escalation shows overdue and unknown without external deliver
         click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
     }
 });
+
+test('Admin can opt in for new inbox alerts explicitly and refreshes saved state', async () => {
+    const local = fixture(), calls = [], data = report();
+    data.incidents = {
+        store_readable: true, monitoring_enabled: true, automatic_retry: false,
+        external_alert_delivery: false, production_recovery_verified: false,
+        inbox_alerts_enabled: false, open: [], recent_events: [],
+    };
+    local.setActor({role: 'admin'}, async (path, method, payload) => {
+        calls.push([path, method]);
+        if (method === 'PUT') {
+            assert.equal(payload.enabled, true);
+            data.incidents.inbox_alerts_enabled = true;
+            return {enabled: true};
+        }
+        return data;
+    });
+    click(local);
+    await flush();
+    const enable = nodes(local.root, 'button').find(button => button.textContent === 'Turn on incident inbox alerts');
+    assert(enable);
+    await enable.onclick();
+    assert.deepEqual(calls, [
+        ['admin/operational-health', 'GET'], ['admin/operational-health/subscription', 'PUT'],
+        ['admin/operational-health', 'GET'],
+    ]);
+    assert(local.root.textContent.includes('Turn off incident inbox alerts'));
+});
+
+
+test('effective queue backlog thresholds are localized and invalid policy is rejected', async () => {
+    for (const ar of [false, true]) {
+        const f = fixture(ar), data = report();
+        data.incidents = {store_readable: true, monitoring_enabled: true, automatic_retry: false,
+            external_alert_delivery: false, production_recovery_verified: false, open: [], recent_events: [],
+            queue_backlog_thresholds: {ready_count: 2, age_seconds: 60}};
+        f.setActor({role: 'admin'}, async () => data);
+        click(f);
+        await flush();
+        assert(f.root.textContent.includes(ar ? 'حد تنبيه تراكم قائمة الانتظار' : 'Queue backlog alert threshold'));
+        data.incidents.queue_backlog_thresholds.age_seconds = 59;
+        click(f);
+        await flush();
+        assert(f.root.textContent.includes(ar ? 'تعذر تحميل' : 'could not load'));
+    }
+});
