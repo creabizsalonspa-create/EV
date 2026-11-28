@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\InboxNotification;
 use App\Models\User;
+use App\Services\Notifications\EmailNotices;
 use App\Services\Operations\IncidentAlertRouting;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
@@ -57,6 +58,34 @@ class IncidentAlertRoutingTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
         $this->assertDatabaseCount('charger_commands', 0);
         Mail::assertNothingSent();
+    }
+
+    public function test_local_alerts_do_not_trigger_email_even_with_independent_email_consent_and_stale_scans_do_not_route(): void
+    {
+        config(['operational_health.enabled' => true, 'notification_email.enabled' => true,
+            'app.url' => 'https://platform.example', 'mail.default' => 'array', 'mail.from.address' => 'notices@example.test']);
+        Mail::fake();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->putJson('/api/notifications/email', [
+            'enabled' => true, 'confirmed' => true, 'expected_revision' => '0',
+        ])->assertOk();
+        $this->putJson('/api/admin/operational-health/alert-preference', ['enabled' => true])->assertOk();
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $routing = app(IncidentAlertRouting::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->travel(151)->seconds();
+        $this->assertSame(0, $routing->run()['notices_created']);
+        $scanner->scan($health);
+        $this->assertSame(1, $routing->run()['notices_created']);
+        $email = app(EmailNotices::class);
+        $this->assertSame(0, $email->prepare());
+        $this->assertDatabaseCount('notification_email_outbox', 0);
+        Mail::assertNothingSent();
+        InboxNotification::create(['user_id' => $admin->id, 'kind' => 'other.account_event']);
+        $this->assertSame(1, $email->prepare());
     }
 
     public function test_acknowledged_incident_and_disabled_monitoring_do_not_route(): void
