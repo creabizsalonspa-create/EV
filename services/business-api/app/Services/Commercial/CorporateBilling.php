@@ -191,12 +191,12 @@ class CorporateBilling
                 $member = DB::table('fleet_members')->where('fleet_id', $a->fleet_id)->where('user_id', $actor)->lockForUpdate()->first();
                 abort_unless($member && $member->status === 'active', 404);
             }
-            $this->active($a);
             $key = $this->key($actor, $v['idempotency_key']);
             $hash = $this->hash([$agreementId, (int) $v['invoice_id'], (int) $v['cost_center_id']]);
             if ($old = $this->replay('corporate_claims', $key, $hash)) {
                 return $old;
             }
+            $this->active($a);
             $invoice = Invoice::whereKey($v['invoice_id'])->lockForUpdate()->firstOrFail();
             abort_unless((int) $invoice->user_id === $actor, 404);
             $center = DB::table('cost_centers')->where('id', $v['cost_center_id'])->where('fleet_id', $a->fleet_id)->first();
@@ -238,7 +238,6 @@ class CorporateBilling
             User::whereKey($actor)->lockForUpdate()->firstOrFail();
             $a = $this->agreement($agreementId);
             $fleet = $this->lockManager((int) $a->fleet_id, $actor);
-            $this->active($a);
             $ids = array_map('intval', $v['claim_ids']);
             sort($ids);
             abort_unless(count($ids) === count(array_unique($ids)), 422, 'Duplicate claim IDs.');
@@ -247,6 +246,7 @@ class CorporateBilling
             if ($old = $this->replay('corporate_statements', $key, $hash)) {
                 return $old;
             }
+            $this->active($a);
             $subtotal = 0;
             $tax = 0;
             $total = 0;
