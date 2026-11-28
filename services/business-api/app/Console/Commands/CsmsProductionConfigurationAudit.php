@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Charging\OperationsTrustPolicy;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -52,23 +53,7 @@ final class CsmsProductionConfigurationAudit extends Command
 
     private function pinnedKeys(): bool
     {
-        $keys = config('csms.operations_oauth_public_keys');
-        if (! is_array($keys) || count($keys) < 1 || count($keys) > 32) {
-            return false;
-        }
-        foreach ($keys as $kid => $pem) {
-            if (! is_string($kid) || ! preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $kid)
-                || ! is_string($pem) || strlen($pem) > 16384 || ! str_starts_with($pem, '-----BEGIN PUBLIC KEY-----')) {
-                return false;
-            }
-            $key = openssl_pkey_get_public($pem);
-            $details = $key ? openssl_pkey_get_details($key) : false;
-            if (! $details || $details['type'] !== OPENSSL_KEYTYPE_RSA || $details['bits'] < 2048) {
-                return false;
-            }
-        }
-
-        return true;
+        return OperationsTrustPolicy::keys(config('csms.operations_oauth_public_keys'));
     }
 
     private function pinsConfigured(): bool

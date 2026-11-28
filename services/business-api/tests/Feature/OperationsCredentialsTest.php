@@ -55,6 +55,40 @@ class OperationsCredentialsTest extends TestCase
         Http::assertSent(fn (Request $r) => $r->url() === 'https://identity.example.test/token' && $r['grant_type'] === 'client_credentials' && $r['scope'] === 'csms:operations' && $r->hasHeader('Authorization', 'Basic '.base64_encode('business-operations:'.str_repeat('private-secret-', 4))));
     }
 
+    public function test_invalid_keyring_never_sends_oauth_client_secret_even_if_one_key_is_valid(): void
+    {
+        $pem = openssl_pkey_get_details(self::$key)['key'];
+        foreach ([[], ['current' => $pem, 'invalid' => 'not a key'], ['bad key' => $pem], ['current' => $pem.$pem]] as $keys) {
+            config(['csms.operations_oauth_public_keys' => $keys]);
+            try {
+                app(OperationsCredentials::class)->token('https://csms.example.test');
+                $this->fail('Invalid pinned keyring must block credential acquisition.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_duplicate_provider_envelope_members_are_rejected_even_with_valid_signed_last_token(): void
+    {
+        $jwt = $this->jwt();
+        foreach (['"access_token":"discarded",', '"token_\u0074ype":"invalid",', '"metadata":{"x":1,"\u0078":2},'] as $prefix) {
+            Http::fake(['https://identity.example.test/token' => Http::response(
+                '{'.$prefix.'"token_type":"Bearer","access_token":'.json_encode($jwt, JSON_THROW_ON_ERROR).'}',
+                200, ['Content-Type' => 'application/json']
+            )]);
+            try {
+                app(OperationsCredentials::class)->token('https://csms.example.test');
+                $this->fail('Ambiguous provider token envelope accepted.');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+                $this->assertStringNotContainsString($jwt, $e->getMessage());
+            }
+        }
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dev/token') || str_contains($r->url(), '/ocpp/'));
+    }
+
     public static function duplicateJwtMembers(): array
     {
         return [
@@ -97,7 +131,7 @@ class OperationsCredentialsTest extends TestCase
     public static function invalidClaims(): array
     {
         return [
-            'issuer' => [['iss' => 'https://other.test']], 'audience' => [['aud' => 'https://other.test']], 'audience_array' => [['aud' => ['https://csms.example.test']]], 'subject' => [['sub' => 'other-service']], 'tenant' => [['tenantId' => 2]], 'string_tenant' => [['tenantId' => '1']], 'no_admin' => [['roles' => ['viewer']]], 'no_scope' => [['scope' => 'other:operations']], 'scope_substring' => [['scope' => 'xcsms:operations']], 'string_expiry' => [['exp' => '9999999999']], 'string_issued' => [['iat' => '1']], 'future_not_before' => [['nbf' => 9999999999]], 'null_not_before' => [['nbf' => null]], 'long_lifetime' => [['exp' => 9999999999]],
+            'issuer' => [['iss' => 'https://other.test']], 'audience' => [['aud' => 'https://other.test']], 'audience_array' => [['aud' => ['https://csms.example.test']]], 'subject' => [['sub' => 'other-service']], 'tenant' => [['tenantId' => 2]], 'string_tenant' => [['tenantId' => '1']], 'no_admin' => [['roles' => ['viewer']]], 'duplicate_roles' => [['roles' => ['admin', 'admin']]], 'mixed_roles' => [['roles' => ['admin', 1]]], 'duplicate_scope' => [['scope' => 'csms:operations csms:operations']], 'empty_scope_token' => [['scope' => 'csms:operations  read']], 'no_scope' => [['scope' => 'other:operations']], 'scope_substring' => [['scope' => 'xcsms:operations']], 'string_expiry' => [['exp' => '9999999999']], 'string_issued' => [['iat' => '1']], 'future_not_before' => [['nbf' => 9999999999]], 'null_not_before' => [['nbf' => null]], 'long_lifetime' => [['exp' => 9999999999]],
         ];
     }
 
