@@ -7,6 +7,7 @@ import 'financial_operation_store.dart';
 import 'financial_documents.dart';
 import 'corporate_cycle_review.dart';
 import 'hosted_checkout.dart';
+import 'reservation_times.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
 const corporateEn = {
@@ -569,7 +570,10 @@ class _CorporateRecordsState extends State<CorporateRecordsView> {
                           title: Text(t('selection')),
                         ),
                     ] else ...[
-                      Text('${row['period']} · ${t('due')}: ${row['due_at']}'),
+                      Text(
+                        '${row['period']} · ${t('due')}: '
+                        '${serverEventTime(c, row['due_at'])}',
+                      ),
                       OutlinedButton(
                         onPressed: busy
                             ? null
@@ -1096,7 +1100,9 @@ class _CorporateStatementState extends State<CorporateStatementView> {
             Text(
               '${t('total')}: ${nativeFinancialAmount(c, Map<String, dynamic>.from(data!['statement'] as Map), 'total_minor')}',
             ),
-            Text('${t('due')}: ${data!['statement']['due_at']}'),
+            Text(
+              '${t('due')}: ${serverEventTime(c, data!['statement']['due_at'])}',
+            ),
             OutlinedButton(
               key: const Key('corporate-statement-document'),
               onPressed: busy
@@ -1134,7 +1140,7 @@ class _CorporateStatementState extends State<CorporateStatementView> {
                         }, 'amount_minor'),
                       ),
                       Text('${data!['receipt']['evidence']}'),
-                      Text('${data!['receipt']['created_at']}'),
+                      Text(serverEventTime(c, data!['receipt']['created_at'])),
                     ],
                   ),
                 ),

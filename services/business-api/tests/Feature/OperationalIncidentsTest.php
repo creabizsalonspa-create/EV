@@ -24,6 +24,48 @@ class OperationalIncidentsTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-15T12:00:00Z'));
     }
 
+    public function test_local_review_escalation_tracks_exact_target_acknowledgement_and_recurrence(): void
+    {
+        config(['operational_health.review_due_minutes' => '5']);
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('scheduler');
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->travel(299)->seconds();
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->travel(1)->seconds();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson('/api/admin/operational-health')
+            ->assertOk()->assertJsonPath('incidents.review_policy.target_minutes', 5)
+            ->assertJsonPath('incidents.review_policy.external_actions', false)
+            ->assertJsonPath('incidents.open.0.review_escalation.state', 'overdue')
+            ->assertJsonPath('incidents.open.0.review_escalation.age_seconds', 300);
+        $this->postJson('/api/admin/operational-health/acknowledge', [
+            'condition_key' => 'scheduler_stale', 'transition_revision' => 1,
+        ])->assertOk();
+        $this->assertSame('acknowledged', $scanner->summary()['open'][0]->review_escalation['state']);
+        $health->record('scheduler');
+        $scanner->scan($health);
+        $this->travel(180)->seconds();
+        $scanner->scan($health);
+        $this->assertSame('pending', $scanner->summary()['open'][0]->review_escalation['state']);
+        foreach (['0', '121', '5.0', '05', true, ['5']] as $invalid) {
+            config(['operational_health.review_due_minutes' => $invalid]);
+            $report = $scanner->summary();
+            $this->assertNull($report['review_policy']['target_minutes']);
+            $this->assertSame(['state' => 'unknown', 'age_seconds' => null], $report['open'][0]->review_escalation);
+        }
+        config(['operational_health.review_due_minutes' => '5', 'operational_health.enabled' => false]);
+        $this->assertSame('unknown', $scanner->summary()['open'][0]->review_escalation['state']);
+        $this->assertDatabaseCount('operational_incident_events', 3);
+        $this->assertDatabaseCount('operational_incident_acknowledgements', 1);
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_operator_review_is_occurrence_bound_idempotent_and_never_resolves_incidents(): void
     {
         $health = app(OperationalHealth::class);
