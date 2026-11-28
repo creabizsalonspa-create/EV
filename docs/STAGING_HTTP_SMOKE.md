@@ -23,9 +23,9 @@ Replace the sample hostname with the **real approved staging DNS name**. The TLS
 - `GET /up` returns 200.
 - `GET /` returns an HTML page with CSP and nosniff headers.
 - `GET /api/stations` and `GET /api/v1/stations` return successful JSON pagination with `data` and nonnegative integer `total`.
-- Anonymous `GET /api/me`, `GET /api/v1/me` and `GET /api/admin/overview` all deny access with 401/403, rather than exposing account/Admin content.
+- Anonymous `GET /api/me`, `GET /api/v1/me` and `GET /api/admin/overview` all deny access with 401/403 and a generic JSON denial message, without additional account, debug or trace fields. A denial status alone is not sufficient evidence.
 
-The script issues exactly these seven unauthenticated GET requests, never includes credentials/cookies, does not follow redirects, caps each response to 512 KiB, and times out each request after 6.5 seconds. Failure output contains only route names and coarse status information, not response bodies. Every connection is forced to loopback. Tests use a temporary Node HTTP server, not actual staging or production.
+The script issues exactly these seven unauthenticated GET requests, never includes credentials/cookies, does not follow redirects, caps each response to 512 KiB, and enforces a 6.5-second absolute per-request deadline (including connection, TLS negotiation and body transfer), rejects incomplete responses, and also retains the socket idle timeout. Failure output contains only route names and coarse status information, not response bodies. Every connection is forced to loopback. Tests use a temporary Node HTTP server, not actual staging or production.
 
 ## Evidence and limits
 

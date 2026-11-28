@@ -48,35 +48,69 @@ function parseArgs(args, env = process.env) {
   return { url: u, tlsLoopback };
 }
 
-function receive({ url, tlsLoopback }, pathname) {
+function receive({ url, tlsLoopback }, pathname, deadlineMs = timeoutMs) {
   return new Promise((resolve, reject) => {
+    // An idle socket timeout alone can be extended indefinitely by a
+    // trickling peer. This absolute deadline also covers connect and TLS.
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > timeoutMs) {
+      reject(Error('Invalid request deadline'));
+      return;
+    }
+    let timer, settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(value);
+    };
     const client = url.protocol === 'https:' ? https : http;
     const req = client.request({
-      hostname: url.hostname,
       port: Number(url.port),
       path: pathname,
       method: 'GET',
       agent: false,
-      lookup: (_hostname, _opts, cb) => cb(null, '127.0.0.1', 4),
+      // Pin DNS names to loopback even when Node requests all addresses.
+      // Numeric IPv6 loopback remains ::1; neither mode consults public DNS.
+      hostname: url.hostname === '[::1]' ? '::1' : url.hostname,
+      lookup: (_hostname, opts, cb) => opts?.all
+        ? cb(null, [{ address: '127.0.0.1', family: 4 }])
+        : cb(null, '127.0.0.1', 4),
       ...(tlsLoopback ? { servername: url.hostname } : {}),
-      timeout: timeoutMs,
+      timeout: deadlineMs,
+      ...(url.protocol === 'https:' ? { rejectUnauthorized: true } : {}),
       headers: { Accept: 'application/json, text/html;q=0.5', 'Cache-Control': 'no-store', 'User-Agent': 'ev-private-staging-smoke/1' },
     }, res => {
       const chunks = [];
       let total = 0;
+      const length = res.headers['content-length'];
+      if (length !== undefined && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
+        req.destroy(Error('Response limit exceeded'));
+        finish(Error('Response limit exceeded'));
+        return;
+      }
+      res.on('aborted', () => finish(Error('Incomplete response')));
       res.on('data', chunk => {
         total += chunk.length;
         if (total > maxBytes) {
           req.destroy(Error('Response limit exceeded'));
+          finish(Error('Response limit exceeded'));
           return;
         }
-        chunks.push(chunk);
+        if (!settled) chunks.push(chunk);
       });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
-      res.on('error', reject);
+      res.on('end', () => {
+        if (!res.complete) return finish(Error('Incomplete response'));
+        finish(null, { status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') });
+      });
+      res.on('error', error => finish(error));
     });
+    timer = setTimeout(() => {
+      req.destroy(Error('Absolute request deadline exceeded'));
+      finish(Error('Absolute request deadline exceeded'));
+    }, deadlineMs);
     req.on('timeout', () => req.destroy(Error('Timeout')));
-    req.on('error', reject);
+    req.on('error', error => finish(error));
     req.end();
   });
 }
@@ -84,6 +118,13 @@ function validate(check, response) {
   const { status, headers, body } = response;
   if (check.kind === 'private') {
     if (status !== 401 && status !== 403) throw Error('Anonymous private endpoint must deny access');
+    if (!/^application\/json(?:\s*;|$)/i.test(String(headers?.['content-type'] || '')))
+      throw Error('Private denial is not JSON');
+    let data;
+    try { data = JSON.parse(body); } catch { throw Error('Invalid private denial'); }
+    const messages = status === 401 ? ['Unauthenticated.'] : ['Forbidden', 'Forbidden.', 'This action is unauthorized.'];
+    if (!data || Array.isArray(data) || Object.keys(data).length !== 1 ||
+        !messages.includes(data.message)) throw Error('Private denial contains unverified content');
     return;
   }
   if (status !== 200) throw Error('Unexpected non-200 response');
@@ -96,7 +137,7 @@ function validate(check, response) {
     if (!String(headers['content-type'] || '').includes('application/json')) throw Error('Catalog is not JSON');
     let data;
     try { data = JSON.parse(body); } catch { throw Error('Catalog is not valid JSON'); }
-    if (!data || !Array.isArray(data.data) || !Number.isInteger(data.total) || data.total < 0) {
+    if (!data || !Array.isArray(data.data) || !Number.isSafeInteger(data.total) || data.total < 0 || data.data.length > data.total) {
       throw Error('Public catalog pagination contract changed');
     }
   }
