@@ -26,6 +26,27 @@ final class ContractAuthorizationGate
         return self::validReview($row, $provider, $owner, CarbonImmutable::now('UTC'));
     }
 
+    /** In-memory evidence fingerprint for new negotiation only. A policy
+     * toggle or replacement review retires an incomplete negotiation. */
+    public static function negotiationAuthority(OcpiProvider $provider): ?string
+    {
+        if (! self::required()) {
+            return null;
+        }
+        $owner = User::find($provider->owner_id);
+        $row = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
+            ->orderByDesc('revision')->first();
+        if (! $owner || ! self::validReview($row, $provider, $owner, CarbonImmutable::now('UTC'))) {
+            throw new OcpiException('A current internal contract review is required for negotiation.');
+        }
+
+        return hash('sha256', json_encode([
+            $provider->id, $provider->owner_id, $provider->connection_key,
+            $row->revision, $row->reviewer_id, $row->reference_id,
+            $row->evidence_sha256, $row->valid_until, $row->payload_hash,
+        ], JSON_THROW_ON_ERROR));
+    }
+
     public static function validReview(?object $row, OcpiProvider $provider, User $owner, CarbonImmutable $at): bool
     {
         if (! $row || (int) $provider->owner_id !== (int) $owner->id
