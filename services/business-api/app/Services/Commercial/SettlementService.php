@@ -2,8 +2,10 @@
 
 namespace App\Services\Commercial;
 
+use App\Models\Finance\Invoice;
 use App\Models\User;
 use App\Services\Commercial\Payments\CorporateHostedCollection;
+use App\Services\Finance\InvoiceReconciliationAudit;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -44,10 +46,69 @@ class SettlementService
         $historical = DB::table('finance_invoices')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units')
             ->merge(DB::table('commercial_adjustments')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units'))
             ->merge(DB::table('commercial_settlements')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units'));
-        $units = $configured->merge($historical)->map(fn ($v) => (int) $v)->unique();
+        $units = $configured->merge($historical)->map(fn ($v) => self::exactMinor($v))->unique();
         abort_unless($configured->isNotEmpty() && $units->count() === 1 && $units->first() >= 0 && $units->first() <= 3, 409, 'Currency precision requires reconciliation.');
 
         return $units->first();
+    }
+
+    private static function requireInvoiceBounds(int $total, int $subtotal, int $vendor, int $commission, int $tax, int $paid, int $credited, int $refund, int $vendorRefund, int $commissionRefund, int $taxRefund): void
+    {
+        abort_unless(self::addMinor($vendor, $commission) === $subtotal
+            && self::addMinor($subtotal, $tax) === $total
+            && self::addMinor($paid, $credited) <= $total
+            && $refund <= $paid
+            && $vendorRefund <= $vendor && $commissionRefund <= $commission && $taxRefund <= $tax
+            && self::addMinor(self::addMinor($vendorRefund, $commissionRefund), $taxRefund) === $refund,
+            409, 'Settlement invoice amounts require reconciliation.');
+    }
+
+    /** Validate individual receipt linkage before aggregating signed ledger facts. */
+    private function receiptTotal(object $invoice, string $table, string $kind): int
+    {
+        $total = 0;
+        $receipts = DB::table($table.' as p')->leftJoin('finance_journals as j', 'j.id', '=', 'p.journal_id')
+            ->where('p.invoice_id', $invoice->id)->select('p.amount_minor', 'p.journal_id', 'p.evidence',
+                'j.invoice_id as journal_invoice_id', 'j.kind as journal_kind', 'j.currency as journal_currency',
+                'j.amount_minor as journal_amount_minor')->orderBy('p.id')->cursor();
+        $seen = [];
+        foreach ($receipts as $receipt) {
+            $amount = self::exactMinor($receipt->amount_minor);
+            $evidence = $kind === 'unpaid_credit' ? 'SIMULATED_NONCASH' : 'SIMULATED';
+            abort_unless($amount > 0 && $receipt->evidence === $evidence && $receipt->journal_invoice_id !== null
+                && (int) $receipt->journal_invoice_id === (int) $invoice->id
+                && $receipt->journal_kind === $kind && $receipt->journal_currency === $invoice->currency
+                && self::exactMinor($receipt->journal_amount_minor) === $amount
+                && ! isset($seen[$receipt->journal_id]), 409, 'Settlement receipt evidence requires reconciliation.');
+            $seen[$receipt->journal_id] = true;
+            $total = self::addMinor($total, $amount);
+        }
+        abort_unless(DB::table('finance_journals')->where('invoice_id', $invoice->id)
+            ->where('kind', $kind)->count() === count($seen), 409, 'Settlement receipt evidence requires reconciliation.');
+
+        return $total;
+    }
+
+    /** Only a separately approved, exactly posted adjustment affects payables. */
+    private function approvedAdjustmentAmount(object $adjustment): int
+    {
+        $amount = self::exactMinor($adjustment->amount_minor, true);
+        abort_unless($amount !== 0 && (int) $adjustment->created_by !== (int) $adjustment->approved_by,
+            409, 'Settlement adjustment approval requires reconciliation.');
+        $absolute = abs($amount);
+        $expected = [
+            'vendor_payable:'.$adjustment->vendor_id => $amount > 0 ? [0, $absolute] : [$absolute, 0],
+            'platform_adjustment' => $amount > 0 ? [$absolute, 0] : [0, $absolute],
+        ];
+        foreach (DB::table('commercial_adjustment_entries')->where('adjustment_id', $adjustment->id)->get() as $entry) {
+            abort_unless(isset($expected[$entry->account])
+                && $expected[$entry->account] === [self::exactMinor($entry->debit_minor), self::exactMinor($entry->credit_minor)],
+                409, 'Settlement adjustment journal requires reconciliation.');
+            unset($expected[$entry->account]);
+        }
+        abort_unless($expected === [], 409, 'Settlement adjustment journal requires reconciliation.');
+
+        return $amount;
     }
 
     public function balances(int $vendor, string $currency, int $holdDays = 0, bool $lock = false): array
@@ -62,16 +123,27 @@ class SettlementService
         $tax = 0;
         $refunded = 0;
         foreach ($query->get() as $invoice) {
-            $paid = self::exactMinor(DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor'));
+            // Settlement is simulation-only. Reuse the canonical read-only
+            // audit, including exact account allocation and raw source checks,
+            // instead of implementing a second chart of accounts here.
+            abort_unless($invoice->evidence === 'SIMULATED', 409, 'Settlement invoice provenance requires reconciliation.');
+            $audit = app(InvoiceReconciliationAudit::class)->inspect((new Invoice)->newFromBuilder((array) $invoice));
+            abort_unless($audit['status'] === 'reconciled', 409, 'Settlement invoice postings require reconciliation.');
+            $paid = $this->receiptTotal($invoice, 'finance_payments', 'payment');
             $refunds = DB::table('finance_refunds')->where('invoice_id', $invoice->id);
-            $refund = self::exactMinor((clone $refunds)->sum('amount_minor'));
+            $refund = $this->receiptTotal($invoice, 'finance_refunds', 'refund');
             $vendorRefund = self::exactMinor((clone $refunds)->sum('vendor_minor'));
+            $commissionRefund = self::exactMinor((clone $refunds)->sum('commission_minor'));
+            $taxRefund = self::exactMinor((clone $refunds)->sum('tax_minor'));
+            $credited = $this->receiptTotal($invoice, 'finance_unpaid_credits', 'unpaid_credit');
             $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
             $invoiceTotal = self::exactMinor($invoice->total_minor);
             $invoiceVendor = self::exactMinor($invoice->vendor_minor);
             $invoiceSubtotal = self::exactMinor($invoice->subtotal_minor);
             $invoiceCommission = self::exactMinor($invoice->commission_minor);
             $invoiceTax = self::exactMinor($invoice->tax_minor);
+            self::requireInvoiceBounds($invoiceTotal, $invoiceSubtotal, $invoiceVendor, $invoiceCommission, $invoiceTax,
+                $paid, $credited, $refund, $vendorRefund, $commissionRefund, $taxRefund);
             // Positive earnings require full capture and a completed holding period.
             // Refund debt after a prior settlement is carried forward immediately.
             $mature = Carbon::parse($invoice->created_at)->addDays($holdDays)->lte(now());
@@ -90,10 +162,10 @@ class SettlementService
             $tax = self::addMinor($tax, $invoiceTax);
             $refunded = self::addMinor($refunded, $refund);
         }
-        $adjustments = DB::table('commercial_adjustments as a')->join('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')->where('a.vendor_id', $vendor)->where('a.currency', $currency)->select('a.*')->orderBy('a.id')->get();
+        $adjustments = DB::table('commercial_adjustments as a')->join('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')->where('a.vendor_id', $vendor)->where('a.currency', $currency)->select('a.*', 'p.approved_by')->orderBy('a.id')->get();
         foreach ($adjustments as $adjustment) {
             $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.adjustment_id', $adjustment->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
-            $available = self::addMinor(self::exactMinor($adjustment->amount_minor, true), -$reserved, true);
+            $available = self::addMinor($this->approvedAdjustmentAmount($adjustment), -$reserved, true);
             if ($available !== 0) {
                 $lines[] = ['invoice_id' => null, 'adjustment_id' => (int) $adjustment->id, 'amount_minor' => $available];
             }
@@ -133,7 +205,9 @@ class SettlementService
         $this->enabled();
 
         return DB::transaction(function () use ($vendor, $currency, $actor, $key) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $requester = User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($requester->account_status === 'active'
+                && ($requester->role === 'admin' || ($requester->role === 'vendor' && $requester->id === $vendor)), 403);
             $vendorAccount = User::whereKey($vendor)->where('role', 'vendor')->lockForUpdate()->firstOrFail();
             abort_unless($vendorAccount->account_status === 'active', 409,
                 'A suspended vendor cannot reserve new payable settlements.');
@@ -162,6 +236,8 @@ class SettlementService
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor, $action) {
+            $reviewer = User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($reviewer->role === 'admin' && $reviewer->account_status === 'active', 403);
             $hint = DB::table('commercial_settlements')->find($id);
             abort_unless($hint, 404);
             $vendorAccount = User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
