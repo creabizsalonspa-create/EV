@@ -993,6 +993,101 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
 
+test("contact minimization requires explicit consent and validates the exact private receipt", async()=>{
+  const ui=fixture(),calls=[];
+  ui.setSelfActor({id:3,role:"customer"},async(path,method="GET",body)=>{
+    calls.push({path,method,body});
+    if(method==="POST")return {request_id:22,case_status:"reviewing",optional_phone_removed:true,profile_phone_changed:true,
+      live_challenges_cancelled:1,challenge_payloads_cleared:1,verification_receipts_retained:true,external_deletion_verified:false,
+      account_deleted:false,automated_erasure_performed:false,manual_processing_required:true};
+    return page([record]);
+  });
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Remove optional phone data")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional contact minimization");
+  const [password,factor,consent]=nodes(form,"input");
+  password.value="password";factor.value="123456";
+  await form.onsubmit({preventDefault(){}});assert.equal(calls.length,1);
+  consent.checked=true;await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,2);assert.equal(calls[1].path,"account/privacy-requests/22/minimize-contact");
+  assert.equal(calls[1].body.confirmation,"remove_optional_phone");
+  assert.equal(password.value,"");assert.equal(factor.value,"");
+  assert.match(ui.mine.textContent,/Optional phone removal recorded/);
+  await form.onsubmit({preventDefault(){}});assert.equal(calls.length,2);
+});
+test("contact minimization rejects false external deletion and does not retry",async()=>{
+  const ui=fixture();let posts=0;
+  ui.setSelfActor({id:3,role:"vendor"},async(path,method="GET")=>{
+    if(method==="POST"){posts++;return {request_id:22,case_status:"pending",optional_phone_removed:true,profile_phone_changed:true,
+      live_challenges_cancelled:1,challenge_payloads_cleared:1,verification_receipts_retained:true,external_deletion_verified:true,
+      account_deleted:false,automated_erasure_performed:false,manual_processing_required:true};}
+    return page([record]);
+  });
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Remove optional phone data")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional contact minimization");
+  const [password,,consent]=nodes(form,"input");password.value="password";consent.checked=true;
+  await form.onsubmit({preventDefault(){}});assert.match(ui.mine.textContent,/Phone removal unconfirmed/);
+  assert(!ui.mine.textContent.includes("Optional phone removal recorded"));
+  await form.onsubmit({preventDefault(){}});assert.equal(posts,1);
+});
+test("contact minimization clears secrets and ignores detached responses after backgrounding",async()=>{
+  const ui=fixture();let release,posts=0;
+  ui.setSelfActor({id:3,role:"customer"},async(path,method="GET")=>{
+    if(method==="POST"){posts++;return new Promise(resolve=>{release=resolve;});}
+    return page([record]);
+  });
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Remove optional phone data")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional contact minimization");
+  const [password,factor,consent]=nodes(form,"input");password.value="password";factor.value="123456";consent.checked=true;
+  const pending=form.onsubmit({preventDefault(){}});ui.hide();ui.show();
+  release({request_id:22,case_status:"pending",optional_phone_removed:true,profile_phone_changed:true,
+    live_challenges_cancelled:1,challenge_payloads_cleared:1,verification_receipts_retained:true,external_deletion_verified:false,
+    account_deleted:false,automated_erasure_performed:false,manual_processing_required:true});
+  await pending;assert.equal(password.value,"");assert.equal(factor.value,"");
+  assert(!ui.mine.textContent.includes("Optional phone removal recorded"));
+  await form.onsubmit({preventDefault(){}});assert.equal(posts,1);
+});
+
+test("optional erasure security step explicitly confirms scoped copy discard and ends local identity",async()=>{
+  const ui=fixture(),calls=[];let ended=0;
+  ui.setSelfActor({id:3,role:"customer"},async(path,method="GET",body)=>{
+    calls.push({path,method,body});
+    if(method==="POST")return {request_id:22,case_status:"reviewing",derived_copies_discarded:1,sessions_revoked:true,
+      sign_in_required:true,automated_erasure_performed:false,source_records_deleted:false,manual_processing_required:true};
+    return page([record]);
+  },()=>ended++);
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Secure account before erasure")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional erasure security preparation");
+  const [password,factor,consent]=nodes(form,"input");
+  password.value="password";factor.value="123456";
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1);
+  consent.checked=true;
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.length,2);assert.equal(calls[1].path,"account/privacy-requests/22/secure-account");
+  assert.equal(calls[1].body.confirmation,"discard_copies_and_revoke_sessions");
+  assert.equal(password.value,"");assert.equal(factor.value,"");assert.equal(ended,1);
+  assert.equal(ui.mine.children.length,0);
+  await form.onsubmit({preventDefault(){}});assert.equal(calls.length,2);
+});
+test("unverified erasure security receipt never reports success or retries",async()=>{
+  const ui=fixture();let ended=0,posts=0;
+  ui.setSelfActor({id:3,role:"vendor"},async(path,method="GET")=>{
+    if(method==="POST"){posts++;return {request_id:99,sessions_revoked:true};}
+    return page([record]);
+  },()=>ended++);
+  await tick();
+  nodes(ui.mine,"button").find(b=>b.textContent.startsWith("Secure account before erasure")).onclick();
+  const form=nodes(ui.mine,"form").find(f=>f.attributes["aria-label"]==="Optional erasure security preparation");
+  const [password,,consent]=nodes(form,"input");password.value="password";consent.checked=true;
+  await form.onsubmit({preventDefault(){}});
+  assert.match(ui.mine.textContent,/Security step unconfirmed/);assert.equal(ended,0);
+  await form.onsubmit({preventDefault(){}});assert.equal(posts,1);
+});
+
 test("erasure preparation requires explicit two-reviewer workflow and never authorizes deletion", async()=>{
   const ui=fixture(),calls=[];
   let p={request_id:22,review_revision:"7",review_scope:"a".repeat(64),preparation_id:null,stage:"not_prepared",
