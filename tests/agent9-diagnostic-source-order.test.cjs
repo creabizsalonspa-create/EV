@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const { waitForRetainedDiagnosticRequest } = require("./helpers/diagnostic-source-ready.cjs");
+const { waitForRetainedDiagnosticRequest, waitForRetainedConfigurationRequest } = require("./helpers/diagnostic-source-ready.cjs");
 const station = { id: 42, protocol: "ocpp1.6" };
 const request = { id: 73, createdAt: "2026-11-20T00:00:00.123456Z" };
 const options = { identity: "ev-test-diagnostic-order", protocol: "1.6", payload: { location: "synthetic-private-capability" }, spacingMs: 0 };
@@ -54,4 +54,33 @@ test("actual diagnostic simulator awaits retention before returning protocol ack
   assert.match(handler, /diagnosticHandler = async/);
   assert(handler.indexOf("await waitForRetainedDiagnosticRequest") < handler.indexOf("setTimeout("));
   assert(handler.indexOf("await waitForRetainedDiagnosticRequest") < handler.indexOf('fileName: "private-device-filename.log"'));
+});
+
+test("configuration acknowledgement requires distinct retained request for repeated exact payload", async () => {
+  for(const protocol of ["1.6","2.0.1"]) {
+    const seen=[73], calls=[];let reads=0,waits=0;
+    const id=await waitForRetainedConfigurationRequest({...options,protocol,
+      wait:async()=>{waits++;},graph:async(query,variables)=>{
+        calls.push({query,variables});
+        if(query.includes("ChargingStations"))return {ChargingStations:[{id:42,protocol:"ocpp"+protocol}]};
+        return {OCPPMessages:++reads===1?[]:[{...request,id:74}]};
+      }},seen);
+    assert.equal(id,74);assert.equal(waits,1);assert.equal(reads,2);
+    assert.deepEqual(calls[1].variables,{station:42,action:protocol==="1.6"?"GetConfiguration":"GetVariables",match:options.payload,retired:[73]});
+    assert.match(calls[1].query,/id:\{_nin:\$retired\}/);
+    assert.deepEqual(seen,[73]);
+    assert(!calls.some(c=>/mutation/.test(c.query)));
+  }
+});
+test("configuration retention rejects previously acknowledged or ambiguous rows",async()=>{
+  for(const rows of [[request],[request,{...request,id:74}]]){
+    await assert.rejects(waitForRetainedConfigurationRequest({...options,graph:async q=>q.includes("ChargingStations")?{ChargingStations:[station]}:{OCPPMessages:rows}},[73]),/acknowledgement withheld/);
+  }
+});
+test("configuration simulator waits for exact retained source before replying",()=>{
+  const source=fs.readFileSync(require.resolve("./charger-configuration.cjs"),"utf8");
+  const handler=source.slice(source.indexOf("device.configurationHandler ="),source.indexOf("    try {\n      await device.connect"));
+  assert.match(handler,/configurationHandler = async/);
+  assert(handler.indexOf("await waitForRetainedConfigurationRequest")<handler.indexOf("return reply"));
+  assert.match(handler,/retired.push\(sourceId\)/);
 });

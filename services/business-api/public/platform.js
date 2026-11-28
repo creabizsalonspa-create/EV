@@ -48,6 +48,14 @@ const el = (id) => document.getElementById(id),
             value instanceof Error ? errorMessage(value) : value,
         );
     };
+// Native Tab scrolling can leave a focused link's outline clipped at
+// the edge of the horizontal navigation scrollport, particularly in RTL.
+document.querySelector(".workspace-nav")?.addEventListener("focusin", (event) => {
+    if (window.matchMedia("(max-width: 1050px)").matches &&
+        event.target instanceof HTMLAnchorElement) {
+        event.target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+    }
+});
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     if (client.securityChange) throw new SessionChangedError();
