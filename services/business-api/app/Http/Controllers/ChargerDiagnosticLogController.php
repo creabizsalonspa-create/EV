@@ -25,9 +25,10 @@ class ChargerDiagnosticLogController extends Controller
         return app(DiagnosticAuthority::class)->binding($r, $company, $charger, $write, $upload);
     }
 
-    private function record(object $b, int $id): object
+    private function record(object $b, int $id, bool $lock = false): object
     {
-        $row = DB::table('charger_diagnostic_logs')->where('id', $id)->where('binding_id', $b->id)->first();
+        $query = DB::table('charger_diagnostic_logs')->where('id', $id)->where('binding_id', $b->id);
+        $row = ($lock ? $query->lockForUpdate() : $query)->first();
         abort_unless($row && hash_equals($row->source_generation, FaultMonitor::generation($b)), 404);
 
         return $row;
@@ -110,9 +111,8 @@ class ChargerDiagnosticLogController extends Controller
             return ['row' => DB::table('charger_diagnostic_logs')->find($id), 'created' => true];
         }, 3);
         $row = $op['row'];
-        if ($op['created'] && DB::table('charger_diagnostic_logs')->where('id', $row->id)->where('dispatch_state', 'requested')->update(['dispatch_state' => 'dispatching', 'attempted_at' => now()->utc()->format('Y-m-d H:i:s.u'), 'updated_at' => now()])) {
+        if ($op['created'] && DB::table('charger_diagnostic_logs')->where('id', $row->id)->where('dispatch_state', 'requested')->where('expires_at', '>', now('UTC')->format('Y-m-d H:i:s.u'))->update(['dispatch_state' => 'dispatching', 'attempted_at' => now()->utc()->format('Y-m-d H:i:s.u'), 'updated_at' => now()])) {
             $sent = false;
-            $state = 'not_dispatched';
             try {
                 $source->requireAuthority($b, $authority);
                 $stationId = $probe->station($b);
@@ -120,7 +120,7 @@ class ChargerDiagnosticLogController extends Controller
                 abort_unless(empty($b->diagnostic_direct) || $stationId === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
                 $token = app(OperationsCredentials::class)->token($authority[0]);
                 $source->requireAuthority($b, $authority);
-                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, $authority, &$sent) {
+                DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, $authority, &$sent) {
                     VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
                     $current = $this->scope($r, $company, $charger, true);
@@ -128,18 +128,20 @@ class ChargerDiagnosticLogController extends Controller
                     $source->requireAuthority($current, $authority);
                     app(DiagnosticAuthority::class)->dispatchable($current);
                     abort_unless(hash_equals(FaultMonitor::generation($b), FaultMonitor::generation($current)), 409);
-                    $fresh = $this->record($current, $row->id);
-                    abort_unless($fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
+                    $fresh = $this->record($current, $row->id, lock: true);
+                    abort_unless($fresh->dispatch_state === 'dispatching' && $fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
                     app(DiagnosticAuthority::class)->uploadConsent($fresh, $r->user(), $current);
                     $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
                     $sent = true;
 
-                    return $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
+                    $state = $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
+                    DB::table('charger_diagnostic_logs')->where('id', $fresh->id)
+                        ->update(['dispatch_state' => $state, 'updated_at' => now()]);
                 }); // One attempt only: a network write must never be transaction-retried.
             } catch (Throwable) {
-                $state = $sent ? 'outcome_unknown' : 'not_dispatched';
+                DB::table('charger_diagnostic_logs')->where('id', $row->id)->where('dispatch_state', 'dispatching')
+                    ->update(['dispatch_state' => $sent ? 'outcome_unknown' : 'not_dispatched', 'updated_at' => now()]);
             }
-            DB::table('charger_diagnostic_logs')->where('id', $row->id)->where('dispatch_state', 'dispatching')->update(['dispatch_state' => $state, 'updated_at' => now()]);
         }
         $this->scope($r, $company, $charger, true);
 
