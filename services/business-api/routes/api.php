@@ -23,6 +23,7 @@ use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\PrivacyAccessExportController;
+use App\Http\Controllers\PrivacyContactMinimizationController;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
@@ -65,6 +66,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/privacy-requests', [AccountPrivacyController::class, 'mine']);
         Route::post('/privacy-requests', [AccountPrivacyController::class, 'submit']);
         Route::post('/privacy-requests/{privacyCase}/withdraw', [AccountPrivacyController::class, 'withdraw'])->where('privacyCase', '[0-9]{1,18}');
+        Route::post('/privacy-requests/{privacyCase}/minimize-contact', [PrivacyContactMinimizationController::class, 'remove'])->where('privacyCase', '[0-9]{1,18}')->middleware('throttle:authentication');
         Route::group([], __DIR__.'/finance.php');
         Route::prefix('vendor-ops')->group(__DIR__.'/vendor_ops.php');
         Route::get('/me', fn (Request $r) => response()->json($r->user()));
