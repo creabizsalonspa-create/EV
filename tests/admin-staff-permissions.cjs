@@ -230,3 +230,37 @@ test('Admin hold history distinguishes release from revoke without HTML renderin
   assert.match(ui.root.textContent,/<img onerror=alert\(1\)>/);
   assert.equal(nodes(ui.root,'img').length,0);
 });
+
+
+test('Admin can find security holds by staff and company and place a hold on an owner-revoked grant',async()=>{
+    const ui=fixture(),calls=[];
+    ui.setActor({role:'admin'},async(p,method='GET',body)=>{
+        calls.push({p,method,body});
+        if(p.endsWith('/revoke'))return {id:17,status:'revoked',invitation_version:5,admin_emergency_hold:true};
+        return page([{...grant,status:'revoked',admin_emergency_hold:false}]);
+    });
+    await tick();
+    const filter=nodes(ui.root,'form')[0];
+    nodes(filter,'input')[0].value='2';
+    nodes(filter,'input')[1].value='3';
+    nodes(filter,'select')[1].value='no';
+    filter.onsubmit({preventDefault(){}});
+    await tick();
+    assert.match(calls[1].p,/company_id=2/);
+    assert.match(calls[1].p,/user_id=3/);
+    assert.match(calls[1].p,/admin_hold=no/);
+    const button=nodes(ui.root,'button').find(n=>n.textContent.includes('Place Admin hold'));
+    assert.ok(button);button.onclick();
+    const form=nodes(ui.root,'form').find(f=>nodes(f,'textarea').length);
+    nodes(form,'textarea')[0].value='Prevent reinvitation pending independent investigation';
+    await form.onsubmit({preventDefault(){}});
+    assert.equal(calls[2].p,'admin/permission-grants/17/revoke');
+    assert.equal(calls[2].body.expected_version,4);
+});
+test('an inconsistent held active grant permits hold review, not another revoke',async()=>{
+    const ui=fixture();
+    ui.setActor({role:'admin'},async()=>page([{...grant,status:'active',admin_emergency_hold:true}]));
+    await tick();
+    assert.equal(nodes(ui.root,'button').filter(n=>n.textContent.includes('Emergency revoke')).length,0);
+    assert.ok(nodes(ui.root,'button').some(n=>n.textContent.includes('Release Admin hold')));
+});
