@@ -153,42 +153,45 @@ class CsmsGraphqlTransportTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
-    public function test_rider_source_pins_original_validated_url_if_configuration_changes_between_reads(): void
+    public function test_rider_source_rejects_changed_authority_and_accepts_only_complete_stable_receipts(): void
     {
         $trusted = 'https://source.test/graphql';
         $untrusted = 'http://metadata.evil.test/graphql';
-        config(['csms.graphql_url' => $trusted]);
-        $reads = 0;
-        Http::fake(function ($request) use (&$reads, $trusted, $untrusted) {
-            $reads++;
-            $this->assertSame($trusted, $request->url());
-            if ($reads === 1) {
-                config(['csms.graphql_url' => $untrusted]);
+        foreach ([null, 1, 2] as $changeAt) {
+            config(['csms.graphql_url' => $trusted]);
+            $reads = 0;
+            Http::fake(function ($request) use (&$reads, $trusted, $untrusted, $changeAt) {
+                $reads++;
+                $this->assertSame($trusted, $request->url());
+                if ($reads === $changeAt) {
+                    config(['csms.graphql_url' => $untrusted]);
+                }
+                if ($reads === 1) {
+                    return Http::response(['data' => ['ChargingStations' => [[
+                        'id' => 17, 'isOnline' => true, 'protocol' => '1.6',
+                    ]]]]);
+                }
 
-                return Http::response(['data' => ['ChargingStations' => [[
-                    'id' => 17, 'isOnline' => true, 'protocol' => '1.6',
-                ]]]]);
-            }
-
-            return Http::response(['data' => [
-                'Connectors' => [['id' => 7]],
-                'StatusNotifications' => [[
-                    'evseId' => 0, 'connectorId' => 1,
-                    'connectorStatus' => 'Available',
-                    'timestamp' => now()->subSecond()->toISOString(),
-                ]],
-            ]]);
-        });
-        $result = app(RiderSourceController::class)->targetMatches(
-            (object) ['identifier' => 'ev-test-source', 'protocol' => '1.6'],
-            new ConnectorMapping(['source_connector_number' => 1]),
-            new Evse(['source_evse_number' => 0]),
-            ['connectorId' => 7]
-        );
-        $this->assertTrue($result);
-        $this->assertSame(2, $reads);
-        Http::assertSentCount(2);
-        Http::assertNotSent(fn ($request) => $request->url() === $untrusted);
+                return Http::response(['data' => [
+                    'Connectors' => [['id' => 7, 'evseId' => 5]],
+                    'StatusNotifications' => [[
+                        'evseId' => 0, 'connectorId' => 1,
+                        'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                        'timestamp' => now()->subSecond()->toISOString(),
+                    ]],
+                ]]);
+            });
+            $result = app(RiderSourceController::class)->targetMatches(
+                (object) ['identifier' => 'ev-test-source', 'protocol' => '1.6'],
+                new ConnectorMapping(['source_connector_number' => 1]),
+                new Evse(['source_evse_number' => 0]),
+                ['connectorId' => 7]
+            );
+            $this->assertSame($changeAt === null, $result);
+            $this->assertSame($changeAt === 1 ? 1 : 2, $reads);
+            Http::assertSentCount($reads);
+            Http::assertNotSent(fn ($request) => $request->url() === $untrusted);
+        }
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
