@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Charging\CsmsEndpoint;
+use App\Services\Charging\CsmsGraphqlTransport;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -14,28 +16,12 @@ final class CsmsProductionConfigurationAudit extends Command
 
     private function https(mixed $value): bool
     {
-        if (! is_string($value) || strlen($value) > 2048 || preg_match('/[\x00-\x20\x7f\\\\]/', $value)) {
-            return false;
-        }
-        $parts = parse_url($value);
-
-        return is_array($parts) && ($parts['scheme'] ?? null) === 'https'
-            && is_string($parts['host'] ?? null)
-            && preg_match('/^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/D', $parts['host']) === 1
-            && ! isset($parts['user']) && ! isset($parts['pass']) && ! isset($parts['query']) && ! isset($parts['fragment'])
-            && (! isset($parts['port']) || ($parts['port'] >= 1 && $parts['port'] <= 65535));
+        return (CsmsEndpoint::parse($value)['scheme'] ?? null) === 'https';
     }
 
     private function graphqlEndpoint(mixed $value): bool
     {
-        // Match the authenticated GraphQL transport's nonempty path contract.
-        // A bare HTTPS origin is not a configured GraphQL endpoint.
-        if (! $this->https($value) || strlen($value) > 512) {
-            return false;
-        }
-        $path = parse_url($value, PHP_URL_PATH);
-
-        return is_string($path) && strlen($path) >= 2 && str_starts_with($path, '/');
+        return $this->https($value) && app(CsmsGraphqlTransport::class)->approved($value);
     }
 
     private function independentSecrets(): bool
