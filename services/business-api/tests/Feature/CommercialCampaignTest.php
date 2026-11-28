@@ -42,9 +42,9 @@ class CommercialCampaignTest extends TestCase
         return $c;
     }
 
-    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true)
+    private function delivery(int $campaign, string $event, string $kind = 'delivery', ?string $parent = null, bool $valid = true, ?string $occurredAt = null)
     {
-        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => now()->utc()->toIso8601String()];
+        $body = ['campaign_id' => $campaign, 'event_id' => $event, 'kind' => $kind, 'parent_event_id' => $parent, 'country' => 'AE', 'placement' => 'discovery_banner', 'occurred_at' => $occurredAt ?? now()->utc()->toIso8601String()];
         $raw = json_encode($body, JSON_THROW_ON_ERROR);
         $stamp = (string) time();
 
@@ -462,6 +462,35 @@ class CommercialCampaignTest extends TestCase
         $this->delivery($c['id'], 'one-click', 'click', 'one')->assertOk();
         $this->delivery($c['id'], 'second-click', 'click', 'one')->assertConflict();
         $this->assertDatabaseCount('commercial_campaign_deliveries', 2);
+    }
+
+    public function test_publisher_events_cannot_consume_units_outside_a_publication_window(): void
+    {
+        $this->travelTo(now()->startOfSecond());
+        $f = $this->fixture();
+        $c = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$c['id'];
+        $this->postJson($path.'/submit', ['reason' => 'Vendor requests commercial review'])->assertOk();
+        $beforeApproval = now()->utc()->toIso8601String();
+
+        $this->travel(5)->seconds();
+        $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Approved reviewed synthetic creative'])->assertOk();
+        $published = now()->utc()->toIso8601String();
+        $this->delivery($c['id'], 'before-approval', occurredAt: $beforeApproval)->assertConflict();
+        $this->delivery($c['id'], 'original-delivery', occurredAt: $published)->assertOk();
+
+        $this->travel(5)->seconds();
+        $this->postJson($path.'/suspend', ['reason' => 'Moderation requires suspension'])->assertOk();
+        $suspended = now()->utc()->toIso8601String();
+        $this->delivery($c['id'], 'original-delivery', occurredAt: $published)->assertOk()->assertJsonPath('duplicate', true);
+
+        $this->travel(5)->seconds();
+        $this->postJson($path.'/reinstate', ['reason' => 'Creative reviewed and reinstated'])->assertOk();
+        $this->delivery($c['id'], 'suspended-delivery', occurredAt: $suspended)->assertConflict();
+        $this->delivery($c['id'], 'suspended-click', 'click', 'original-delivery', occurredAt: $suspended)->assertConflict();
+        $this->delivery($c['id'], 'buffered-published-delivery', occurredAt: $published)->assertOk();
+        $this->delivery($c['id'], 'reinstated-delivery')->assertOk();
+        $this->assertDatabaseCount('commercial_campaign_deliveries', 3);
     }
 
     public function test_admin_can_suspend_vendor_cannot_resume_and_refunded_package_stops_delivery(): void
