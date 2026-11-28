@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\AdminOperationsMapController;
+use App\Models\OcpiProvider;
+use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
@@ -10,6 +12,7 @@ use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -76,6 +79,69 @@ class AdminOperationsMapTest extends TestCase
         foreach (['south=0', 'south=3&north=2&west=0&east=1', 'country=ae', 'page=0', 'recent_source_status=online', 'west=NaN&east=1&south=0&north=1'] as $query) {
             $this->getJson('/api/admin/operations/map?'.$query)->assertUnprocessable();
         }
+    }
+
+    public function test_partner_layer_filters_only_authorized_published_locations_before_pagination(): void
+    {
+        Http::preventStrayRequests();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $vendor = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
+        $provider = OcpiProvider::create(['owner_id' => $vendor->id, 'name' => 'Synthetic operator', 'connection_key' => 'secret-partner-map-connection', 'authorized' => true]);
+        $record = OcpiRecord::create([
+            'ocpi_provider_id' => $provider->id, 'module' => 'locations', 'country_code' => 'NL', 'party_id' => 'ZZZ',
+            'external_id' => 'partner-pin-0', 'payload' => ['private' => 'PRIVATE-PARTNER-MAP-PAYLOAD'], 'content_hash' => str_repeat('a', 64),
+            'normalized' => ['publish' => true, 'name' => 'Partner_%', 'country' => 'ARE', 'latitude' => 1, 'longitude' => 179, 'remote_control' => true],
+            'source_updated_at' => now()->subHours(2), 'received_at' => now(),
+        ]);
+        $variants = [
+            ['name' => 'Valid second pin', 'longitude' => -179],
+            ['name' => 'Outside viewport', 'longitude' => 0],
+            ['name' => 'Wrong country', 'country' => 'USA'],
+            ['name' => 'Malformed coordinate', 'longitude' => ['value' => 179]],
+            ['name' => 'Unpublished location', 'publish' => false],
+        ];
+        foreach (array_merge($variants, array_fill(0, 26, ['name' => 'Outside market', 'country' => 'CAN'])) as $i => $variant) {
+            $copy = $record->replicate();
+            $copy->external_id = 'partner-pin-'.($i + 1);
+            $copy->normalized = array_replace($record->normalized, $variant);
+            $copy->save();
+        }
+        $copy = $record->replicate();
+        $copy->external_id = 'wrong-module';
+        $copy->module = 'tariffs';
+        $copy->save();
+        $this->station(['name' => 'Platform pin']);
+
+        $path = '/api/admin/operations/map?scope=partner';
+        $this->actingAs($vendor)->getJson($path)->assertForbidden();
+        $this->actingAs($admin)->getJson($path.'&country=ARE&south=0&north=2&west=170&east=-170')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('scope', 'published_partner_catalog')->assertJsonPath('total', 2)
+            ->assertJsonPath('last_page', 1)->assertJsonPath('data.1.id', $record->id)
+            ->assertJsonPath('data.1.provider_label', 'Synthetic operator')
+            ->assertJsonPath('data.1.reported_source_age_minutes', 120)
+            ->assertJsonPath('data.1.availability', 'unknown')->assertJsonPath('data.1.remote_control', false)
+            ->assertJsonMissingPath('data.1.company')->assertJsonMissingPath('data.1.payload')
+            ->assertDontSee('PRIVATE-PARTNER-MAP-PAYLOAD')->assertDontSee('secret-partner-map-connection');
+        $this->getJson($path.'&q=Partner_%25')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($path.'&q=Synthetic%20operator&country=ARE&west=170&east=-170&south=0&north=2')
+            ->assertOk()->assertJsonPath('total', 2);
+        foreach (['country=AE', 'company_id=1', 'recent_source_status=Available'] as $invalid) {
+            $this->getJson($path.'&'.$invalid)->assertUnprocessable();
+        }
+        $record->update(['source_updated_at' => now()->addMinute()]);
+        $this->getJson($path.'&q=Partner_%25')->assertOk()
+            ->assertJsonPath('data.0.source_clock_evidence', 'PARTNER_CLOCK_AHEAD')
+            ->assertJsonPath('data.0.reported_source_age_minutes', null);
+        $vendor->forceFill(['account_status' => 'suspended'])->save();
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        $vendor->forceFill(['account_status' => 'active'])->save();
+        $provider->update(['authorized' => false]);
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/admin/operations/map')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.name', 'Platform pin');
+        $audit = DB::table('audit_events')->where('action', 'admin.private_list.operations_map_viewed')->pluck('subject');
+        $this->assertSame(['all', 'partner:all', 'partner:country:ARE'], $audit->unique()->sort()->values()->all());
+        Http::assertNothingSent();
     }
 
     public function test_mismatched_company_ownership_is_not_presented_as_valid_inventory(): void
