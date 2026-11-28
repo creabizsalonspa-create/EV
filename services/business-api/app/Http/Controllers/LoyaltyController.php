@@ -428,10 +428,11 @@ class LoyaltyController extends Controller
     public function partnerRewardClaims(Request $r, PartnerRewardGovernance $governance)
     {
         abort_unless($r->user()->role === 'customer', 403);
+        $values = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
         $claims = DB::table('partner_reward_claims as claim')
             ->join('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
             ->where('claim.user_id', $r->user()->id)->orderByDesc('claim.id')
-            ->paginate(25, ['claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.created_at', 'redemption.status'])
+            ->paginate(25, ['claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.created_at', 'redemption.status'], 'page', (int) ($values['page'] ?? 1))
             ->through(fn ($claim) => (array) $claim + $governance->sandboxEvidence());
 
         return response()->json($claims)->header('Cache-Control', 'private, no-store');
