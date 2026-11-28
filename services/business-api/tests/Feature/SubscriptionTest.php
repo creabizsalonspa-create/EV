@@ -205,6 +205,52 @@ class SubscriptionTest extends TestCase
         $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $basic['id'], 'idempotency_key' => 'downgrade'])->assertOk()->assertJsonPath('subscription.next_plan_id', $basic['id'])->assertJsonPath('entitlements.staff_limit', 20);
     }
 
+    public function test_due_renewal_skips_ineligible_owners_without_blocking_other_cycles_or_cancellation(): void
+    {
+        $plan = $this->plan();
+        $suspended = $this->subscribe($plan);
+        $paid = $this->pay($suspended);
+        $demoted = $this->subscribe($plan);
+        $this->pay($demoted);
+        $eligible = $this->subscribe($plan);
+        $this->pay($eligible);
+        $cancelled = $this->subscribe($plan);
+        $this->pay($cancelled);
+        $this->postJson($cancelled[2].'/change', [
+            'action' => 'cancel_at_period_end', 'idempotency_key' => 'expire-even-if-suspended',
+        ])->assertOk();
+        DB::table('users')->whereIn('id', [$suspended[0]->id, $cancelled[0]->id])
+            ->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $demoted[0]->id)->update(['role' => 'customer']);
+        $this->travelTo(Carbon::parse($paid['subscription']['period_end'])->addMinute());
+        $service = app(SubscriptionService::class);
+        $id = $suspended[1]['subscription']['id'];
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $events = DB::table('commercial_subscription_events')->count();
+        $held = $service->renew($id);
+        $this->assertSame('ACCOUNT_INELIGIBLE', $held['renewal_hold_reason']);
+        $this->assertFalse($held['entitlements_active']);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+
+        $this->artisan('commercial:renew-subscriptions')
+            ->expectsOutput('Processed 2 due subscriptions. Held 2 ineligible subscriptions. No payment was collected.')
+            ->assertSuccessful();
+        foreach ([$suspended, $demoted, $cancelled] as $f) {
+            $this->assertSame(1, DB::table('commercial_subscription_invoices')
+                ->where('subscription_id', $f[1]['subscription']['id'])->count());
+        }
+        $this->assertSame(2, DB::table('commercial_subscription_invoices')
+            ->where('subscription_id', $eligible[1]['subscription']['id'])->count());
+        $this->assertDatabaseHas('commercial_subscriptions', [
+            'id' => $cancelled[1]['subscription']['id'], 'status' => 'cancelled',
+        ]);
+        DB::table('users')->where('id', $suspended[0]->id)->update(['account_status' => 'active']);
+        $this->assertCount(2, $service->renew($id)['invoices']);
+        $this->assertCount(2, $service->renew($id)['invoices']);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 4);
+    }
+
     public function test_cancellation_resume_and_due_command_do_not_charge_or_reenable_cancelled_subscription(): void
     {
         $f = $this->subscribe($this->plan());

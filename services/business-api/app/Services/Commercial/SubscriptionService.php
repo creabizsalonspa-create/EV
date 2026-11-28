@@ -363,8 +363,12 @@ class SubscriptionService
     public function renew(int $id): array
     {
         return DB::transaction(function () use ($id) {
+            // Match enrollment/change/payment lock order: owner before cycle.
+            $hint = DB::table('commercial_subscriptions')->where('id', $id)->first();
+            abort_unless($hint, 404);
+            $owner = User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
             $s = DB::table('commercial_subscriptions')->where('id', $id)->lockForUpdate()->first();
-            abort_unless($s, 404);
+            abort_unless($s && (int) $s->user_id === $owner->id, 409, 'Subscription owner changed.');
             if ($s->status === 'cancelled' || ! $s->period_end || CarbonImmutable::parse($s->period_end)->isFuture()) {
                 return $this->summary($id);
             }
@@ -373,6 +377,13 @@ class SubscriptionService
                 $this->event($id, null, 'cancelled_on_expiry', []);
             } elseif (! DB::table('commercial_subscription_invoices')->where('subscription_id', $id)->where('cycle_number', $s->cycle_number + 1)->exists()) {
                 $p = $this->plan($s->next_plan_id ?? $s->plan_id);
+                // Do not create new liabilities for an ineligible owner.
+                // Expiring cancellations above must remain available. A hold
+                // does not alter historical invoices or discard a saved plan.
+                if ($owner->account_status !== 'active' || ! in_array($owner->role, ['customer', 'vendor'], true)
+                    || $p->audience !== $owner->role) {
+                    return $this->summary($id) + ['renewal_hold_reason' => 'ACCOUNT_INELIGIBLE'];
+                }
                 $i = $this->invoice($id, $p, CarbonImmutable::parse($s->period_end), $s->cycle_number + 1);
                 DB::table('commercial_subscriptions')->where('id', $id)->update(['status' => 'past_due', 'updated_at' => now()]);
                 $this->event($id, null, 'renewal_invoiced', ['invoice_id' => $i]);
