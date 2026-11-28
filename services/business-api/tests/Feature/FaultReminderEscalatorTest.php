@@ -12,13 +12,14 @@ use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\FaultReminderEscalator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class FaultReminderEscalatorTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function fixture(): array
+    private function fixture(string $protocol = '1.6'): array
     {
         config([
             'csms.fault_worker_enabled' => true,
@@ -46,11 +47,11 @@ class FaultReminderEscalatorTest extends TestCase
         $charger = VendorCharger::create([
             'company_id' => $company->id, 'site_id' => $site->id,
             'asset_reference' => 'TEST-REMINDER', 'manufacturer' => 'Synthetic',
-            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => $protocol,
         ]);
         $bindingId = DB::table('csms_bindings')->insertGetId([
             'station_id' => $station->id, 'vendor_charger_id' => $charger->id,
-            'identifier' => 'ev-test-reminder-'.$charger->id, 'protocol' => '1.6',
+            'identifier' => 'ev-test-reminder-'.$charger->id, 'protocol' => $protocol,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         $binding = DB::table('csms_bindings')->find($bindingId);
@@ -382,6 +383,57 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame('source_recovered', $closure->metadata['resolution_source']);
         $this->assertSame('SIMULATED_SOURCE_OBSERVED', $closure->metadata['evidence']);
         $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public static function recoveryProtocolCases(): array
+    {
+        return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('recoveryProtocolCases')]
+    public function test_escalation_recovery_requires_same_fault_lineage_and_protocol_clearance(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $binding = DB::table('csms_bindings')->find($f['bindingId']);
+        $row = [
+            'binding_id' => $binding->id,
+            'source_generation' => FaultMonitor::generation($binding),
+            'source_event_id' => 2, 'fingerprint' => str_repeat('e', 64),
+            'evse_number' => 1, 'connector_number' => 2,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now()->subSecond(), 'created_at' => now(),
+        ];
+        $recovery = DB::table('charging_status_observations')->insertGetId($row);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['recovery_observation_id' => $recovery]);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('charging_status_observations')->where('id', $recovery)
+            ->update(['connector_number' => 1, 'error_code' => 'GroundFailure']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('charging_status_observations')->where('id', $recovery)
+            ->update(['error_code' => null]);
+        if ($protocol === '1.6') {
+            $this->assertSame(0, $worker->scan()['closed']);
+            $this->assertDatabaseHas('charging_fault_admin_escalations', [
+                'alert_id' => $f['alert'], 'resolution_source' => null,
+            ]);
+            DB::table('charging_status_observations')->where('id', $recovery)
+                ->update(['error_code' => 'NoError']);
+        }
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolution_source' => 'source_recovered',
+        ]);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_suspended_admin_cannot_read_historical_simulator_escalation_from_old_session(): void
