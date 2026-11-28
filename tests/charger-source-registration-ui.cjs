@@ -40,7 +40,7 @@ function snapshot(state = "prepared", extra = {}) {
     ...extra,
   };
 }
-async function pageWith(queue, role = "admin") {
+async function pageWith(queue, role = "admin", endpoint = "owned/source-registration") {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.route("http://127.0.0.1:8099/**", (r) =>
     r.fulfill({
@@ -56,7 +56,7 @@ async function pageWith(queue, role = "admin") {
     ),
   });
   await page.evaluate(
-    ({ queue, role }) => {
+    ({ queue, role, endpoint }) => {
       window.actorValue = { id: 1, role };
       window.calls = [];
       window.queue = queue;
@@ -75,7 +75,7 @@ async function pageWith(queue, role = "admin") {
       };
       window.mountChargerSourceRegistration({
         root: document.querySelector("#root"),
-        endpoint: "owned/source-registration",
+        endpoint,
         actor: () => window.actorValue,
         api: window.api,
         valid: () => true,
@@ -83,7 +83,7 @@ async function pageWith(queue, role = "admin") {
         expired: () => expiries++,
       });
     },
-    { queue, role },
+    { queue, role, endpoint },
   );
   return page;
 }
@@ -287,6 +287,35 @@ test("locale change reloads read-only receipt and renders Arabic with LTR source
       "GET",
       "GET",
     ]);
+  } finally {
+    await page.close();
+  }
+});
+
+test("registered connection health reads only the scoped source on explicit request", async () => {
+  const endpoint = "vendor-ops/companies/1/chargers/4/source-registration";
+  const health = {
+    company_id: 1, charger_id: 4, registration_id: 1, source_station_id: 401,
+    connection_state: "recent", source_last_message_at: "2026-11-21T10:15:30.123456Z",
+    source_firmware_version: "fixture-firmware", evidence: "AUTHENTICATED_REGISTERED_SOURCE",
+    device_commands_sent: 0, charging_capability_granted: false, charger_hardware_verified: false,
+  };
+  const page = await pageWith([
+    { data: snapshot("registered", { can_inspect_connection: true }) },
+    { data: health },
+    { data: { ...health, charger_id: 5 } },
+  ], "vendor", endpoint);
+  try {
+    const inspect = page.getByRole("button", { name: "Inspect source connection" });
+    await inspect.waitFor();
+    assert.deepEqual(await page.evaluate(() => calls.map(c => c.method)), ["GET"]);
+    await inspect.click();
+    await page.getByText("Recent source message", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => calls[1].path), endpoint + "/1/connection-health");
+    await inspect.click();
+    await page.getByText("Source connection could not be confirmed.", { exact: true }).waitFor();
+    assert.equal(await page.getByText("Recent source message", { exact: true }).count(), 0);
+    assert.deepEqual(await page.evaluate(() => calls.map(c => c.method)), ["GET", "GET", "GET"]);
   } finally {
     await page.close();
   }

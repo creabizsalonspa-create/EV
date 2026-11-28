@@ -14,6 +14,7 @@ use App\Services\Charging\AdmissionIdentity;
 use App\Services\Charging\ChargerSourceRegistration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Request as ServerRequest;
 use Illuminate\Support\Facades\Auth;
@@ -94,6 +95,58 @@ class ChargerSourceRegistrationTest extends TestCase
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('protocols')]
+    public function test_current_registered_source_health_is_scoped_and_read_only(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source();
+        $id = $this->prepare($f);
+        $path = $f['path'].'/'.$id.'/connection-health';
+        $this->getJson($path)->assertNotFound();
+        $this->postJson($f['path'].'/'.$id.'/register')->assertOk();
+        $this->actingAs($f['owner'])->getJson($f['path'])->assertOk()
+            ->assertJsonPath('can_inspect_connection', true)->assertJsonPath('live_connection_verified', false);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        $status = ['isOnline' => true, 'latestOcppMessageTimestamp' => now()->subSeconds(15)->toISOString(), 'firmwareVersion' => 'fixture-fw'];
+        $drift = false;
+        Http::fake(function ($request) use (&$status, &$drift) {
+            $this->assertSame(['id' => 401, 'name' => 'CB-OWNED-001'], $request['variables']);
+            $this->assertStringNotContainsString('mutation', $request['query']);
+            if ($drift) {
+                config(['csms.graphql_secret' => str_repeat('x', 64)]);
+            }
+
+            return Http::response(['data' => ['ChargingStations' => [array_replace($this->remote, $status)]]]);
+        });
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($path)->assertNotFound();
+        Http::assertNothingSent();
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('registration_id', $id)->assertJsonPath('source_station_id', 401)
+            ->assertJsonPath('protocol', $protocol)->assertJsonPath('connection_state', 'recent')
+            ->assertJsonPath('source_firmware_version', 'fixture-fw')->assertJsonPath('device_commands_sent', 0)
+            ->assertJsonPath('charging_capability_granted', false)->assertJsonPath('charger_hardware_verified', false)
+            ->assertJsonMissingPath('identifier')->assertJsonMissingPath('source_generation');
+        $status['latestOcppMessageTimestamp'] = now()->subMinutes(10)->toISOString();
+        $this->getJson($path)->assertOk()->assertJsonPath('connection_state', 'stale');
+        $status['isOnline'] = false;
+        $this->getJson($path)->assertOk()->assertJsonPath('connection_state', 'offline');
+        $status['isOnline'] = true;
+        $status['latestOcppMessageTimestamp'] = null;
+        $this->getJson($path)->assertOk()->assertJsonPath('connection_state', 'unknown');
+        $status['latestOcppMessageTimestamp'] = 'now';
+        $this->getJson($path)->assertServiceUnavailable()->assertJsonMissingPath('connection_state');
+        $status['latestOcppMessageTimestamp'] = null;
+        $status['id'] = 407;
+        $this->getJson($path)->assertConflict()->assertJsonMissingPath('connection_state');
+        unset($status['id']);
+        $drift = true;
+        $this->getJson($path)->assertConflict()->assertJsonMissingPath('connection_state');
+        $this->assertSame(1, $this->writes);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertFalse(AdmissionProfile::firstOrFail()->enabled);
     }
 
     #[DataProvider('protocols')]

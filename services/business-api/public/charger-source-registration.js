@@ -177,6 +177,47 @@ window.mountChargerSourceRegistration = ({
                 ),
             );
         button(root, "Refresh registration", "تحديث التسجيل", load);
+        if (data.can_inspect_connection === true && data.current_inventory_matches_registration === true &&
+            data.state === "registered") {
+            const result = node("p", "");
+            result.setAttribute("role", "status");
+            const path = endpoint.match(/\/companies\/([1-9]\d*)\/chargers\/([1-9]\d*)\/source-registration$/);
+            if (path) button(root, "Inspect source connection", "فحص اتصال المصدر", async () => {
+                if (own !== generation || !result.isConnected) return;
+                result.textContent = t("Reading source connection…", "جارٍ قراءة اتصال المصدر…");
+                try {
+                    const health = await api(endpoint + "/" + data.registration_id + "/connection-health", "GET", undefined, signal);
+                    if (!live() || own !== generation || !result.isConnected) return;
+                    const labels = {
+                        recent: ["Recent source message", "رسالة حديثة من المصدر"],
+                        stale: ["Source message is stale", "رسالة المصدر قديمة"],
+                        offline: ["Source reports offline", "المصدر يبلغ أن الشاحن غير متصل"],
+                        unknown: ["Source message has not been observed", "لم تُرصد رسالة من المصدر"],
+                    };
+                    if (!health || health.company_id !== Number(path[1]) || health.charger_id !== Number(path[2]) ||
+                        health.registration_id !== data.registration_id || health.source_station_id !== data.source_station_id ||
+                        health.evidence !== "AUTHENTICATED_REGISTERED_SOURCE" || health.device_commands_sent !== 0 ||
+                        health.charging_capability_granted !== false || health.charger_hardware_verified !== false ||
+                        !Object.hasOwn(labels, health.connection_state)) throw Error("Invalid source health");
+                    result.replaceChildren(node("span", ...labels[health.connection_state]));
+                    if (typeof health.source_firmware_version === "string") {
+                        result.append(node("span", " · " + health.source_firmware_version));
+                    }
+                    if (typeof health.source_last_message_at === "string" &&
+                        Number.isFinite(Date.parse(health.source_last_message_at))) {
+                        const at = node("time", health.source_last_message_at);
+                        at.dateTime = health.source_last_message_at;
+                        at.dir = "ltr";
+                        result.append(document.createTextNode(" · "), at);
+                    }
+                } catch (error) {
+                    if (live() && own === generation && !ownedExpiry(error)) {
+                        result.textContent = t("Source connection could not be confirmed.", "تعذر تأكيد اتصال المصدر.");
+                    }
+                }
+            });
+            root.append(result);
+        }
         if (role !== "admin") return;
         if (data.state === "not_prepared" && data.can_prepare === true) {
             const form = document.createElement("form"),

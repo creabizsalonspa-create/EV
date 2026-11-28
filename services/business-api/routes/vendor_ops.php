@@ -20,6 +20,8 @@ use App\Http\Controllers\VendorStaffChargingReadController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'show'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
+Route::get('/companies/{company}/chargers/{charger}/source-registration/{registration}/connection-health', [ChargerSourceRegistrationController::class, 'connectionHealth'])
+    ->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('registration', '[0-9]{1,18}')->middleware('throttle:charger-commands');
 Route::post('/companies/{company}/chargers/{charger}/source-registration', [ChargerSourceRegistrationController::class, 'prepare'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}');
 Route::post('/companies/{company}/chargers/{charger}/source-registration/{registration}/register', [ChargerSourceRegistrationController::class, 'register'])->where('company', '[0-9]{1,18}')->where('charger', '[0-9]{1,18}')->where('registration', '[0-9]{1,18}');
 

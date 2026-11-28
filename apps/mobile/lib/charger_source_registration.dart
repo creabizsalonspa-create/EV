@@ -5,11 +5,15 @@ import 'strings.dart';
 class ChargerSourceRegistrationSnapshot {
   final String state;
   final String? verifiedAt;
-  final bool inventoryMatches;
+  final bool inventoryMatches, canInspect;
+  final int? registrationId, sourceStationId;
   const ChargerSourceRegistrationSnapshot._(
     this.state,
     this.verifiedAt,
     this.inventoryMatches,
+    this.canInspect,
+    this.registrationId,
+    this.sourceStationId,
   );
   static ChargerSourceRegistrationSnapshot parse(dynamic value) {
     const states = [
@@ -75,6 +79,11 @@ class ChargerSourceRegistrationSnapshot {
       state,
       value['verified_at'] as String?,
       value['current_inventory_matches_registration'] as bool,
+      registered &&
+          value['current_inventory_matches_registration'] == true &&
+          value['can_inspect_connection'] == true,
+      value['registration_id'] as int?,
+      value['source_station_id'] as int?,
     );
   }
 }
@@ -102,6 +111,7 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
   bool busy = false, hidden = false;
   int generation = 0;
   Object? error;
+  ({String state, String? observedAt, String? firmware})? health;
   String tr(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   @override
   void initState() {
@@ -115,6 +125,7 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
   void dispose() {
     generation++;
     data = null;
+    health = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -127,6 +138,7 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
         oldWidget.chargerId != widget.chargerId) {
       generation++;
       data = null;
+      health = null;
       error = null;
       busy = false;
       owner = widget.api.sessionFence();
@@ -140,12 +152,15 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
       setState(() {
         hidden = state != AppLifecycleState.resumed;
         data = null;
+        health = null;
         error = null;
         busy = false;
       });
   }
 
-  Future<void> load() async {
+  Future<void> load({bool inspect = false}) async {
+    final registration = data;
+    if (inspect && registration?.canInspect != true) return;
     if (busy || hidden || !owner()) return;
     if (widget.companyId < 1 ||
         widget.chargerId < 1 ||
@@ -169,14 +184,47 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
         charger == widget.chargerId;
     setState(() {
       busy = true;
-      data = null;
+      if (!inspect) data = null;
+      health = null;
       error = null;
     });
     try {
       final reply = await api.request(
-        'vendor-ops/companies/$company/chargers/$charger/source-registration',
+        'vendor-ops/companies/$company/chargers/$charger/source-registration'
+        '${inspect ? '/${registration!.registrationId}/connection-health' : ''}',
       );
       if (!current() || !owner()) return;
+      if (inspect) {
+        final state = reply is Map ? reply['connection_state'] : null;
+        if (reply is! Map ||
+            state is! String ||
+            !['recent', 'stale', 'offline', 'unknown'].contains(state) ||
+            reply['company_id'] != company ||
+            reply['charger_id'] != charger ||
+            reply['registration_id'] != registration!.registrationId ||
+            reply['source_station_id'] != registration?.sourceStationId ||
+            reply['evidence'] != 'AUTHENTICATED_REGISTERED_SOURCE' ||
+            reply['device_commands_sent'] != 0 ||
+            reply['charging_capability_granted'] != false ||
+            reply['charger_hardware_verified'] != false) {
+          throw const FormatException('Invalid source health evidence.');
+        }
+        final at = reply['source_last_message_at'];
+        final firmware = reply['source_firmware_version'];
+        if ((at != null &&
+                (at is! String || DateTime.tryParse(at)?.isUtc != true)) ||
+            (firmware != null && firmware is! String)) {
+          throw const FormatException('Invalid source health metadata.');
+        }
+        setState(
+          () => health = (
+            state: state,
+            observedAt: at as String?,
+            firmware: firmware as String?,
+          ),
+        );
+        return;
+      }
       final parsed = ChargerSourceRegistrationSnapshot.parse(reply);
       setState(() => data = parsed);
     } catch (e) {
@@ -184,6 +232,7 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
       if (e is ApiException && e.endsCurrentSession) {
         setState(() {
           data = null;
+          health = null;
           busy = false;
         });
         widget.onExpired();
@@ -214,6 +263,13 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
       'يتطلب فحصاً مصرحاً؛ لا تُعد المحاولة تلقائياً',
     ),
   };
+  String healthLabel(String state) => switch (state) {
+    'recent' => tr('Recent source message', 'رسالة حديثة من المصدر'),
+    'stale' => tr('Source message is stale', 'رسالة المصدر قديمة'),
+    'offline' => tr('Source reports offline', 'المصدر يبلغ أن الشاحن غير متصل'),
+    _ => tr('Source message has not been observed', 'لم تُرصد رسالة من المصدر'),
+  };
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -255,6 +311,23 @@ class _RegistrationState extends State<ChargerSourceRegistrationView>
                 textDirection: TextDirection.ltr,
               ),
           ],
+          if (data?.canInspect == true)
+            OutlinedButton(
+              key: const Key('source-connection-inspect'),
+              onPressed: busy ? null : () => load(inspect: true),
+              child: Text(tr('Inspect source connection', 'فحص اتصال المصدر')),
+            ),
+          if (health case final observation?)
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                [
+                  healthLabel(observation.state),
+                  if (observation.firmware != null) observation.firmware!,
+                  if (observation.observedAt != null) observation.observedAt!,
+                ].join(' · '),
+              ),
+            ),
           if (error != null)
             Semantics(
               liveRegion: true,
