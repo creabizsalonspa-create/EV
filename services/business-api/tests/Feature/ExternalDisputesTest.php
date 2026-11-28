@@ -601,6 +601,26 @@ class ExternalDisputesTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
     }
 
+    public function test_scan_recovers_lost_evidence_receipt_after_provider_closes_the_settlement_hold(): void
+    {
+        [$id, $operation] = $this->uncertainStoredEvidence();
+        $this->body['status'] = 'won';
+        $this->body['evidence'] = ['product_description' => 'Original encrypted private evidence'];
+        $this->providerEvent('evt_WonWithUncertainEvidence')->assertOk();
+        $this->assertDatabaseHas('external_disputes', ['id' => $id, 'status' => 'won', 'settlement_hold' => false]);
+        $this->assertDatabaseHas('external_dispute_evidence', ['id' => $operation->id, 'status' => 'uncertain']);
+
+        $this->fakeProvider(fn ($request) => str_contains($request->url(), '/charges/')
+            ? Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed'])
+            : Http::response($this->body));
+        $service = app(ExternalDisputes::class);
+        $this->assertSame(['inspected' => 1, 'attention' => 0, 'failed' => 0], $service->scan(1));
+        $this->assertDatabaseHas('external_dispute_evidence', ['id' => $operation->id, 'status' => 'confirmed', 'lease_until' => null]);
+        $this->assertSame(['inspected' => 0, 'attention' => 0, 'failed' => 0], $service->scan(1));
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_failed_scan_never_claims_new_authoritative_provider_observation(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');

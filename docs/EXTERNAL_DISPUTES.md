@@ -98,3 +98,9 @@ total and the requested page number. Deadline priority and ADMIN-only
 tenant/amount suppression are unchanged; this never polls the PSP or
 submits evidence. Added regression cases assert no new financial postings
 or provider actions.
+
+The bounded TEST reconciliation scan includes disputes with unresolved evidence
+receipts even after the provider releases the settlement hold. It considers
+only evidence operations without an active worker lease in that case. A matching
+provider read can confirm the existing receipt after closure without sending
+another submission or posting a financial adjustment.

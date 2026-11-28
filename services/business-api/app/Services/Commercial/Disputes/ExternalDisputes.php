@@ -63,7 +63,18 @@ class ExternalDisputes
         abort_unless($limit >= 1 && $limit <= 100, 422);
         abort_if(app()->environment('production'), 503, 'Provider dispute scanning supports TEST only.');
         $counts = ['inspected' => 0, 'attention' => 0, 'failed' => 0];
-        $ids = DB::table('external_disputes')->where('settlement_hold', true)->orderBy('updated_at')->orderBy('id')->limit($limit)->pluck('id');
+        $now = now();
+        // The provider can release a settlement hold before a lost evidence
+        // response is recovered. An unresolved receipt remains work for the scan.
+        $pendingEvidence = DB::table('external_dispute_evidence as evidence')
+            ->selectRaw('1')
+            ->whereColumn('evidence.dispute_id', 'external_disputes.id')
+            ->whereIn('evidence.status', ['uncertain', 'sending'])
+            ->where(fn ($lease) => $lease->whereNull('evidence.lease_until')
+                ->orWhere('evidence.lease_until', '<=', $now));
+        $ids = DB::table('external_disputes')->where(fn ($disputes) => $disputes
+            ->where('settlement_hold', true)->orWhereExists($pendingEvidence))
+            ->orderBy('updated_at')->orderBy('id')->limit($limit)->pluck('id');
         foreach ($ids as $id) {
             try {
                 $row = $this->reconcile((int) $id);
