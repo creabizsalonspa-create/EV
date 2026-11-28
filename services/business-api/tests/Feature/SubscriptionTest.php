@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Commercial\SubscriptionPaidCycle;
 use App\Services\Commercial\SubscriptionService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -41,6 +42,140 @@ class SubscriptionTest extends TestCase
     private function pay(array $f, string $key = 'pay', string $outcome = 'succeeded'): array
     {
         return $this->actingAs($f[0])->postJson($f[2].'/mock-payment', ['invoice_id' => end($f[1]['invoices'])['id'], 'outcome' => $outcome, 'idempotency_key' => $key])->assertOk()->json();
+    }
+
+    public function test_stale_service_actor_cannot_enroll_change_pay_or_publish(): void
+    {
+        $p = $this->plan();
+        $f = $this->subscribe($p);
+        $service = app(SubscriptionService::class);
+        $vendor = $f[0];
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $before = DB::table('commercial_subscription_ledger')->count();
+        DB::table('users')->where('id', $vendor->id)->update(['auth_epoch' => (int) $vendor->auth_epoch + 1]);
+        DB::table('users')->where('id', $other->id)->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        $operations = [
+            fn () => $service->subscribe($other, $p['id'], 'stale-enroll'),
+            fn () => $service->change($vendor, $f[1]['subscription']['id'], 'cancel_now', null, 'stale-change'),
+            fn () => $service->mockPay($vendor, $f[1]['subscription']['id'], $f[1]['invoices'][0]['id'], 'succeeded', 'stale-pay'),
+            fn () => $service->publish($admin, []),
+        ];
+        foreach ($operations as $operation) {
+            try {
+                $operation();
+                $this->fail('Revoked service actor was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('commercial_plan_versions', 1);
+        $this->assertDatabaseCount('commercial_subscriptions', 1);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+    }
+
+    public function test_admin_cannot_preview_or_schedule_for_suspended_subscription_owner(): void
+    {
+        $basic = $this->plan();
+        $pro = $this->plan(['code' => 'vendor-advanced', 'price_minor' => 2999]);
+        $f = $this->subscribe($basic);
+        $this->pay($f);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $service = app(SubscriptionService::class);
+        $id = $f[1]['subscription']['id'];
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $events = DB::table('commercial_subscription_events')->count();
+        DB::table('users')->where('id', $f[0]->id)->update(['account_status' => 'suspended']);
+        foreach ([
+            fn () => $service->previewChange($admin, $id, $pro['id']),
+            fn () => $service->change($admin, $id, 'change_plan', $pro['id'], 'suspended-owner'),
+        ] as $operation) {
+            try {
+                $operation();
+                $this->fail('Suspended subscription owner was eligible.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+        $this->assertNull(DB::table('commercial_subscriptions')->where('id', $id)->value('next_plan_id'));
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        DB::table('users')->where('id', $f[0]->id)->update(['account_status' => 'active']);
+        $this->assertSame($pro['id'], $service->previewChange($admin, $id, $pro['id'])['proposed_plan_id']);
+    }
+
+    public function test_active_pointer_without_paid_invoice_cannot_preview_or_schedule(): void
+    {
+        $basic = $this->plan();
+        $pro = $this->plan(['code' => 'vendor-advanced', 'price_minor' => 2999]);
+        $f = $this->subscribe($basic);
+        $id = $f[1]['subscription']['id'];
+        $invoice = DB::table('commercial_subscription_invoices')->where('subscription_id', $id)->first();
+        $original = DB::table('commercial_subscriptions')->find($id);
+        // Synthetic imported pointer, not an accepted payment. Never modify
+        // an immutable invoice, receipt or posting to construct this fixture.
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => 'active', 'cycle_number' => $invoice->cycle_number,
+            'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end,
+        ]);
+        $events = DB::table('commercial_subscription_events')->count();
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2].'/change-preview?plan_id='.$pro['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $pro['id'], 'idempotency_key' => 'unpaid-pointer',
+        ])->assertConflict();
+        $this->assertNull(DB::table('commercial_subscriptions')->where('id', $id)->value('next_plan_id'));
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 1);
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+        $this->assertSame($ledger, DB::table('commercial_subscription_ledger')->count());
+
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => $original->status, 'cycle_number' => $original->cycle_number,
+            'period_start' => $original->period_start, 'period_end' => $original->period_end,
+        ]);
+        $this->pay($f);
+        $this->getJson($f[2].'/change-preview?plan_id='.$pro['id'])->assertOk();
+        DB::table('commercial_subscriptions')->where('id', $id)->update(['period_end' => now()->addDays(10)]);
+        $events = DB::table('commercial_subscription_events')->count();
+        $this->getJson($f[2].'/change-preview?plan_id='.$pro['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $pro['id'], 'idempotency_key' => 'wrong-period',
+        ])->assertConflict();
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+        $this->assertNull(DB::table('commercial_subscriptions')->where('id', $id)->value('next_plan_id'));
+    }
+
+    public function test_admin_manual_payment_requires_current_owner_eligibility(): void
+    {
+        $f = $this->subscribe($this->plan());
+        $admin = User::factory()->create(['role' => 'admin']);
+        $service = app(SubscriptionService::class);
+        $id = $f[1]['subscription']['id'];
+        $invoice = $f[1]['invoices'][0]['id'];
+        $ledger = DB::table('commercial_subscription_ledger')->count();
+        $events = DB::table('commercial_subscription_events')->count();
+        foreach ([['account_status' => 'suspended'], ['role' => 'customer']] as $change) {
+            DB::table('users')->where('id', $f[0]->id)->update($change);
+            try {
+                $service->mockPay($admin, $id, $invoice, 'succeeded', 'admin-manual');
+                $this->fail('Ineligible subscriber was charged.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+            DB::table('users')->where('id', $f[0]->id)->update(['account_status' => 'active', 'role' => 'vendor']);
+        }
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertSame($ledger, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+        $this->assertTrue($service->mockPay($admin, $id, $invoice, 'succeeded', 'admin-manual')['entitlements_active']);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
 
     public function test_enrollment_payment_entitlements_and_replays_are_connected(): void
@@ -97,6 +232,52 @@ class SubscriptionTest extends TestCase
         $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $basic['id'], 'idempotency_key' => 'downgrade'])->assertOk()->assertJsonPath('subscription.next_plan_id', $basic['id'])->assertJsonPath('entitlements.staff_limit', 20);
     }
 
+    public function test_due_renewal_skips_ineligible_owners_without_blocking_other_cycles_or_cancellation(): void
+    {
+        $plan = $this->plan();
+        $suspended = $this->subscribe($plan);
+        $paid = $this->pay($suspended);
+        $demoted = $this->subscribe($plan);
+        $this->pay($demoted);
+        $eligible = $this->subscribe($plan);
+        $this->pay($eligible);
+        $cancelled = $this->subscribe($plan);
+        $this->pay($cancelled);
+        $this->postJson($cancelled[2].'/change', [
+            'action' => 'cancel_at_period_end', 'idempotency_key' => 'expire-even-if-suspended',
+        ])->assertOk();
+        DB::table('users')->whereIn('id', [$suspended[0]->id, $cancelled[0]->id])
+            ->update(['account_status' => 'suspended']);
+        DB::table('users')->where('id', $demoted[0]->id)->update(['role' => 'customer']);
+        $this->travelTo(Carbon::parse($paid['subscription']['period_end'])->addMinute());
+        $service = app(SubscriptionService::class);
+        $id = $suspended[1]['subscription']['id'];
+        $before = DB::table('commercial_subscription_ledger')->count();
+        $events = DB::table('commercial_subscription_events')->count();
+        $held = $service->renew($id);
+        $this->assertSame('ACCOUNT_INELIGIBLE', $held['renewal_hold_reason']);
+        $this->assertFalse($held['entitlements_active']);
+        $this->assertSame($before, DB::table('commercial_subscription_ledger')->count());
+        $this->assertSame($events, DB::table('commercial_subscription_events')->count());
+
+        $this->artisan('commercial:renew-subscriptions')
+            ->expectsOutput('Processed 2 due subscriptions. Held 2 ineligible subscriptions. No payment was collected.')
+            ->assertSuccessful();
+        foreach ([$suspended, $demoted, $cancelled] as $f) {
+            $this->assertSame(1, DB::table('commercial_subscription_invoices')
+                ->where('subscription_id', $f[1]['subscription']['id'])->count());
+        }
+        $this->assertSame(2, DB::table('commercial_subscription_invoices')
+            ->where('subscription_id', $eligible[1]['subscription']['id'])->count());
+        $this->assertDatabaseHas('commercial_subscriptions', [
+            'id' => $cancelled[1]['subscription']['id'], 'status' => 'cancelled',
+        ]);
+        DB::table('users')->where('id', $suspended[0]->id)->update(['account_status' => 'active']);
+        $this->assertCount(2, $service->renew($id)['invoices']);
+        $this->assertCount(2, $service->renew($id)['invoices']);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 4);
+    }
+
     public function test_cancellation_resume_and_due_command_do_not_charge_or_reenable_cancelled_subscription(): void
     {
         $f = $this->subscribe($this->plan());
@@ -141,6 +322,166 @@ class SubscriptionTest extends TestCase
         $this->actingAs($f[0]);
         $this->pay($f);
         $this->postJson($f[2].'/change', ['action' => 'cancel_now', 'idempotency_key' => 'cancel'])->assertOk()->assertJsonPath('entitlements_active', false);
+    }
+
+    public function test_active_flag_without_exact_paid_cycle_does_not_authorize_features_or_change(): void
+    {
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'vendor-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        $id = $f[1]['subscription']['id'];
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        $this->getJson($f[2])->assertOk()->assertJsonPath('entitlements_active', false);
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'unpaid-change'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'cancel_at_period_end', 'idempotency_key' => 'unpaid-end'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-wrong-denomination',
+            'amount_minor' => $invoice['total_minor'], 'currency' => 'USD',
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+    }
+
+    public function test_unposted_receipt_cannot_authorize_paid_marketing_entitlements(): void
+    {
+        $p = $this->plan(['entitlements' => ['campaign_slots' => 2, 'campaign_units' => 5]]);
+        $target = $this->plan(['code' => 'marketing-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        DB::table('commercial_subscriptions')->where('id', $f[1]['subscription']['id'])->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        // Exact denomination and amount alone are insufficient. Preserve
+        // existing immutable guards and insert only synthetic source evidence.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-unposted-receipt',
+            'amount_minor' => $invoice['total_minor'], 'currency' => $invoice['currency'],
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $ledgerCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'unposted-change',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $ledgerCount);
+    }
+
+    public function test_unexpected_invoice_journal_cannot_authorize_paid_cycle(): void
+    {
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'invoice-journal-target']);
+        $f = $this->subscribe($p);
+        $this->pay($f);
+        $invoice = $f[1]['invoices'][0];
+        // Append two unrelated accounts under the invoice kind. They are
+        // distinct from the original invoice accounts, so the unique journal
+        // constraint and immutability triggers remain fully enforced.
+        DB::table('commercial_subscription_ledger')->insert([
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'cash:mock_subscription',
+                'debit_minor' => 1, 'credit_minor' => 0, 'created_at' => now()],
+            ['invoice_id' => $invoice['id'], 'kind' => 'invoice', 'account' => 'cash:stripe_test_subscription',
+                'debit_minor' => 0, 'credit_minor' => 1, 'created_at' => now()],
+        ]);
+        $journalCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', [
+            'action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'invalid-invoice-change',
+        ])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 2);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $journalCount);
+    }
+
+    public function test_free_and_zero_tax_invoice_journals_preserve_paid_entitlements(): void
+    {
+        foreach ([0, 999] as $price) {
+            $f = $this->subscribe($this->plan(['price_minor' => $price, 'tax_bps' => 0]));
+            $paid = $this->pay($f);
+            $this->assertTrue($paid['entitlements_active']);
+            $this->assertTrue($paid['ledger_balanced']);
+            $this->assertSame($price, $paid['invoices'][0]['total_minor']);
+        }
+    }
+
+    public function test_paid_cycle_amount_boundary_does_not_coerce_inexact_financial_sources(): void
+    {
+        $exact = new \ReflectionMethod(SubscriptionPaidCycle::class, 'exactMinor');
+        foreach ([0, 1049, '1049', '9007199254740991'] as $valid) {
+            $this->assertSame((int) $valid, $exact->invoke(null, $valid));
+        }
+        foreach ([1049.0, 1049.5, true, false, null, -1, '-1', '1049.0', '1e3', ' 1049', '01049', '9007199254740992'] as $invalid) {
+            try {
+                $exact->invoke(null, $invalid);
+                $this->fail('Inexact paid-cycle amount was accepted.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+    }
+
+    public function test_fractional_sqlite_receipt_cannot_grant_paid_cycle_authority(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite can store fractional values in integer-affinity columns; PostgreSQL uses typed integers.');
+        }
+        $p = $this->plan();
+        $target = $this->plan(['code' => 'vendor-fractional-target']);
+        $f = $this->subscribe($p);
+        $invoice = $f[1]['invoices'][0];
+        $id = $f[1]['subscription']['id'];
+        DB::table('commercial_subscriptions')->where('id', $id)->update([
+            'status' => 'active', 'cycle_number' => 1,
+            'period_start' => $invoice['period_start'], 'period_end' => $invoice['period_end'],
+        ]);
+        // Insert a synthetic invalid receipt once; never disable immutable history guards.
+        DB::table('commercial_subscription_receipts')->insert([
+            'invoice_id' => $invoice['id'], 'provider_reference' => 'synthetic-fractional-receipt',
+            'amount_minor' => $invoice['total_minor'] + 0.5, 'currency' => $invoice['currency'],
+            'evidence' => 'MOCK_PROVIDER', 'created_at' => now(),
+        ]);
+        $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice['id'])->first();
+        $this->assertSame($invoice['total_minor'] + 0.5, (float) $receipt->amount_minor);
+        $journalCount = DB::table('commercial_subscription_ledger')->count();
+        $this->getJson($f[2])->assertConflict();
+        $this->getJson($f[2].'/change-preview?plan_id='.$target['id'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'fractional-change'])->assertConflict();
+        $this->postJson($f[2].'/change', ['action' => 'cancel_at_period_end', 'idempotency_key' => 'fractional-end'])->assertConflict();
+        $this->assertDatabaseCount('commercial_subscription_events', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $journalCount);
+    }
+
+    public function test_retirement_blocks_new_changes_but_preserves_already_committed_next_cycle(): void
+    {
+        $basic = $this->plan();
+        $target = $this->plan(['code' => 'vendor-next', 'price_minor' => 2000]);
+        $f = $this->subscribe($basic);
+        $paid = $this->pay($f);
+        $payload = ['action' => 'change_plan', 'plan_id' => $target['id'], 'idempotency_key' => 'committed-change'];
+        $this->postJson($f[2].'/change', $payload)->assertOk();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->patchJson('/subscription-test/commercial/plans/'.$target['id'].'/availability', ['available' => false])->assertOk();
+        $this->actingAs($f[0])->postJson($f[2].'/change', $payload)->assertOk()->assertJsonPath('subscription.next_plan_id', $target['id']);
+        $this->postJson($f[2].'/change', array_replace($payload, ['idempotency_key' => 'new-after-retirement']))->assertConflict();
+        $this->travelTo(Carbon::parse($paid['subscription']['period_end'])->addSecond());
+        $this->postJson($f[2].'/renew')->assertOk()->assertJsonPath('invoices.1.plan_id', $target['id'])
+            ->assertJsonPath('invoices.1.subtotal_minor', 2000)->assertJsonPath('entitlements_active', false);
+        $this->assertDatabaseCount('commercial_subscription_invoices', 2);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
 
     public function test_database_guards_invoice_receipt_plan_and_event_immutability(): void
