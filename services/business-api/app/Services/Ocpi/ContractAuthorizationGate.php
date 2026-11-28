@@ -23,6 +23,7 @@ final class ContractAuthorizationGate
         }
         $row = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
             ->orderByDesc('revision')->first();
+
         return self::validReview($row, $provider, $owner, CarbonImmutable::now('UTC'));
     }
 
@@ -78,6 +79,7 @@ final class ContractAuthorizationGate
             return false;
         }
         $date = $row->valid_until;
+
         return is_string($date)
             && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $parts) === 1
             && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])
