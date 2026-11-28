@@ -18,3 +18,26 @@ test('filter barrier includes the actual response and dependent catalog render, 
  resolveResponse(response({q:name}));await new Promise(setImmediate);assert.equal(settled,false);
  resolveRender();await pending;assert.equal(settled,true);
 });
+
+// The native wrapper must actually invoke the guarded shared entrypoint.
+// Merely requiring it exits successfully without running the Flutter test.
+test('native calendar wrapper starts the shared runner once and propagates failure',async()=>{
+ const fs=require('node:fs'),vm=require('node:vm');
+ const source=fs.readFileSync(require.resolve('./native-operating-calendar.cjs'),'utf8');
+ assert.equal(typeof require('./operating-calendar.cjs').main,'function');
+ for(const rejected of [false,true]){
+  let calls=0;const errors=[],fakeProcess={env:{}};
+  const failure=new Error('synthetic calendar fixture failure');
+  vm.runInNewContext(source,{
+   process:fakeProcess,console:{error:e=>errors.push(e)},
+   require:name=>{assert.equal(name,'./operating-calendar.cjs');return{main:async()=>{
+    calls++;assert.equal(fakeProcess.env.EV_OPERATING_CALENDAR_NATIVE,'1');
+    if(rejected)throw failure;
+   }};},
+  });
+  await new Promise(setImmediate);
+  assert.equal(calls,1);
+  assert.equal(fakeProcess.exitCode,rejected?1:undefined);
+  assert.deepEqual(errors,rejected?[failure]:[]);
+ }
+});
