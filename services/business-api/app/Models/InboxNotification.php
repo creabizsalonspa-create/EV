@@ -168,7 +168,8 @@ class InboxNotification extends Model
                             ->whereColumn('alert_admin.id', 'inbox_notifications.user_id')
                             ->where('alert_admin.role', 'admin')
                             ->where('alert_admin.account_status', 'active')
-                            ->whereRaw("CAST(alert_admin.auth_epoch AS TEXT) = ".$field('consent_epoch'));
+                            ->whereRaw('CAST(alert_admin.auth_epoch AS TEXT) = '.$field('consent_epoch'))
+                            ->whereRaw($field('source')." = 'local_operational_observation'");
                     });
             })
             ->where(function (Builder $visible) use ($adminSimulatorKinds): void {
