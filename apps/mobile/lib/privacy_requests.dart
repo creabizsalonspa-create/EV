@@ -20,6 +20,28 @@ class PrivacyRequestsView extends StatefulWidget {
 class _PrivacyRequestsState extends State<PrivacyRequestsView>
     with WidgetsBindingObserver {
   final reason = TextEditingController();
+  final contactPassword = TextEditingController();
+  final contactFactor = TextEditingController();
+  int? contactCase;
+  bool contactConfirmed = false;
+
+  void clearContact() {
+    contactPassword.clear();
+    contactFactor.clear();
+    contactCase = null;
+    contactConfirmed = false;
+  }
+  final securityPassword = TextEditingController();
+  final securityFactor = TextEditingController();
+  int? securityCase;
+  bool securityConfirmed = false;
+
+  void clearSecurity() {
+    securityPassword.clear();
+    securityFactor.clear();
+    securityCase = null;
+    securityConfirmed = false;
+  }
   final items = <Map<String, dynamic>>[];
   String kind = 'access';
   String? error, success, pendingId;
@@ -75,6 +97,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
 
   void clearPrivate() {
     generation++;
+    clearSecurity();
+    clearContact();
     reason.clear();
     items.clear();
     kind = 'access';
@@ -119,6 +143,10 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     reason.dispose();
+    contactPassword.dispose();
+    contactFactor.dispose();
+    securityPassword.dispose();
+    securityFactor.dispose();
     super.dispose();
   }
 
@@ -128,6 +156,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
       setState(() {
         // No historical withdraw/export control remains usable after an
         // unverified GET, POST receipt, or mutation outcome.
+        clearSecurity();
+        clearContact();
         items.clear();
         historyLoaded = false;
         error = e is ApiException && e.status == 409
@@ -188,6 +218,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (rejectStale()) return;
     final ticket = ++generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
+      clearContact();
       loading = true;
       error = null;
       items.clear();
@@ -283,6 +315,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     pendingBody ??= body;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
+      clearContact();
       sending = true;
       error = success = null;
       items.clear();
@@ -336,6 +370,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (sending || loading) return;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearSecurity();
+      clearContact();
       sending = true;
       error = success = null;
       items.clear();
@@ -353,6 +389,120 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     } catch (e) {
       if (mounted && ticket == generation && fence()) failure(e);
     } finally {
+      finish(ticket, fence, writing: true);
+    }
+  }
+
+  Future<void> secureErasure(int id) async {
+    if (rejectStale() || sending || loading || securityCase != id ||
+        !securityConfirmed || securityPassword.text.isEmpty ||
+        !items.any((row) => row['id'] == id && row['kind'] == 'erasure' &&
+            const {'pending', 'reviewing', 'blocked_external'}.contains(row['status']))) {
+      return;
+    }
+    final currentApi = widget.api;
+    final onExpired = widget.onExpired;
+    final fence = currentApi.sessionFence();
+    final payload = <String, dynamic>{
+      'confirmation': 'discard_copies_and_revoke_sessions',
+      'password': securityPassword.text,
+      'second_factor_code': securityFactor.text,
+    };
+    final ticket = ++generation;
+    setState(() {
+      clearSecurity();
+      clearContact();
+      sending = true;
+      error = success = null;
+      items.clear();
+      historyLoaded = false;
+    });
+    try {
+      final receipt = await currentApi.request(
+        'account/privacy-requests/$id/secure-account',
+        method: 'POST',
+        body: payload,
+      );
+      // A confirmed revocation must clear the old device credential even
+      // if the view was hidden or closed during the write. Never clear a
+      // newer account: the captured API session fence owns this cleanup.
+      if (!fence()) return;
+      if (receipt is! Map ||
+          receipt['request_id'] != id ||
+          !const {'pending', 'reviewing', 'blocked_external'}.contains(receipt['case_status']) ||
+          receipt['derived_copies_discarded'] is! int ||
+          (receipt['derived_copies_discarded'] as int) < 0 ||
+          (receipt['derived_copies_discarded'] as int) > 250 ||
+          receipt['sessions_revoked'] != true ||
+          receipt['sign_in_required'] != true ||
+          receipt['source_records_deleted'] != false ||
+          receipt['automated_erasure_performed'] != false ||
+          receipt['manual_processing_required'] != true) {
+        throw const FormatException('Unverified erasure security receipt');
+      }
+      if (mounted && identical(widget.api, currentApi)) setState(clearPrivate);
+      await currentApi.forgetRevokedSession(onCleared: onExpired);
+    } catch (e) {
+      if (mounted && ticket == generation && fence() && !background) failure(e);
+    } finally {
+      payload.clear();
+      finish(ticket, fence, writing: true);
+    }
+  }
+
+  Future<void> minimizeContact(int id) async {
+    if (rejectStale() || sending || loading || contactCase != id ||
+        !contactConfirmed || contactPassword.text.isEmpty ||
+        !items.any((row) => row['id'] == id && row['kind'] == 'erasure' &&
+            const {'pending', 'reviewing', 'blocked_external'}.contains(row['status']))) {
+      return;
+    }
+    final payload = <String, dynamic>{
+      'confirmation': 'remove_optional_phone',
+      'password': contactPassword.text,
+      'second_factor_code': contactFactor.text,
+    };
+    final ticket = ++generation, fence = widget.api.sessionFence();
+    setState(() {
+      clearContact();
+      clearSecurity();
+      sending = true;
+      success = error = null;
+      items.clear();
+      historyLoaded = false;
+    });
+    try {
+      final result = await widget.api.request(
+        'account/privacy-requests/$id/minimize-contact',
+        method: 'POST',
+        body: payload,
+      );
+      if (!mounted || ticket != generation || !fence() || background) return;
+      bool bounded(dynamic n) => n is int && n >= 0 && n <= 250;
+      if (result is! Map ||
+          result['request_id'] != id ||
+          !const {'pending', 'reviewing', 'blocked_external'}.contains(result['case_status']) ||
+          result['optional_phone_removed'] != true ||
+          result['profile_phone_changed'] is! bool ||
+          !bounded(result['live_challenges_cancelled']) ||
+          !bounded(result['challenge_payloads_cleared']) ||
+          result['verification_receipts_retained'] != true ||
+          result['external_deletion_verified'] != false ||
+          result['account_deleted'] != false ||
+          result['automated_erasure_performed'] != false ||
+          result['manual_processing_required'] != true) {
+        throw const FormatException('Unverified optional contact receipt');
+      }
+      setState(() {
+        success = t(
+          'Optional phone removal recorded. External deletion is not verified; your erasure request remains under review.',
+          'سُجلت إزالة الهاتف الاختياري؛ لم يُتحقق من الحذف الخارجي ولا يزال طلب الحذف قيد المراجعة.',
+        );
+      });
+    } catch (e) {
+      if (mounted && ticket == generation && fence() && !background) failure(e);
+    } finally {
+      payload.clear();
       finish(ticket, fence, writing: true);
     }
   }
@@ -548,6 +698,114 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                                   : () => withdraw(row['id'] as int),
                               child: Text(t('Withdraw request', 'سحب الطلب')),
                             ),
+                          if (row['kind'] == 'erasure' &&
+                              const {'pending', 'reviewing', 'blocked_external'}.contains(row['status'])) ...[
+                            TextButton(
+                              key: ValueKey('privacy-contact-open-${row['id']}'),
+                              onPressed: sending || loading ? null : () {
+                                if (rejectStale()) return;
+                                setState(() {
+                                  clearContact();
+                                  clearSecurity();
+                                  contactCase = row['id'] as int;
+                                });
+                              },
+                              child: Text(t('Remove optional phone data', 'إزالة بيانات الهاتف الاختيارية')),
+                            ),
+                            if (contactCase == row['id']) ...[
+                              Text(t(
+                                'Removes the optional phone and live verification payloads only. Historical receipts, private copies, external records and your account are retained.',
+                                'يزيل الهاتف الاختياري وبيانات التحقق النشطة فقط؛ تبقى السجلات التاريخية والنسخ الخاصة والسجلات الخارجية والحساب.',
+                              )),
+                              TextField(
+                                key: const Key('privacy-contact-password'),
+                                controller: contactPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 128,
+                                decoration: InputDecoration(labelText: t('Current password', 'كلمة المرور الحالية')),
+                              ),
+                              TextField(
+                                key: const Key('privacy-contact-factor'),
+                                controller: contactFactor,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 64,
+                                decoration: InputDecoration(labelText: t('Authenticator or recovery code if enabled', 'رمز المصادقة أو الاسترداد إن فُعّل')),
+                              ),
+                              CheckboxListTile(
+                                key: const Key('privacy-contact-consent'),
+                                value: contactConfirmed,
+                                onChanged: (value) => setState(() => contactConfirmed = value == true),
+                                title: Text(t('I agree to remove optional phone data', 'أوافق على إزالة بيانات الهاتف الاختيارية')),
+                              ),
+                              FilledButton(
+                                key: const Key('privacy-contact-submit'),
+                                onPressed: contactConfirmed && !sending && !loading
+                                    ? () => minimizeContact(row['id'] as int) : null,
+                                child: Text(t('Confirm optional phone removal', 'تأكيد إزالة الهاتف الاختياري')),
+                              ),
+                              TextButton(
+                                onPressed: () => setState(clearContact),
+                                child: Text(t('Cancel', 'إلغاء')),
+                              ),
+                            ],
+                          ],
+                          if (row['kind'] == 'erasure' &&
+                              const {'pending', 'reviewing', 'blocked_external'}.contains(row['status'])) ...[
+                            TextButton(
+                              key: ValueKey('privacy-security-open-${row['id']}'),
+                              onPressed: sending || loading ? null : () {
+                                if (rejectStale()) return;
+                                setState(() {
+                                  clearSecurity();
+                                  clearContact();
+                                  securityCase = row['id'] as int;
+                                });
+                              },
+                              child: Text(t('Secure account before erasure', 'تأمين الحساب قبل الحذف')),
+                            ),
+                            if (securityCase == row['id']) ...[
+                              Text(t(
+                                'Optional: discard prepared personal copies and end all sessions. Your account and source records remain; sign in again afterward.',
+                                'اختياري: إتلاف النسخ الشخصية المعدة وإنهاء جميع الجلسات. يبقى حسابك والسجلات الأصلية؛ سجّل الدخول مجدداً بعد ذلك.',
+                              )),
+                              TextField(
+                                key: const Key('privacy-security-password'),
+                                controller: securityPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 128,
+                                decoration: InputDecoration(labelText: t('Current password', 'كلمة المرور الحالية')),
+                              ),
+                              TextField(
+                                key: const Key('privacy-security-factor'),
+                                controller: securityFactor,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 64,
+                                decoration: InputDecoration(labelText: t('Authenticator or recovery code if enabled', 'رمز المصادقة أو الاسترداد إن فُعّل')),
+                              ),
+                              CheckboxListTile(
+                                key: const Key('privacy-security-consent'),
+                                value: securityConfirmed,
+                                onChanged: (value) => setState(() => securityConfirmed = value == true),
+                                title: Text(t('I agree to discard copies and revoke sessions', 'أوافق على إتلاف النسخ وإلغاء الجلسات')),
+                              ),
+                              FilledButton(
+                                key: const Key('privacy-security-submit'),
+                                onPressed: securityConfirmed && !sending && !loading
+                                    ? () => secureErasure(row['id'] as int) : null,
+                                child: Text(t('Confirm security step', 'تأكيد خطوة الأمان')),
+                              ),
+                              TextButton(onPressed: () => setState(clearSecurity),
+                                child: Text(t('Cancel', 'إلغاء'))),
+                            ],
+                          ],
                         ],
                       ),
                     ),
