@@ -111,6 +111,89 @@ void main() {
         method: 'DELETE',
       );
       expect(cancelled['status'], 'cancelled');
+      // Verify the remaining 3.4.6 native HTTP acceptance against the same
+      // real, private loopback station. Notices inform; blocks deny new bookings.
+      final current = Map<String, dynamic>.from(
+        await vendor.request(path) as Map,
+      );
+      const english = 'Native fixture: use rear access';
+      const arabic = 'استخدم المدخل الخلفي';
+      final start = DateTime.parse(f['start'] as String).toUtc();
+      final end = start.add(const Duration(hours: 1));
+      final expiry = end.add(const Duration(days: 1))
+          .toIso8601String().substring(0, 10);
+      final notice = await vendor.request(path, method: 'PUT', body: {
+        ...current,
+        'closed_dates': <String>[],
+        'notice_en': english,
+        'notice_ar': arabic,
+        'notice_until': expiry,
+      });
+      expect(notice['notice_active'], true);
+      final publicApi = EvApi(base);
+      addTearDown(publicApi.close);
+      final publicNotice = await publicApi.request(path);
+      expect(publicNotice['notice_active'], true);
+      expect(publicNotice['notice_en'], english);
+      expect(publicNotice['notice_ar'], arabic);
+      final blockPath = 'stations/${f['station_id']}/availability-blocks';
+      final blockBody = <String, dynamic>{
+        'idempotency_key': operationKey(),
+        'starts_at': f['start'],
+        'ends_at': end.toIso8601String().replaceFirst('.000Z', 'Z'),
+        'reason_en': 'Native fixture closure',
+        'reason_ar': 'إغلاق مؤقت',
+      };
+      await expectLater(
+        other.request(blockPath, method: 'POST', body: blockBody),
+        throwsA(isA<ApiException>().having((e) => e.status, 'foreign publish', 404)),
+      );
+      final block = await vendor.request(blockPath, method: 'POST', body: blockBody);
+      expect(block['station_id'], f['station_id']);
+      expect(block['revision'], 1);
+      expect(block['scope'], 'STATION_WIDE_OPERATOR_POLICY');
+      expect(block['physical_availability_verified'], false);
+      final retry = await vendor.request(blockPath, method: 'POST', body: blockBody);
+      expect(retry, block);
+      final publicBlocks = await publicApi.request(blockPath);
+      expect(publicBlocks['data'], [block]);
+      expect((publicBlocks['data'] as List).single, isNot(contains('created_by')));
+      expect((publicBlocks['data'] as List).single, isNot(contains('idempotency_key')));
+      final newBooking = {
+        ...body,
+        'idempotency_key': 'native-blocked-${f['run']}',
+      };
+      await expectLater(
+        customer.request('reservations', method: 'POST', body: newBooking),
+        throwsA(isA<ApiException>()
+            .having((e) => e.status, 'blocked booking', 409)
+            .having((e) => e.message, 'operator policy', contains('operator availability block'))),
+      );
+      final cancelPath = '$blockPath/${block['id']}/cancel';
+      await expectLater(
+        other.request(cancelPath, method: 'POST', body: {'revision': 1}),
+        throwsA(isA<ApiException>().having((e) => e.status, 'foreign cancel', 404)),
+      );
+      final cancelledBlock = await vendor.request(cancelPath, method: 'POST', body: {'revision': 1});
+      expect(cancelledBlock['cancelled'], true);
+      expect(cancelledBlock['revision'], 2);
+      expect((await publicApi.request(blockPath))['data'], isEmpty);
+      // The notice is still active. Cancelling the block permits a new booking.
+      expect((await publicApi.request(path))['notice_active'], true);
+      final afterBlock = await customer.request('reservations', method: 'POST', body: {
+        ...newBooking,
+        'idempotency_key': 'native-unblocked-${f['run']}',
+      });
+      expect(afterBlock['operating_calendar_snapshot']['physical_availability_verified'], false);
+      await customer.request('reservations/${afterBlock['id']}', method: 'DELETE');
+      final cleared = await vendor.request(path, method: 'PUT', body: {
+        ...Map<String, dynamic>.from(notice as Map),
+        'notice_en': null,
+        'notice_ar': null,
+        'notice_until': null,
+      });
+      expect(cleared['notice_active'], false);
+      expect((await publicApi.request(path))['notice_active'], false);
       for (final api in clients.values) {
         await api.signOut();
       }

@@ -149,4 +149,4 @@ async function main() {
   console.log('PASS actual vendor opt-in/public policy, phone EN/AR persistence, holiday booking denial, immutable replay, cancellation and logout; no charging or money.');
 }
 if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});
-module.exports={matchesStationFilter,readStationFilter};
+module.exports={main,matchesStationFilter,readStationFilter};
