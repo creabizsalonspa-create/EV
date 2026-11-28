@@ -255,6 +255,65 @@ class VendorStaffChargingReadTest extends TestCase
         $this->getJson($url)->assertNotFound();
     }
 
+    #[TestWith(['revoked'])]
+    #[TestWith(['individual_expiry'])]
+    #[TestWith(['global_expiry'])]
+    public function test_captured_staff_bearer_cannot_read_session_or_meter_history_after_expiry(string $reason): void
+    {
+        $f = $this->fixture();
+        $m = $this->meterFixture($f, 2);
+        config(['sanctum.expiration' => 60]);
+        $token = $f['staff']->createToken('staff-observation', ['*'], now()->addHours(2))->accessToken;
+        $actor = $f['staff']->fresh()->withAccessToken($token);
+        $request = Request::create($m['url']);
+        $request->setUserResolver(fn () => $actor);
+        $controller = app(VendorStaffChargingReadController::class);
+        $this->assertSame(200, $controller->index($request, $f['company'])->getStatusCode());
+        $this->assertSame(200, $controller->meters($request, $f['company'], $m['session']->id)->getStatusCode());
+        match ($reason) {
+            'revoked' => $token->delete(),
+            'individual_expiry' => $token->forceFill(['expires_at' => now()->subSecond()])->save(),
+            'global_expiry' => $token->forceFill(['created_at' => now()->subMinutes(61)])->save(),
+        };
+        foreach ([
+            fn () => $controller->index($request, $f['company']),
+            fn () => $controller->meters($request, $f['company'], $m['session']->id),
+        ] as $read) {
+            try {
+                $read();
+                $this->fail('Revoked bearer received private charging records.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_changed_binding_identity_or_protocol_is_not_reported_as_canonical_meter_history(string $protocol): void
+    {
+        Http::preventStrayRequests();
+        $f = $this->fixture();
+        $m = $this->meterFixture($f, 2, $protocol);
+        $binding = DB::table('csms_bindings')->where('id', $m['binding']);
+        $original = $binding->first();
+        $this->actingAs($f['staff']);
+        foreach (['identifier' => 'changed-source-identity', 'protocol' => $protocol === '1.6' ? '2.0.1' : '1.6'] as $field => $changed) {
+            $binding->update([$field => $changed]);
+            $this->getJson($m['url'])->assertOk()->assertJsonPath('source_linked', false)->assertJsonPath('observations.total', 0);
+            $this->getJson($this->url($f['company']))->assertOk()
+                ->assertJsonPath('data.0.evidence', 'RECORDED_SOURCE_UNVERIFIED')->assertJsonPath('data.0.protocol', null);
+            $binding->update([$field => $original->{$field}]);
+            $this->getJson($m['url'])->assertOk()->assertJsonPath('source_linked', true)->assertJsonPath('observations.total', 2);
+            $this->getJson($this->url($f['company']))->assertOk()->assertJsonPath('data.0.protocol', $protocol)->assertJsonPath('data.0.evidence', 'SIMULATED_CSMS');
+        }
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_meter_history_rejects_unsafe_retained_snapshot_even_on_empty_pages(): void
     {
         $f = $this->fixture();
