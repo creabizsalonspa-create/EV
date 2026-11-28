@@ -580,7 +580,7 @@ for(const lang of ['en','ar'])test('federated nearby uses one explicit POST and 
  button.onclick();await tick();assert.equal(f.calls.length,0);
  consent.checked=true;button.onclick();await tick();
  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'federated-nearby');assert.equal(f.calls[0][1],'POST');
- assert.deepEqual(f.calls[0][2],{latitude:'25.2',longitude:'55.3',radius_km:'10',consent:true});
+ assert.deepEqual({...f.calls[0][2]},{latitude:'25.2',longitude:'55.3',radius_km:'10',consent:true});
  assert.equal(consent.checked,false);assert.equal(f.list.children.length,2);
  assert.match(results.textContent,/<b>Licensed<\/b>/);assert.match(results.textContent,/CC BY-SA 4.0/);
  assert.equal(results.children[1].children.some(x=>x.tag==='button'),false);
