@@ -13,6 +13,9 @@ class _PrivacyApi extends EvApi {
   final rows = <Map<String, dynamic>>[];
   final received = <Map<String, dynamic>>[];
   final withdrawals = <String>[];
+  final contactWrites = <Map<String, dynamic>>[];
+  Completer<void>? holdContact;
+  bool forgeContact = false;
   Completer<void>? holdGet;
   Completer<void>? holdPost;
   Completer<void>? holdWithdraw;
@@ -78,6 +81,19 @@ class _PrivacyApi extends EvApi {
       rows.add(row);
       return row;
     }
+    if (path.endsWith('/minimize-contact') && method == 'POST') {
+      contactWrites.add(Map<String, dynamic>.from(body!));
+      if (holdContact != null) await holdContact!.future;
+      return {
+        'request_id': 22, 'case_status': 'reviewing',
+        'optional_phone_removed': true, 'profile_phone_changed': true,
+        'live_challenges_cancelled': 1, 'challenge_payloads_cleared': 1,
+        'verification_receipts_retained': true,
+        'external_deletion_verified': forgeContact,
+        'account_deleted': false, 'automated_erasure_performed': false,
+        'manual_processing_required': true,
+      };
+    }
     if (path.endsWith('/withdraw') && method == 'POST') {
       withdrawals.add(path);
       if (holdWithdraw != null) await holdWithdraw!.future;
@@ -88,6 +104,80 @@ class _PrivacyApi extends EvApi {
 }
 
 void main() {
+  for (final forged in [false, true]) {
+    testWidgets('optional contact receipt requires consent and exact evidence (forged=$forged)', (tester) async {
+      final api = _PrivacyApi()..forgeContact = forged;
+      addTearDown(api.close);
+      api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+      await tester.pumpWidget(MaterialApp(
+        home: PrivacyRequestsView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      final open = find.byKey(const ValueKey('privacy-contact-open-22'));
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      final password = find.byKey(const Key('privacy-contact-password'));
+      final factor = find.byKey(const Key('privacy-contact-factor'));
+      final consent = find.byKey(const Key('privacy-contact-consent'));
+      final submit = find.byKey(const Key('privacy-contact-submit'));
+      await tester.ensureVisible(password);
+      await tester.enterText(password, 'password');
+      await tester.ensureVisible(factor);
+      await tester.enterText(factor, '123456');
+      expect(tester.widget<FilledButton>(submit).onPressed, isNull);
+      await tester.ensureVisible(consent);
+      await tester.tap(consent);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.contactWrites.single['confirmation'], 'remove_optional_phone');
+      expect(api.contactWrites.single['second_factor_code'], '123456');
+      expect(password, findsNothing);
+      expect(factor, findsNothing);
+      expect(open, findsNothing);
+      expect(find.byKey(const Key('privacy-success')), forged ? findsNothing : findsOneWidget);
+      expect(find.byKey(const Key('privacy-error')), forged ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('late contact receipt is discarded on background and resume', (tester) async {
+    final api = _PrivacyApi()..holdContact = Completer<void>();
+    addTearDown(api.close);
+    addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+    api.rows.add({'id': 22, 'kind': 'erasure', 'status': 'pending'});
+    await tester.pumpWidget(MaterialApp(
+      home: PrivacyRequestsView(api: api, onExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    final open = find.byKey(const ValueKey('privacy-contact-open-22'));
+    await tester.ensureVisible(open);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    final password = find.byKey(const Key('privacy-contact-password'));
+    await tester.ensureVisible(password);
+    await tester.enterText(password, 'password');
+    final consent = find.byKey(const Key('privacy-contact-consent'));
+    await tester.ensureVisible(consent);
+    await tester.tap(consent);
+    await tester.pumpAndSettle();
+    final submit = find.byKey(const Key('privacy-contact-submit'));
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    api.holdContact!.complete();
+    await tester.pumpAndSettle();
+    expect(api.contactWrites, hasLength(1));
+    expect(find.byKey(const Key('privacy-success')), findsNothing);
+    expect(password, findsNothing);
+    expect(open, findsNothing);
+    expect(api.privateReads, 1);
+  });
+
 
   for (final language in ['en', 'ar']) {
     for (final failureMode in ['duplicate', 'wrong-page']) {

@@ -20,6 +20,17 @@ class PrivacyRequestsView extends StatefulWidget {
 class _PrivacyRequestsState extends State<PrivacyRequestsView>
     with WidgetsBindingObserver {
   final reason = TextEditingController();
+  final contactPassword = TextEditingController();
+  final contactFactor = TextEditingController();
+  int? contactCase;
+  bool contactConfirmed = false;
+
+  void clearContact() {
+    contactPassword.clear();
+    contactFactor.clear();
+    contactCase = null;
+    contactConfirmed = false;
+  }
   final items = <Map<String, dynamic>>[];
   String kind = 'access';
   String? error, success, pendingId;
@@ -75,6 +86,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
 
   void clearPrivate() {
     generation++;
+    clearContact();
     reason.clear();
     items.clear();
     kind = 'access';
@@ -119,6 +131,8 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     reason.dispose();
+    contactPassword.dispose();
+    contactFactor.dispose();
     super.dispose();
   }
 
@@ -128,6 +142,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
       setState(() {
         // No historical withdraw/export control remains usable after an
         // unverified GET, POST receipt, or mutation outcome.
+        clearContact();
         items.clear();
         historyLoaded = false;
         error = e is ApiException && e.status == 409
@@ -188,6 +203,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (rejectStale()) return;
     final ticket = ++generation, fence = widget.api.sessionFence();
     setState(() {
+      clearContact();
       loading = true;
       error = null;
       items.clear();
@@ -283,6 +299,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     pendingBody ??= body;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearContact();
       sending = true;
       error = success = null;
       items.clear();
@@ -336,6 +353,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     if (sending || loading) return;
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {
+      clearContact();
       sending = true;
       error = success = null;
       items.clear();
@@ -353,6 +371,62 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
     } catch (e) {
       if (mounted && ticket == generation && fence()) failure(e);
     } finally {
+      finish(ticket, fence, writing: true);
+    }
+  }
+
+  Future<void> minimizeContact(int id) async {
+    if (rejectStale() || sending || loading || contactCase != id ||
+        !contactConfirmed || contactPassword.text.isEmpty ||
+        !items.any((row) => row['id'] == id && row['kind'] == 'erasure' &&
+            const {'pending', 'reviewing', 'blocked_external'}.contains(row['status']))) {
+      return;
+    }
+    final payload = <String, dynamic>{
+      'confirmation': 'remove_optional_phone',
+      'password': contactPassword.text,
+      'second_factor_code': contactFactor.text,
+    };
+    final ticket = ++generation, fence = widget.api.sessionFence();
+    setState(() {
+      clearContact();
+      sending = true;
+      success = error = null;
+      items.clear();
+      historyLoaded = false;
+    });
+    try {
+      final result = await widget.api.request(
+        'account/privacy-requests/$id/minimize-contact',
+        method: 'POST',
+        body: payload,
+      );
+      if (!mounted || ticket != generation || !fence() || background) return;
+      bool bounded(dynamic n) => n is int && n >= 0 && n <= 250;
+      if (result is! Map ||
+          result['request_id'] != id ||
+          !const {'pending', 'reviewing', 'blocked_external'}.contains(result['case_status']) ||
+          result['optional_phone_removed'] != true ||
+          result['profile_phone_changed'] is! bool ||
+          !bounded(result['live_challenges_cancelled']) ||
+          !bounded(result['challenge_payloads_cleared']) ||
+          result['verification_receipts_retained'] != true ||
+          result['external_deletion_verified'] != false ||
+          result['account_deleted'] != false ||
+          result['automated_erasure_performed'] != false ||
+          result['manual_processing_required'] != true) {
+        throw const FormatException('Unverified optional contact receipt');
+      }
+      setState(() {
+        success = t(
+          'Optional phone removal recorded. External deletion is not verified; your erasure request remains under review.',
+          'سُجلت إزالة الهاتف الاختياري؛ لم يُتحقق من الحذف الخارجي ولا يزال طلب الحذف قيد المراجعة.',
+        );
+      });
+    } catch (e) {
+      if (mounted && ticket == generation && fence() && !background) failure(e);
+    } finally {
+      payload.clear();
       finish(ticket, fence, writing: true);
     }
   }
@@ -548,6 +622,60 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                                   : () => withdraw(row['id'] as int),
                               child: Text(t('Withdraw request', 'سحب الطلب')),
                             ),
+                          if (row['kind'] == 'erasure' &&
+                              const {'pending', 'reviewing', 'blocked_external'}.contains(row['status'])) ...[
+                            TextButton(
+                              key: ValueKey('privacy-contact-open-${row['id']}'),
+                              onPressed: sending || loading ? null : () {
+                                if (rejectStale()) return;
+                                setState(() {
+                                  clearContact();
+                                  contactCase = row['id'] as int;
+                                });
+                              },
+                              child: Text(t('Remove optional phone data', 'إزالة بيانات الهاتف الاختيارية')),
+                            ),
+                            if (contactCase == row['id']) ...[
+                              Text(t(
+                                'Removes the optional phone and live verification payloads only. Historical receipts, private copies, external records and your account are retained.',
+                                'يزيل الهاتف الاختياري وبيانات التحقق النشطة فقط؛ تبقى السجلات التاريخية والنسخ الخاصة والسجلات الخارجية والحساب.',
+                              )),
+                              TextField(
+                                key: const Key('privacy-contact-password'),
+                                controller: contactPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 128,
+                                decoration: InputDecoration(labelText: t('Current password', 'كلمة المرور الحالية')),
+                              ),
+                              TextField(
+                                key: const Key('privacy-contact-factor'),
+                                controller: contactFactor,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                maxLength: 64,
+                                decoration: InputDecoration(labelText: t('Authenticator or recovery code if enabled', 'رمز المصادقة أو الاسترداد إن فُعّل')),
+                              ),
+                              CheckboxListTile(
+                                key: const Key('privacy-contact-consent'),
+                                value: contactConfirmed,
+                                onChanged: (value) => setState(() => contactConfirmed = value == true),
+                                title: Text(t('I agree to remove optional phone data', 'أوافق على إزالة بيانات الهاتف الاختيارية')),
+                              ),
+                              FilledButton(
+                                key: const Key('privacy-contact-submit'),
+                                onPressed: contactConfirmed && !sending && !loading
+                                    ? () => minimizeContact(row['id'] as int) : null,
+                                child: Text(t('Confirm optional phone removal', 'تأكيد إزالة الهاتف الاختياري')),
+                              ),
+                              TextButton(
+                                onPressed: () => setState(clearContact),
+                                child: Text(t('Cancel', 'إلغاء')),
+                              ),
+                            ],
+                          ],
                         ],
                       ),
                     ),
