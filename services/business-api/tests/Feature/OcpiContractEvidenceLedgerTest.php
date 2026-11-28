@@ -255,6 +255,65 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
         $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'unregistered']);
     }
 
+    public function test_incoming_enrollment_binds_original_review_across_requests_and_peer_discovery(): void
+    {
+        [$owner, $admin, $provider, $path] = $this->fixture();
+        $provider->forceFill(['authorized' => true])->save();
+        config(['ocpi.contract_review_authorization_required' => true,
+            'ocpi.connections.contract-evidence-test' => [
+                'managed_credentials' => true, 'registration_direction' => 'incoming',
+                'origin' => 'https://partner.example', 'inbound_authorization_token' => base64_encode('INCOMING-REVIEW-A'),
+                'party_country' => 'NL', 'party_id' => 'ABC', 'party_role' => 'CPO',
+            ],
+            'ocpi.local_credentials' => ['url' => 'https://platform.example/api/roaming-protocol/versions',
+                'roles' => [['role' => 'EMSP', 'country_code' => 'AE', 'party_id' => 'EVX',
+                    'business_details' => ['name' => 'Synthetic eMSP']]]]]);
+        $url = '/api/ocpi/providers/'.$provider->id.'/credentials';
+        $intent = ['action' => 'prepare_incoming', 'reason' => 'Synthetic incoming approval for contract review.',
+            'idempotency_key' => 'incoming-review-001'];
+        $this->actingAs($admin)->postJson($url, $intent)->assertConflict();
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->postJson($path, $this->review())->assertCreated();
+        $this->postJson($url, $intent)->assertOk()->assertJsonPath('state', 'awaiting_peer');
+        $peer = ['token' => 'INCOMING-PEER-B', 'url' => 'https://partner.example/ocpi/versions',
+            'roles' => [['role' => 'CPO', 'country_code' => 'NL', 'party_id' => 'ABC',
+                'business_details' => ['name' => 'Synthetic peer']]]];
+        $protocol = '/api/roaming-protocol/2.2.1/credentials';
+        $headers = ['Authorization' => 'Token '.base64_encode('INCOMING-REVIEW-A')];
+        $reviews = DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id);
+        // Replacing even a valid digest invalidates the prepared receipt.
+        $reviews->update(['evidence_sha256' => str_repeat('b', 64)]);
+        $this->postJson($protocol, $peer, $headers)->assertStatus(400);
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_register']);
+        $reviews->update(['evidence_sha256' => str_repeat('a', 64)]);
+        $expireDuringProof = true;
+        $requests = 0;
+        Http::fake(function ($request) use ($reviews, &$expireDuringProof, &$requests) {
+            $requests++;
+            $envelope = fn ($data) => ['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $data];
+            if (str_ends_with($request->url(), '/ocpi/versions')) {
+                if ($expireDuringProof) {
+                    $reviews->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
+                }
+                return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
+            }
+            return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
+                ['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials'],
+            ]]));
+        });
+        $this->postJson($protocol, $peer, $headers)->assertStatus(400);
+        $this->assertSame(1, $requests);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'awaiting_registration']);
+        $this->assertDatabaseMissing('ocpi_credential_operations', ['action' => 'peer_register']);
+        $reviews->update(['valid_until' => $this->review()['valid_until']]);
+        $expireDuringProof = false;
+        $this->postJson($protocol, $peer, $headers)->assertCreated();
+        $this->assertSame(3, $requests);
+        $this->assertDatabaseHas('ocpi_credential_links', ['provider_id' => $provider->id, 'state' => 'active']);
+        $this->assertDatabaseHas('ocpi_credential_operations', ['action' => 'peer_register', 'state' => 'acknowledged']);
+    }
+
     public function test_expired_review_and_suspended_owner_cannot_be_reported_as_current(): void
     {
         [$owner, $admin, $provider, $path] = $this->fixture();
