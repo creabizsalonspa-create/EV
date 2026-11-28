@@ -532,7 +532,7 @@ const federationFixture = (lang, api) => {
 const federatedReply = () => ({
  evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',
  complete_geographic_coverage:false,live_status_verified:false,combined_total:null,
- published:{...sample,current_page:1,per_page:25},
+ published:{...JSON.parse(JSON.stringify(sample)),current_page:1,per_page:25},
  licensed:{state:'observed',sample:{
   provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',availability:'unknown',
   remote_control:false,reservable:false,billing_eligible:false,
