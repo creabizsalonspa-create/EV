@@ -76,6 +76,25 @@ class PrivacyContactMinimizationTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_excessive_challenge_payloads_fail_closed_without_partial_minimization(): void
+    {
+        Http::fake();
+        $owner = User::factory()->create();
+        $owner->forceFill(['phone_e164' => '+971501234567', 'phone_verified_at' => now()])->save();
+        $case = $this->requestCase($owner);
+        for ($i = 0; $i < 251; $i++) {
+            $this->challenge($owner, 'uncertain', '+971501234567');
+        }
+        $this->actingAs($owner)->postJson('/api/account/privacy-requests/'.$case->id.'/minimize-contact', [
+            'confirmation' => 'remove_optional_phone', 'password' => 'password',
+        ])->assertStatus(409);
+        $this->assertSame('+971501234567', $owner->fresh()->phone_e164);
+        $this->assertSame(251, DB::table('account_phone_challenges')->where('user_id', $owner->id)
+            ->where('status', 'uncertain')->whereNotNull('phone_ciphertext')->count());
+        $this->assertSame(0, DB::table('audit_events')->where('action', 'privacy.erasure.optional_contact_minimized')->count());
+        Http::assertNothingSent();
+    }
+
     public function test_native_requires_current_factor_and_open_erasure_case(): void
     {
         $owner = User::factory()->create();
