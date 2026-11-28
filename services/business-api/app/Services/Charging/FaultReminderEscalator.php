@@ -176,7 +176,10 @@ class FaultReminderEscalator
                             $recovered->evse_number === $observation->evse_number &&
                             $recovered->connector_number === $observation->connector_number &&
                             $recovered->status === 'Available' &&
-                            in_array($recovered->error_code, [null, 'NoError'], true)) {
+                            ($binding->protocol === '1.6'
+                                ? $recovered->error_code === 'NoError'
+                                : in_array($recovered->error_code, [null, 'NoError'], true)) &&
+                            ! FaultMonitor::conflictsWithRecovery($binding, $recovered)) {
                             $resolution = 'source_recovered';
                         }
                     }

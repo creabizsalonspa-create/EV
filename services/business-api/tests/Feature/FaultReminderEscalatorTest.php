@@ -384,6 +384,36 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_same_time_source_conflict_keeps_an_escalation_open_for_explicit_review(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $binding = DB::table('csms_bindings')->find($f['bindingId']);
+        $generation = FaultMonitor::generation($binding);
+        $at = now()->subSecond()->toISOString();
+        app(FaultMonitor::class)->ingest($binding, ['source_generation' => $generation, 'events' => [
+            ['id' => 2, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => $at],
+            ['id' => 3, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $at],
+        ]]);
+        $alert = DB::table('charging_fault_alerts')->find($f['alert']);
+        $this->assertNotNull($alert->recovery_observation_id);
+
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertFalse(InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')->exists());
+        DB::table('charging_fault_alerts')->where('id', $alert->id)
+            ->update(['acknowledged_by' => $admin->id, 'acknowledged_at' => now()]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $alert->id, 'resolution_source' => 'operator_acknowledged',
+        ]);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_suspended_admin_cannot_read_historical_simulator_escalation_from_old_session(): void
     {
         $f = $this->fixture();

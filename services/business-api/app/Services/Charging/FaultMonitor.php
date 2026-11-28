@@ -13,6 +13,19 @@ class FaultMonitor
         return hash('sha256', json_encode([$binding->id, $binding->station_id, $binding->vendor_charger_id, $binding->identifier, $binding->protocol], JSON_THROW_ON_ERROR));
     }
 
+    /** A higher source ID cannot resolve conflicting receipt states at one observation time. */
+    public static function conflictsWithRecovery(object $binding, object $recovery): bool
+    {
+        return DB::table('charging_status_observations')
+            ->where('binding_id', $binding->id)->where('source_generation', $recovery->source_generation)
+            ->where('evse_number', $recovery->evse_number)->where('connector_number', $recovery->connector_number)
+            ->where('occurred_at', $recovery->occurred_at)
+            ->where(fn ($q) => $q->where('status', '!=', 'Available')
+                ->orWhere('error_code', '!=', 'NoError')
+                ->when($binding->protocol === '1.6', fn ($codes) => $codes->orWhereNull('error_code')))
+            ->exists();
+    }
+
     /** Both manual inspection and continuous observation must use the same protocol receipt contract. */
     public static function requireProtocolReceipt(string $protocol, array $event): void
     {
