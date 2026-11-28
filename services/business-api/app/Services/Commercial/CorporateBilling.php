@@ -90,6 +90,15 @@ class CorporateBilling
         return $fleet;
     }
 
+    /** Internal ID-based callers must still use persisted, active authority. */
+    private function lockActor(int $actor): User
+    {
+        $current = User::whereKey($actor)->lockForUpdate()->firstOrFail();
+        abort_unless($current->account_status === 'active', 403, 'Corporate account is not active.');
+
+        return $current;
+    }
+
     /** Authorization and payer identity must come from the row after acquiring its lock. */
     private function lockManager(int $fleetId, int $actor): object
     {
@@ -131,10 +140,8 @@ class CorporateBilling
 
     public function publish(int $fleetId, int $actor, array $v): object
     {
-        abort_unless(User::findOrFail($actor)->role === 'admin', 403);
-
         return DB::transaction(function () use ($fleetId, $actor, $v) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($this->lockActor($actor)->role === 'admin', 403);
             Fleet::whereKey($fleetId)->lockForUpdate()->firstOrFail();
             $key = $this->key($actor, $v['idempotency_key']);
             unset($v['idempotency_key']);
@@ -157,6 +164,7 @@ class CorporateBilling
     public function accept(int $id, int $actor): object
     {
         return DB::transaction(function () use ($id, $actor) {
+            $this->lockActor($actor);
             $a = $this->agreement($id);
             $f = Fleet::whereKey($a->fleet_id)->lockForUpdate()->firstOrFail();
             abort_unless((int) $f->owner_id === $actor, 404);
@@ -183,7 +191,7 @@ class CorporateBilling
     public function claim(int $agreementId, int $actor, array $v): object
     {
         return DB::transaction(function () use ($agreementId, $actor, $v) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->lockActor($actor);
             $a = $this->agreement($agreementId);
             $this->fleet((int) $a->fleet_id, $actor);
             $fleet = Fleet::whereKey($a->fleet_id)->lockForUpdate()->firstOrFail();
@@ -213,7 +221,7 @@ class CorporateBilling
     public function decide(int $claimId, int $actor, string $decision, string $reason): object
     {
         return DB::transaction(function () use ($claimId, $actor, $decision, $reason) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->lockActor($actor);
             $claim = DB::table('corporate_claims')->find($claimId) ?? abort(404);
             $a = $this->agreement($claim->agreement_id);
             $this->lockManager((int) $a->fleet_id, $actor);
@@ -232,10 +240,39 @@ class CorporateBilling
         }, 3);
     }
 
+    /** Caller retains the fleet lock. Mixed historical precision cannot be
+     * added or silently ignored when enforcing a single-currency credit cap.
+     */
+    public function outstandingMinor(object $agreement): int
+    {
+        $precision = self::exactMinor($agreement->minor_units);
+        abort_unless($precision <= 3, 409, 'Invalid corporate agreement precision.');
+        $open = 0;
+        $rows = DB::table('corporate_statements')->where('fleet_id', $agreement->fleet_id)
+            ->where('currency', $agreement->currency)
+            ->orderBy('id')->cursor();
+        foreach ($rows as $row) {
+            // A receipt header alone cannot restore available corporate credit.
+            // Historical paid statements may have a different precision, but
+            // only a fully allocated receipt proves they are no longer open.
+            $receipt = DB::table('corporate_receipts')->where('statement_id', $row->id)->first();
+            if ($receipt) {
+                $this->verifiedReceipt($row, $receipt);
+
+                continue;
+            }
+            abort_unless(self::exactMinor($row->minor_units) === $precision,
+                409, 'Outstanding corporate statements have incompatible currency precision.');
+            $open = self::addMinor($open, self::exactMinor($row->total_minor));
+        }
+
+        return $open;
+    }
+
     public function issue(int $agreementId, int $actor, array $v): object
     {
         return DB::transaction(function () use ($agreementId, $actor, $v) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->lockActor($actor);
             $a = $this->agreement($agreementId);
             $fleet = $this->lockManager((int) $a->fleet_id, $actor);
             $this->active($a);
@@ -271,9 +308,7 @@ class CorporateBilling
                 $total = self::addMinor($total, $components['total_minor']);
                 $items[] = [$claim, $invoice];
             }
-            $open = self::sumMinor(DB::table('corporate_statements')->where('fleet_id', $a->fleet_id)
-                ->where('currency', $a->currency)->whereNotIn('id', DB::table('corporate_receipts')->select('statement_id'))
-                ->get(['total_minor']), 'total_minor');
+            $open = $this->outstandingMinor($a);
             $limit = self::exactMinor($a->credit_limit_minor);
             abort_unless($total > 0 && $open <= $limit && $total <= $limit - $open,
                 409, 'Corporate credit limit exceeded.');
@@ -287,11 +322,53 @@ class CorporateBilling
         }, 3);
     }
 
+    /** Corporate collection is complete only when every source invoice has its linked canonical payment. */
+    private function verifiedReceipt(object $statement, object $receipt): void
+    {
+        abort_unless((int) $receipt->actor_id === (int) $statement->payer_id
+            && self::exactMinor($receipt->amount_minor) === self::exactMinor($statement->total_minor)
+            && in_array($receipt->evidence, ['SIMULATED', 'STRIPE_TEST_CONTRACT'], true),
+            409, 'Corporate receipt terms require reconciliation.');
+        $expected = [];
+        foreach (DB::table('corporate_statement_lines')->where('statement_id', $statement->id)->get() as $line) {
+            abort_if(isset($expected[$line->invoice_id]), 409, 'Duplicate corporate invoice source.');
+            $expected[$line->invoice_id] = self::exactMinor($line->total_minor);
+        }
+        abort_unless($expected !== [], 409, 'Corporate receipt has no invoice sources.');
+        $seen = [];
+        $total = 0;
+        $payments = DB::table('corporate_receipt_payments as l')
+            ->leftJoin('finance_payments as p', 'p.id', '=', 'l.payment_id')
+            ->leftJoin('finance_journals as j', 'j.id', '=', 'p.journal_id')
+            ->where('l.receipt_id', $receipt->id)->get([
+                'l.invoice_id', 'l.payment_id', 'p.invoice_id as payment_invoice_id',
+                'p.actor_id', 'p.amount_minor', 'p.evidence', 'j.invoice_id as journal_invoice_id',
+                'j.amount_minor as journal_amount', 'j.kind', 'j.currency',
+            ]);
+        foreach ($payments as $p) {
+            abort_unless(isset($expected[$p->invoice_id]) && ! isset($seen[$p->payment_id])
+                && (int) $p->payment_invoice_id === (int) $p->invoice_id
+                && (int) $p->journal_invoice_id === (int) $p->invoice_id
+                && (int) $p->actor_id === (int) $receipt->actor_id
+                && $p->evidence === 'SIMULATED' && $p->kind === 'payment' && $p->currency === $statement->currency
+                && self::exactMinor($p->amount_minor) === $expected[$p->invoice_id]
+                && self::exactMinor($p->journal_amount) === $expected[$p->invoice_id],
+                409, 'Corporate receipt payment lineage requires reconciliation.');
+            $total = self::addMinor($total, $expected[$p->invoice_id]);
+            $seen[$p->payment_id] = true;
+            unset($expected[$p->invoice_id]);
+        }
+        abort_unless($expected === [] && $total === self::exactMinor($receipt->amount_minor),
+            409, 'Corporate receipt allocations are incomplete.');
+    }
+
     /** Internal derived state; callers must authorize the containing financial resource first. */
     public function statementStatus(object $statement): string
     {
-        if (DB::table('corporate_receipts')->where('statement_id', $statement->id)->exists()) {
-            return DB::table('corporate_receipts')->where('statement_id', $statement->id)->value('evidence') === 'STRIPE_TEST_CONTRACT' ? 'test_provider_collected' : 'simulated_paid';
+        if ($receipt = DB::table('corporate_receipts')->where('statement_id', $statement->id)->first()) {
+            $this->verifiedReceipt($statement, $receipt);
+
+            return $receipt->evidence === 'STRIPE_TEST_CONTRACT' ? 'test_provider_collected' : 'simulated_paid';
         }
         $invoiceIds = DB::table('corporate_statement_lines')->where('statement_id', $statement->id)->select('invoice_id');
         if (DB::table('finance_payments')->whereIn('invoice_id', $invoiceIds)->exists() || DB::table('gateway_checkouts')->whereIn('invoice_id', $invoiceIds)->exists()) {
@@ -323,7 +400,7 @@ class CorporateBilling
         abort_unless(! app()->environment('production') && config('payments.provider') === 'mock', 503, 'Corporate payment simulation requires non-production mock provider.');
 
         return DB::transaction(function () use ($id, $actor, $key) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $this->lockActor($actor);
             $s = DB::table('corporate_statements')->find($id) ?? abort(404);
             $fleet = Fleet::whereKey($s->fleet_id)->lockForUpdate()->firstOrFail();
             // Only the snapshotted corporate payer can authorize even simulated collection.
@@ -331,6 +408,8 @@ class CorporateBilling
             $request = $this->key($actor, $key);
             $hash = $this->hash([$id]);
             if ($old = $this->replay('corporate_receipts', $request, $hash)) {
+                $this->verifiedReceipt($s, $old);
+
                 return $old;
             }
             abort_if(DB::table('corporate_receipts')->where('statement_id', $id)->exists(), 409, 'Statement already paid.');
