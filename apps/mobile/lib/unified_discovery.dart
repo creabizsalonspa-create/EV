@@ -249,9 +249,20 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
 
   Widget federationPanel(){
     final api=widget.api, fence=ownSession, epoch=formEpoch, customer=widget.customer;
+    bool current()=>mounted&&foreground&&formEpoch==epoch&&
+      identical(widget.api,api)&&identical(ownSession,fence)&&widget.customer==customer&&fence();
     return FederatedNearbyPanel(key:ValueKey('unified-federation-$epoch'),api:api,
-      currentSession:()=>mounted&&foreground&&formEpoch==epoch&&
-        identical(widget.api,api)&&identical(ownSession,fence)&&widget.customer==customer&&fence());
+      currentSession:current,
+      onMap:(points){
+        if(!current()||points.isEmpty||points.length>50)return;
+        final mapEpoch=mapAuthority;
+        Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>PartnerReportMap(
+          points:List<PartnerMapPoint>.unmodifiable(points),
+          tileProvider:widget.mapTileProvider,
+          currentSession:()=>current()&&mapAuthority==mapEpoch,
+          sessionEvents:mapEvents.stream,
+        )));
+      });
   }
 
   @override
