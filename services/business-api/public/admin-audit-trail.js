@@ -16,6 +16,12 @@ window.EvAdminAuditTrail = (() => {
     let denialController = null;
     let denialOutput = null;
     let denialWindow = null;
+    let denialActor = null;
+    const denialActions = [
+        'admin.second_factor.enrollment_password_denied', 'admin.second_factor.enrollment_code_denied',
+        'admin.second_factor.verify_denied', 'admin.second_factor.recovery_denied',
+        'admin.second_factor.recovery_rotation_denied', 'admin.second_factor.recovery_reset_password_denied',
+    ];
 
     function node(tag, text) {
         const result = document.createElement(tag);
@@ -104,9 +110,55 @@ window.EvAdminAuditTrail = (() => {
         }
     }
 
-    async function loadDenials() {
-        if (!request || !denialOutput || !denialWindow) return;
+    function invalidateDenials() {
         denialController?.abort();
+        denialController = null;
+        denialOutput?.replaceChildren();
+    }
+    function validDenials(response, window, actorId) {
+        const count = n => Number.isSafeInteger(n) && n >= 0 && n <= 500;
+        const groups = response?.per_action;
+        const hours = {'1h':1, '24h':24, '7d':168}[window];
+        const from = Date.parse(response?.from), asOf = Date.parse(response?.as_of);
+        if (!response || response.window !== window || response.actor_id !== actorId ||
+            response.source !== 'existing_admin_mfa_denial_audit_only' ||
+            !hours || !Number.isFinite(from) || !Number.isFinite(asOf) || asOf - from !== hours * 3600000 ||
+            response.sample_limit !== 500 || !count(response.observed_denials) ||
+            typeof response.sample_truncated !== 'boolean' ||
+            (response.sample_truncated && response.observed_denials !== 500) ||
+            response.complete_for_selected_actions !== !response.sample_truncated ||
+            response.suspicious_activity_verified !== false || response.incident_confirmed !== false ||
+            response.automated_action_taken !== false || !groups || typeof groups !== 'object' ||
+            Array.isArray(groups) || Object.keys(groups).length !== denialActions.length ||
+            !denialActions.every(key => Object.hasOwn(groups,key) && count(groups[key])) ||
+            denialActions.reduce((total,key) => total + groups[key],0) !== response.observed_denials ||
+            !Array.isArray(response.top_actors) || response.top_actors.length > 25) return false;
+        const ids = new Set();
+        let attributed = 0, previous = null;
+        for (const row of response.top_actors) {
+            if (!row || !Number.isSafeInteger(row.actor_id) || row.actor_id < 1 ||
+                (actorId !== null && row.actor_id !== actorId) || ids.has(row.actor_id) ||
+                !count(row.observed_denials) || row.observed_denials === 0 ||
+                (previous && (row.observed_denials > previous.observed_denials ||
+                    (row.observed_denials === previous.observed_denials && row.actor_id < previous.actor_id)))) return false;
+            attributed += row.observed_denials;
+            ids.add(row.actor_id);
+            previous = row;
+        }
+        return attributed <= response.observed_denials &&
+            (actorId === null || attributed === response.observed_denials);
+    }
+
+    async function loadDenials() {
+        if (!request || !denialOutput || !denialWindow || !denialActor) return;
+        invalidateDenials();
+        const window = denialWindow.value, rawActor = denialActor.value.trim();
+        const actorId = rawActor ? Number(rawActor) : null;
+        if (!['1h','24h','7d'].includes(window) || (rawActor &&
+            (!/^[1-9][0-9]{0,15}$/.test(rawActor) || !Number.isSafeInteger(actorId)))) {
+            denialOutput.append(translated("p", "Invalid observation filters.", "مرشحات الرصد غير صالحة."));
+            return;
+        }
         const activeController = new AbortController();
         denialController = activeController;
         const epoch = generation;
@@ -114,9 +166,11 @@ window.EvAdminAuditTrail = (() => {
             "Reading observed Admin MFA denials…", "قراءة محاولات المصادقة المرفوضة…"));
         try {
             const response = await request(
-                "admin/security-denials?window=" + encodeURIComponent(denialWindow.value),
+                "admin/security-denials?window=" + encodeURIComponent(window) +
+                    (actorId === null ? "" : "&actor_id=" + actorId),
                 "GET", undefined, activeController.signal);
             if (!alive(epoch, activeController.signal) || denialController !== activeController) return;
+            if (!validDenials(response, window, actorId)) throw Error('Unverified MFA evidence');
             denialOutput.replaceChildren();
             denialOutput.append(
                 node("h4", "Observed Admin MFA denials / حالات رفض المصادقة المسجلة"),
@@ -125,12 +179,17 @@ window.EvAdminAuditTrail = (() => {
                     " · Source: Admin MFA audit only",
                     "الفترة: " + response.window + " · الحالات المسجلة: " + response.observed_denials +
                     " · المصدر: سجل تدقيق مصادقة المشرف فقط"));
-            const groups = response.per_action && typeof response.per_action === "object"
-                ? response.per_action : {};
-            for (const [action, count] of Object.entries(groups)) {
-                if (!Number.isSafeInteger(count) || count < 0) continue;
-                denialOutput.append(node("p", action + ": " + count));
+            for (const action of denialActions) {
+                denialOutput.append(node("p", action + ": " + response.per_action[action]));
             }
+            denialOutput.append(translated("h4", "Observed actors (up to 25; not a risk ranking)",
+                "الحسابات المرصودة (حتى ٢٥؛ ليست تصنيفاً للمخاطر)"));
+            for (const row of response.top_actors) {
+                denialOutput.append(node("p", "#" + row.actor_id + " · " + row.observed_denials));
+            }
+            denialOutput.append(translated("p",
+                "Only recorded denials are counted; this does not prove compromise, incident or automatic action.",
+                "تُحسب حالات الرفض المسجلة فقط؛ ولا يثبت ذلك اختراقاً أو حادثاً أو إجراءً تلقائياً."));
             if (response.sample_truncated === true) {
                 denialOutput.append(translated("p",
                     "Limited to the most recent 500 matching events. Counts are partial",
@@ -158,6 +217,7 @@ window.EvAdminAuditTrail = (() => {
         request = null;
         denialOutput = null;
         denialWindow = null;
+        denialActor = null;
         root.replaceChildren();
         if (user?.role !== "admin") return;
 
@@ -193,12 +253,19 @@ window.EvAdminAuditTrail = (() => {
             denialWindow.append(option);
         }
         denialWindow.value = "24h";
+        denialWindow.onchange = invalidateDenials;
+        denialActor = node("input");
+        denialActor.type = "text";
+        denialActor.inputMode = "numeric";
+        denialActor.maxLength = 16;
+        denialActor.setAttribute("aria-label", "MFA denial actor ID");
+        denialActor.oninput = invalidateDenials;
         const denialButton = button("Review MFA denial evidence / مراجعة رفض المصادقة",
             () => loadDenials());
         denialOutput = node("section");
         denialOutput.setAttribute("aria-label", "Observed MFA denial evidence");
         root.append(filters, message, results, field("Security observation window", denialWindow),
-            denialButton, denialOutput);
+            field("Security actor ID (optional)", denialActor), denialButton, denialOutput);
         load(true);
     }
     return {setActor};

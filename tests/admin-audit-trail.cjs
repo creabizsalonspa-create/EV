@@ -143,15 +143,21 @@ test('invalid server responses do not inject records and show safe retry control
 });
 
 
-test('Admin may request bounded MFA-denial evidence without leaking markup or default extra requests', async () => {
+const actions = ['enrollment_password_denied','enrollment_code_denied','verify_denied','recovery_denied','recovery_rotation_denied','recovery_reset_password_denied'].map(a=>'admin.second_factor.'+a);
+const denial = (window='24h', actor_id=null, count=1, truncated=false) => ({
+    window, actor_id, from:new Date(Date.UTC(2026,10,28)-({'1h':1,'24h':24,'7d':168}[window])*3600000).toISOString(),
+    as_of:'2026-11-28T00:00:00.000Z', source:'existing_admin_mfa_denial_audit_only',
+    observed_denials:count, sample_limit:500, sample_truncated:truncated,
+    complete_for_selected_actions:!truncated, suspicious_activity_verified:false, incident_confirmed:false,
+    automated_action_taken:false, per_action:Object.fromEntries(actions.map((a,i)=>[a,i===2?count:0])),
+    top_actors:count?[{actor_id:actor_id??7,observed_denials:count}]:[],
+});
+test('Admin may request bounded MFA-denial evidence without default extra requests', async () => {
     const ui = fixture(), paths = [];
     ui.setActor({role:'admin'}, async p => {
         paths.push(p);
         if (p.startsWith('admin/security-denials?')) {
-            return {
-                window:'7d', observed_denials:500, sample_truncated:true,
-                per_action:{'admin.second_factor.<img src=x>':500},
-            };
+            return denial('7d',null,500,true);
         }
         return page([]);
     });
@@ -168,7 +174,7 @@ test('Admin may request bounded MFA-denial evidence without leaking markup or de
     assert.match(paths[1], /admin\/security-denials\?window=7d/);
     assert.match(ui.root.textContent, /Observed: 500/);
     assert.match(ui.root.textContent, /Counts are partial/);
-    assert.match(ui.root.textContent, /<img src=x>/);
+    assert.match(ui.root.textContent, /#7 · 500/);
     assert.equal(nodes(ui.root, 'img').length, 0);
     ui.setActor(null, async () => { throw Error('unexpected request'); });
     assert.equal(ui.root.textContent, '');
@@ -197,4 +203,45 @@ test('late private MFA-denial evidence cannot reappear after account switch', as
     await tick();
     assert.equal(ui.root.textContent, '');
     assert.equal(ui.root.children.length, 0);
+});
+
+test('MFA scope echo and complete counts reject forged or contradictory evidence', async()=>{
+    const ui=fixture();
+    let response=denial('24h',7);
+    const calls=[];
+    ui.setActor({role:'admin'},async p=>{calls.push(p);return p.startsWith('admin/security-denials?')?response:page([]);});
+    await tick();
+    const input=nodes(ui.root,'input').find(x=>x.getAttribute('aria-label')==='MFA denial actor ID');
+    input.value='7';
+    const button=nodes(ui.root,'button').find(x=>x.textContent.includes('Review MFA denial evidence'));
+    await button.onclick();
+    assert.match(calls[1], /actor_id=7/);
+    assert.match(ui.root.textContent, /#7 · 1/);
+    for(const change of [
+        {actor_id:8},{window:'7d'},{incident_confirmed:true},{observed_denials:2},
+        {per_action:{'PRIVATE-UNTRUSTED-ACTION':1}},{top_actors:[{actor_id:8,observed_denials:1}]},
+        {sample_truncated:true},{from:'not a date'},{automated_action_taken:true}
+    ]){
+        response={...denial('24h',7),...change};
+        await button.onclick();
+        assert.match(ui.root.textContent,/Security evidence unavailable/);
+        assert(!ui.root.textContent.includes('PRIVATE-UNTRUSTED-ACTION'));
+        assert(!ui.root.textContent.includes('#7 · 1'));
+    }
+    input.value='9007199254740992';
+    const before=calls.length;
+    await button.onclick();
+    assert.equal(calls.length,before);
+    assert.match(ui.root.textContent,/Invalid observation filters/);
+});
+test('editing the observation filters cancels old in-flight scoped evidence', async()=>{
+    const ui=fixture();let resolve;
+    ui.setActor({role:'admin'},p=>p.startsWith('admin/security-denials?')?new Promise(r=>{resolve=r;}):Promise.resolve(page([])));
+    await tick();
+    const button=nodes(ui.root,'button').find(x=>x.textContent.includes('Review MFA denial evidence'));
+    const pending=button.onclick();
+    const select=nodes(ui.root,'select')[0];
+    select.value='1h';select.onchange();
+    resolve(denial('24h'));await pending;
+    assert(!ui.root.textContent.includes('Observed: 1'));
 });
