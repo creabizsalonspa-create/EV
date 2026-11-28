@@ -182,12 +182,18 @@ class RoamingReconciler
                 $claims = collect();
                 $review = true;
             }
-            if ($claims->count() > 1) {
+            // Once a final CDR has been observed, neither a missing claim nor
+            // a different otherwise valid claim may silently replace its lineage.
+            $hasCdrLineage = $row->source_cdr_record_id !== null || $row->source_cdr_hash !== null;
+            if ($claims->count() > 1 || ($hasCdrLineage && $claims->count() !== 1)) {
                 $values['reconciliation_state'] = 'requires_review';
             } elseif ($claims->count() === 1) {
                 $cdr = $claims->first();
                 $cdrReceived = self::storedInstant($cdr->getRawOriginal('received_at'));
-                if (! $integrity->consistent($cdr) || $cdrReceived === null
+                if (($hasCdrLineage && ($row->source_cdr_record_id !== $cdr->id
+                    || ! is_string($row->source_cdr_hash) || ! is_string($cdr->content_hash)
+                    || ! hash_equals($row->source_cdr_hash, $cdr->content_hash)))
+                    || ! $integrity->consistent($cdr) || $cdrReceived === null
                     || $cdrReceived->lt($attemptedAt) || $cdrReceived->gt(CarbonImmutable::now('UTC'))) {
                     $review = true;
                 } else {
