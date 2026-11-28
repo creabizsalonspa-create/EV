@@ -311,6 +311,64 @@ class OperationsCredentialsTest extends TestCase
         $this->assertDatabaseCount('finance_journals', 0);
     }
 
+    public function test_issued_dispatch_credential_is_rechecked_without_new_provider_requests(): void
+    {
+        $jwt = $this->jwt(['exp' => now()->addSeconds(30)->timestamp]);
+        $this->serve($jwt);
+        $credential = app(OperationsCredentials::class)->tokenForDispatch('https://csms.example.test');
+        $this->assertSame($jwt, $credential());
+        $this->travel(20)->seconds();
+        try {
+            $credential();
+            $this->fail('A token with insufficient remaining lifetime survived the final wire check.');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        Http::assertSentCount(1);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_policy_rotation_after_token_issuance_and_before_wire_cannot_dispatch_or_retry(string $protocol): void
+    {
+        config(['csms.simulator_enabled' => true, 'csms.base_url' => 'https://csms.example.test']);
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Post-token fixture',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25,
+            'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-post-token',
+            'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $vendor->id,
+            'station_id' => $station->id, 'action' => 'start', 'payload' => [],
+            'payload_hash' => str_repeat('d', 64), 'idempotency_key' => 'oauth-post-token']);
+        $jwt = $this->jwt();
+        $keys = config('csms.operations_oauth_public_keys');
+        $issued = false;
+        $rotated = false;
+        Http::fake(function (Request $request) use ($jwt, &$issued) {
+            $this->assertSame('https://identity.example.test/token', $request->url());
+            $issued = true;
+
+            return Http::response(['token_type' => 'Bearer', 'access_token' => $jwt]);
+        });
+        // The first binding read after credential issuance is outside the
+        // issuer's request/verification boundary but before transport.
+        DB::listen(function ($query) use (&$issued, &$rotated) {
+            if ($issued && ! $rotated && str_contains($query->sql, 'csms_bindings')) {
+                $rotated = true;
+                config(['csms.operations_oauth_public_keys' => []]);
+            }
+        });
+        $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        $this->assertTrue($rotated);
+        config(['csms.operations_oauth_public_keys' => $keys]);
+        app(CsmsDispatcher::class)->dispatch($command->id);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/ocpp/') || str_contains($r->url(), '/dev/token'));
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     #[DataProvider('protocols')]
     public function test_rejected_service_authority_cannot_dispatch_or_replay_either_protocol(string $protocol): void
     {

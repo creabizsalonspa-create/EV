@@ -263,7 +263,7 @@ class CsmsDispatcher
                 throw new \RuntimeException('Invalid simulator binding');
             }
             $base = config('csms.base_url');
-            $token = app(OperationsCredentials::class)->token($base);
+            $credential = app(OperationsCredentials::class)->tokenForDispatch($base);
             if ($b->protocol === '1.6') {
                 $action = $command->action === 'start' ? 'remoteStartTransaction' : 'remoteStopTransaction';
                 if ($command->action === 'stop' && ! OcppTransactionId::valid16($command->payload['transaction_id'] ?? null)) {
@@ -329,6 +329,10 @@ class CsmsDispatcher
                 $verifiedPrewireAuthorityMismatch = true;
                 throw new \RuntimeException('Pre-dispatch authority changed');
             }
+            // Recheck the exact issuing policy and remaining JWT lifetime after
+            // the final local authorization transaction, without a new token request.
+            $token = $credential();
+            abort_unless(config('csms.base_url') === $base && config('csms.simulator_enabled') && ! app()->environment('production'), 503);
             $wireAttempted = true;
             $response = Http::withToken($token)->timeout(25)->withoutRedirecting()->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();
