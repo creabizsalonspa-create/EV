@@ -60,6 +60,9 @@ class PartnerMapPoint {
   final int? reportedAgeMinutes;
   final bool platformCatalog;
   final String? catalogEvidence;
+  final String? licensedAttribution;
+  final String? licensedLicense;
+  bool get licensedCrowd => licensedAttribution != null && licensedLicense != null;
 
   const PartnerMapPoint({
     required this.latitude,
@@ -69,6 +72,8 @@ class PartnerMapPoint {
     this.reportedAgeMinutes,
     this.platformCatalog = false,
     this.catalogEvidence,
+    this.licensedAttribution,
+    this.licensedLicense,
   });
 
   /// A platform pin retains its own provenance; it is never relabeled as a partner.
@@ -82,6 +87,23 @@ class PartnerMapPoint {
     final point = fromPublishedLocation(row);
     if (point == null) return null;
     return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,name:point.name,platformCatalog:true,catalogEvidence:row['evidence'] as String);
+  }
+
+  /// Only an explicitly attributed read-only crowd report may enter this layer.
+  static PartnerMapPoint? fromLicensedLocation(Map<String,dynamic> row) {
+    final id=row['id'], attribution=row['attribution'], license=row['data_license'];
+    if(id is! String||!RegExp(r'^ocm:[1-9][0-9]*$').hasMatch(id)||
+      row['source_status_evidence']!='OPEN_CHARGE_MAP_DISCOVERY_ONLY'||
+      row['availability']!='unknown'||row['remote_control']!=false||
+      row['reservable']!=false||row['billing_eligible']!=false||
+      attribution is! String||!attribution.startsWith('Open Charge Map / ')||
+      attribution.runes.length>250||license is! String||license.trim().isEmpty||
+      license.runes.length>240||row['source_url']!='https://openchargemap.org/site/poi/details/${id.substring(4)}')return null;
+    if(row['latitude'] is! num||row['longitude'] is! num)return null;
+    final point=fromPublishedLocation(row);
+    if(point==null)return null;
+    return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,
+      name:point.name,licensedAttribution:attribution,licensedLicense:license);
   }
 
   static double? _coordinate(Object? raw) {
@@ -425,7 +447,12 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             children: [
               Text(point.name,
                   style: Theme.of(sheet).textTheme.titleLarge),
-              if (point.platformCatalog) Text(t('Platform catalog · ${point.catalogEvidence}. Availability and physical charging are unverified. Booking remains in the station catalog.', 'كتالوج المنصة · ${point.catalogEvidence}. التوفر والشحن الفعلي غير مؤكدين. يظل الحجز في كتالوج المحطات.'))
+              if (point.licensedCrowd) ...[
+                Text(t('Open Charge Map crowd report; availability unknown. No booking, control or billing.',
+                  'تقرير مجتمع Open Charge Map؛ التوفر غير معروف. لا حجز أو تحكم أو فوترة.')),
+                Text('${point.licensedAttribution} · ${point.licensedLicense}'),
+              ]
+              else if (point.platformCatalog) Text(t('Platform catalog · ${point.catalogEvidence}. Availability and physical charging are unverified. Booking remains in the station catalog.', 'كتالوج المنصة · ${point.catalogEvidence}. التوفر والشحن الفعلي غير مؤكدين. يظل الحجز في كتالوج المحطات.'))
               else Text(t(
                 'Partner-reported place; live availability and connector access are unknown. This map cannot reserve, authorize, charge or bill.',
                 'موقع أبلغ عنه الشريك؛ التوافر المباشر والوصول إلى الموصل غير معروفين. لا يمكن لهذه الخريطة الحجز أو تشغيل الشحن أو الفوترة.',
@@ -477,9 +504,11 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             for (final point in group)
               ListTile(
                 title: Text(point.name),
-                subtitle: Text(point.platformCatalog
-                    ? t('Platform catalog · not live', 'كتالوج المنصة · ليست بيانات مباشرة')
-                    : t('Partner report · not live', 'تقرير شريك · ليست بيانات مباشرة')),
+                subtitle: Text(point.licensedCrowd
+                    ? t('Open Charge Map · crowd report · not live', 'Open Charge Map · تقرير مجتمع · ليست بيانات مباشرة')
+                    : point.platformCatalog
+                      ? t('Platform catalog · not live', 'كتالوج المنصة · ليست بيانات مباشرة')
+                      : t('Partner report · not live', 'تقرير شريك · ليست بيانات مباشرة')),
                 onTap: () { if(authorized&&foreground)Navigator.of(sheet).pop(point); },
               ),
           ],
@@ -503,7 +532,9 @@ class _PartnerReportMapState extends State<PartnerReportMap>
       appBar: AppBar(
         title: Text(exploratory
           ? t('Choose discovery search area','اختر منطقة البحث على الخريطة')
-          : widget.points.any((p)=>p.platformCatalog)
+          : widget.points.any((p)=>p.licensedCrowd)
+            ? t('Federated location map (not live)','خريطة المواقع متعددة المصادر (ليست مباشرة)')
+            : widget.points.any((p)=>p.platformCatalog)
             ? t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)')
             : t('Partner report map (not live)','خريطة تقارير الشركاء (ليست مباشرة)')),
       ),
@@ -515,7 +546,9 @@ class _PartnerReportMapState extends State<PartnerReportMap>
           cacheExtent: enabled ? 2000.0 : null,
           padding: const EdgeInsets.all(12),
           children: [
-            if (points.any((p)=>p.platformCatalog)) Text(t('Only the loaded platform and authorized partner results are shown. Source labels remain distinct; no verified live availability, charging or billing.','تُعرض نتائج المنصة والشركاء المصرح لهم المحملة فقط. تظل تسميات المصادر مميزة؛ لا تحقق من التوفر المباشر أو الشحن أو الفوترة.'))
+            if (points.any((p)=>p.licensedCrowd)) Text(t('Only loaded published locations and the licensed crowd sample are shown. Source labels remain separate; no complete coverage, live status or booking authority.',
+              'تُعرض المواقع المنشورة المحملة وعينة المجتمع المرخصة فقط. تظل تسميات المصادر منفصلة؛ لا تغطية كاملة أو حالة مباشرة أو صلاحية حجز.'))
+            else if (points.any((p)=>p.platformCatalog)) Text(t('Only the loaded platform and authorized partner results are shown. Source labels remain distinct; no verified live availability, charging or billing.','تُعرض نتائج المنصة والشركاء المصرح لهم المحملة فقط. تظل تسميات المصادر مميزة؛ لا تحقق من التوفر المباشر أو الشحن أو الفوترة.'))
             else Text(t(
               'Only this loaded page of authorized published partner reports is shown. Sources may be stale. No verified live availability, booking, charging or billing.',
               'تُعرض هذه الصفحة المحملة فقط من تقارير الشركاء المنشورة والمصرح بها. قد تكون البيانات قديمة. لا يوجد تحقق من التوافر المباشر أو الحجز أو الشحن أو الفوترة.',
@@ -713,8 +746,8 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                                 ? t('${group.length} separate published locations, availability unverified',
                                     '${group.length} مواقع منشورة منفصلة، التوفر غير مؤكد')
                                 : t(
-                                    '${point.name} — ${point.platformCatalog ? 'platform catalog, availability unverified' : 'unverified partner report'}',
-                                    '${point.name} — ${point.platformCatalog ? 'كتالوج المنصة، التوفر غير مؤكد' : 'تقرير شريك غير مؤكد'}',
+                                    '${point.name} — ${point.licensedCrowd ? 'Open Charge Map crowd report, availability unknown' : point.platformCatalog ? 'platform catalog, availability unverified' : 'unverified partner report'}',
+                                    '${point.name} — ${point.licensedCrowd ? 'تقرير مجتمع Open Charge Map، التوفر غير معروف' : point.platformCatalog ? 'كتالوج المنصة، التوفر غير مؤكد' : 'تقرير شريك غير مؤكد'}',
                                   ),
                             button: true,
                             child: IconButton(
@@ -756,7 +789,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             for (final point in points)
               ListTile(
                 title: Text(point.name),
-                subtitle: point.platformCatalog ? Text(t('Platform catalog · ${point.catalogEvidence} · not live','كتالوج المنصة · ${point.catalogEvidence} · ليست بيانات مباشرة')) : Text(t(
+                subtitle: point.licensedCrowd ? Text(t('Open Charge Map · crowd report · not live','Open Charge Map · تقرير مجتمع · ليست بيانات مباشرة')+'\n${point.licensedAttribution} · ${point.licensedLicense}') : point.platformCatalog ? Text(t('Platform catalog · ${point.catalogEvidence} · not live','كتالوج المنصة · ${point.catalogEvidence} · ليست بيانات مباشرة')) : Text(t(
                   'Unverified partner location · not live',
                   'موقع شريك غير مؤكد · ليست بيانات مباشرة',
                 )),

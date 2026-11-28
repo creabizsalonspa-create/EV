@@ -519,3 +519,77 @@ for(const lang of ['en','ar'])for(const transition of ['account','role','clear']
  assert.equal(f.calls.length,before,'Discarded callbacks must not issue requests');
  assert.equal(panel.hidden,true);
 });
+
+const federationFixture = (lang, api) => {
+ const f=fixture(lang,api);f.control.setContext({owner:'actor-A',customer:true});
+ const panel=f.root.children.find(node=>node.id==='unified-federated-nearby');
+ const [,,form,state,published,licensed]=panel.children;
+ const fields=Object.fromEntries(form.children.filter(node=>node.tag==='label')
+  .map(node=>[node.children.at(-1).name,node.children.at(-1)]));
+ const submit=()=>form.onsubmit({preventDefault(){}});
+ return {...f,fields,submit,state,published,licensed};
+};
+const federatedReply = () => ({
+ evidence:'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY',distance_basis:'great_circle',
+ complete_geographic_coverage:false,live_status_verified:false,combined_total:null,
+ published:{...sample,current_page:1,per_page:25},
+ licensed:{state:'observed',sample:{
+  provider:'open_charge_map',evidence:'OPEN_LICENSED_DISCOVERY_ONLY',availability:'unknown',
+  remote_control:false,reservable:false,billing_eligible:false,
+  license_policy:'PER_RECORD_ATTRIBUTION_REQUIRED',count:1,results:[{
+   id:'ocm:123',name:'<img src=x>',source_status_evidence:'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
+   availability:'unknown',remote_control:false,reservable:false,billing_eligible:false,
+   data_license:'CC BY-SA 4.0',attribution:'Open Charge Map / Fixture',
+   source_url:'https://openchargemap.org/site/poi/details/123',
+  }],
+ }},
+});
+const fillFederation=f=>{
+ f.fields.latitude.value='٢٥٫٢';f.fields.longitude.value='55.3';f.fields.radius_km.value='10';f.fields.country.value='AE';
+};
+for(const lang of ['en','ar'])test('federated search requires per-request consent and separates evidence '+lang,async()=>{
+ const f=federationFixture(lang,async()=>federatedReply());
+ fillFederation(f);
+ await f.submit();assert.equal(f.calls.length,0);
+ f.fields.consent.checked=true;
+ await f.submit();
+ assert.deepEqual(JSON.parse(JSON.stringify(f.calls[0])),['federated-nearby','POST',{consent:true,latitude:25.2,longitude:55.3,radius_km:10,country:'AE'}]);
+ assert.equal(f.fields.consent.checked,false);
+ assert.match(f.published.textContent,lang==='ar'?/الصفحة الأولى المنشورة/:/Published first page/);
+ assert.match(f.licensed.textContent,/Open Charge Map \/ Fixture · CC BY-SA 4\.0/);
+ assert.match(f.licensed.textContent,/<img src=x>/);
+ assert.equal(f.licensed.children.at(-1).children.at(-1).href,'https://openchargemap.org/site/poi/details/123');
+ assert.equal(f.licensed.children.at(-1).children.at(-1).rel,'noopener noreferrer');
+ assert.equal(f.published.children.some(n=>n.children.some(x=>x.tag==='button')),false);
+ assert.deepEqual(f.chosen,[]);
+ await f.submit();assert.equal(f.calls.length,1);
+});
+test('federated source unavailable remains distinct from empty sample; malformed authority is rejected',async()=>{
+ let reply=federatedReply();
+ const f=federationFixture('en',async()=>reply);fillFederation(f);
+ reply.licensed={state:'unavailable',sample:null};f.fields.consent.checked=true;await f.submit();
+ assert.match(f.licensed.textContent,/not zero matching locations/);
+ assert.equal(f.published.children.length,3);
+ for(const mutate of [
+  r=>r.licensed.sample.results[0].reservable=true,
+  r=>r.licensed.sample.results[0].data_license='',
+  r=>r.licensed.sample.results[0].source_url='https://untrusted.example/',
+  r=>r.published.data.push(r.published.data[0]),
+  r=>r.combined_total=4,
+ ]) {
+  reply=federatedReply();mutate(reply);f.fields.consent.checked=true;await f.submit();
+  assert.equal(f.published.children.length,0);assert.equal(f.licensed.children.length,0);
+  assert.match(f.state.textContent,/Nearby search failed/);
+ }
+});
+test('federated late results cannot repopulate retired actor or private coordinates',async()=>{
+ let finish;const f=federationFixture('en',()=>new Promise(resolve=>finish=resolve));
+ fillFederation(f);f.fields.consent.checked=true;const wait=f.submit();
+ f.control.setContext({owner:'actor-B',customer:true});
+ finish(federatedReply());await wait;
+ assert.equal(f.published.children.length,0);assert.equal(f.licensed.children.length,0);
+ assert.equal(f.fields.latitude.value,'');assert.equal(f.fields.longitude.value,'');
+ assert.equal(f.fields.radius_km.value,'');assert.equal(f.fields.country.value,'');
+ assert.equal(f.fields.consent.checked,false);
+ assert.equal(f.calls.length,1);
+});
