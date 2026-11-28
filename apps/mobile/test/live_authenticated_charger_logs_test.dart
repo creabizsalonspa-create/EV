@@ -1,4 +1,4 @@
-// Actual local authenticated-source metadata/bytes. No device or management writes.
+// Actual local authenticated-source metadata/bytes. Optional explicit local file revocation; no device commands.
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
@@ -45,11 +45,41 @@ void main() {
         expect(doc.bytes.length, lessThanOrEqualTo(524288));
         expect(sha256.convert(doc.bytes).toString(), charger['file_digest']);
         expect(record['file_sha256'], charger['file_digest']);
+        if (f['verify_native_revocation'] == true) {
+          expect(page['can_manage'], isTrue);
+          final cancelPath = '$endpoint/${record['id']}';
+          final receipt = await api.request(cancelPath, method: 'DELETE');
+          expect(receipt['cancelled'], isTrue);
+          expect(receipt['source_command_sent'], isFalse);
+          expect(receipt['charging_capacity_changed'], isFalse);
+          final retry = await api.request(cancelPath, method: 'DELETE');
+          expect(retry, receipt);
+          final history = parseDiagnosticLogPage(
+            await api.request(endpoint, query: {'page': '1'}),
+          );
+          final cancelled = (history['data'] as List).singleWhere(
+            (v) => v['id'] == record['id'],
+          );
+          expect(cancelled['cancelled_at'], isNotNull);
+          expect(cancelled['content_removed_at'], isNotNull);
+          expect(cancelled['can_download'], isFalse);
+          expect(cancelled['file_sha256'], charger['file_digest']);
+          await expectLater(
+            api.downloadDiagnosticLog('$cancelPath/download'),
+            throwsA(isA<ApiException>().having(
+              (e) => e.status, 'revoked file', 404,
+            )),
+          );
+        }
       }
       expect(protocols, {'1.6', '2.0.1'});
+      final revoked = f['verify_native_revocation'] == true;
+      await api.signOut();
       f.clear();
       await File('${File(path).parent.path}/native.done').writeAsString(
-        'Passed native read-only both-protocol metadata and private-byte integrity; no management request or source write.\n',
+        revoked
+            ? 'Passed native both-protocol private-byte integrity and explicit local revocation; no device command.\n'
+            : 'Passed native read-only both-protocol metadata and private-byte integrity; no management request or source write.\n',
       );
     },
     skip: path == null

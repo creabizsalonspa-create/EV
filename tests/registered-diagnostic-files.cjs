@@ -3,6 +3,7 @@ const assert = require("node:assert/strict"),
 const fs = require("node:fs"),
   path = require("node:path");
 const withRuntime = require("./helpers/registered-diagnostic-runtime.cjs");
+const { runNativeDiagnostics } = require("./helpers/registered-diagnostic-native-runner.cjs");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { graph, poll, SimulatedCharger } = require("./helpers/csms-local.cjs");
 const {
@@ -242,7 +243,7 @@ async function login(base, email, password) {
     );
     const { chromium } = require("playwright");
     const browser = await chromium.launch({
-      executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
+      executablePath: process.env.EV_CHROMIUM_PATH || process.env.CHROMIUM_PATH || undefined,
       headless: true,
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
     });
@@ -328,12 +329,14 @@ async function login(base, email, password) {
     } finally {
       await browser.close();
     }
-    if (process.env.EV_NATIVE_DIAGNOSTICS_HOLD === "1") {
+    const connectedNative = process.env.EV_RUN_CONNECTED_NATIVE_DIAGNOSTICS === "1";
+    if (connectedNative || process.env.EV_NATIVE_DIAGNOSTICS_HOLD === "1") {
       const native = path.join(runtime.folder, "native-fixture.json");
       fs.writeFileSync(
         native,
         JSON.stringify({
           fixture_only: true,
+          verify_native_revocation: connectedNative,
           base: runtime.base,
           owner: fixture.owner_email,
           password,
@@ -356,17 +359,26 @@ async function login(base, email, password) {
         }),
         { mode: 0o600 },
       );
-      console.log("Private native diagnostic fixture ready: " + native);
-      const deadline = Date.now() + 300000;
-      while (
-        !fs.existsSync(path.join(runtime.folder, "native.done")) &&
-        Date.now() < deadline
-      )
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      assert(
-        fs.existsSync(path.join(runtime.folder, "native.done")),
-        "Native fixture release was not received within the bounded active session",
-      );
+      const marker = path.join(runtime.folder, "native.done");
+      if (connectedNative) {
+        await runNativeDiagnostics({ file: native, marker });
+        for (const item of verified) {
+          const endpoint = company + "/chargers/" + item.charger_id + "/diagnostic-logs";
+          const history = await owner.request(endpoint);
+          const receipt = history.data.find((row) => row.id === item.operation_id);
+          assert(receipt && receipt.cancelled_at && receipt.content_removed_at);
+          assert.equal(receipt.can_download, false);
+          assert.equal(receipt.file_sha256, item.file_digest);
+        }
+        assert.deepEqual(runtime.fixture("snapshot", run), before);
+        console.log("PASS connected native private downloads and explicit revocation; source RPC counts and charging/finance unchanged.");
+      } else {
+        console.log("Private native diagnostic fixture ready: " + native);
+        const deadline = Date.now() + 300000;
+        while (!fs.existsSync(marker) && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        assert(fs.existsSync(marker), "Native fixture release was not received within the bounded active session");
+      }
     }
     assert.deepEqual(runtime.counts(), { opsRequests: 2, uploads: 4 });
     fs.writeFileSync(
