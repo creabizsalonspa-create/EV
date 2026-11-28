@@ -31,6 +31,14 @@ on:
         "tests/native-subscription-dunning.cjs",
         "tests/native-connected.cjs",
         "tests/native-source-registration.cjs",
+        "tests/charger-source-registration.cjs",
+        "services/business-api/tests/Fixtures/charger-source-registration.php",
+        "services/business-api/app/Http/Controllers/ChargerSourceRegistrationController.php",
+        "scripts/charger-source-registration-setup",
+        "scripts/csms-setup",
+        "scripts/csms-start",
+        "scripts/charging-setup",
+        "scripts/charging-bridge-setup",
         "services/business-api/tests/Fixtures/native-source-registration.php",
         "tests/native-privacy.cjs",
         "tests/native-operating-calendar.cjs",
@@ -152,6 +160,14 @@ on:
         "tests/native-subscription-dunning.cjs",
         "tests/native-connected.cjs",
         "tests/native-source-registration.cjs",
+        "tests/charger-source-registration.cjs",
+        "services/business-api/tests/Fixtures/charger-source-registration.php",
+        "services/business-api/app/Http/Controllers/ChargerSourceRegistrationController.php",
+        "scripts/charger-source-registration-setup",
+        "scripts/csms-setup",
+        "scripts/csms-start",
+        "scripts/charging-setup",
+        "scripts/charging-bridge-setup",
         "services/business-api/tests/Fixtures/native-source-registration.php",
         "tests/native-privacy.cjs",
         "tests/native-operating-calendar.cjs",
@@ -344,6 +360,16 @@ jobs:
           ./scripts/loyalty-test-setup
           ./scripts/start
           node tests/native-connected.cjs
+      - name: Verify native authenticated registration readbacks from local CitrineOS
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./scripts/csms-setup
+          ./scripts/csms-start
+          ./scripts/charging-setup
+          ./scripts/charging-bridge-setup
+          ./scripts/charger-source-registration-setup
+          EV_SOURCE_REGISTRATION_PACE=1 EV_RUN_AUTHENTICATED_NATIVE_REGISTRATION=1 node tests/charger-source-registration.cjs
       - run: flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'macOS'
         working-directory: apps/mobile

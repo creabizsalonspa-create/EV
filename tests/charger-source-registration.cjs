@@ -4,6 +4,7 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes, randomUUID } = require("node:crypto");
 const fs = require("node:fs"),
   path = require("node:path");
+const { tmpdir } = require("node:os");
 const { chromium } = require("playwright");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const container =
@@ -215,6 +216,13 @@ async function login(email) {
       assert.equal(observed.charger_hardware_verified, false);
       assert.match(observed.verified_at, /Z$/);
       ids.push(observed.source_station_id);
+      charger.verified_receipt = {
+        registration_id: observed.registration_id,
+        binding_id: observed.binding_id,
+        profile_id: observed.profile_id,
+        source_station_id: observed.source_station_id,
+        verified_at: observed.verified_at,
+      };
       const replay = await admin.request(
         endpoint + "/" + observed.registration_id + "/register",
         "POST",
@@ -295,6 +303,39 @@ async function login(email) {
       "Metadata registration must not change commands/inbox/session/finance",
     );
     assert.equal(new Set(ids).size, 2);
+    if (process.env.EV_RUN_AUTHENTICATED_NATIVE_REGISTRATION === "1") {
+      // Use actual authenticated readbacks, never synthetic retained receipts.
+      // The Flutter fixture is private, short-lived and not an uploaded artifact.
+      const directory = fs.mkdtempSync(path.join(tmpdir(), "ev-native-source-registration-"));
+      try {
+        const file = path.join(directory, "fixture.json");
+        fs.writeFileSync(file, JSON.stringify({
+          fixture_only: true,
+          base,
+          owner: f.owner_email,
+          password,
+          company_id: f.company_id,
+          chargers: f.chargers.map(({ id, protocol, verified_receipt }) => ({ id, protocol, verified_receipt })),
+          authenticated_source_readback: true,
+          expected_inventory_matches: true,
+        }), { mode: 0o600, flag: "wx" });
+        execFileSync("flutter", ["test", "--no-pub", "test/live_charger_source_registration_test.dart", "--reporter", "expanded"], {
+          cwd: "apps/mobile", stdio: "inherit",
+          env: { ...process.env, EV_NATIVE_SOURCE_REGISTRATION_FIXTURE: file },
+        });
+        for (const charger of f.chargers) {
+          const observed = await admin.request(`${companyBase}/chargers/${charger.id}/source-registration`);
+          for (const [key, value] of Object.entries(charger.verified_receipt)) {
+            assert.equal(observed[key], value, `Native observation changed registration ${key}`);
+          }
+          assert.equal(observed.current_inventory_matches_registration, true);
+        }
+        assert.deepEqual(fixture("snapshot"), before);
+        console.log("PASS actual native HTTP projection of both authenticated registration readbacks; retained receipt and charging/finance state unchanged.");
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
     console.log(
       "PASS actual Laravel+local CitrineOS/Hasura source registration1.6/2.0.1: real Admin MFA, canonical disabled admission/bindings, single source creation/readback and receipt replay, EN/AR390 web controls and read-only owner status; unchanged charging and finance. No charger sockets, device commands or hardware acceptance.",
     );

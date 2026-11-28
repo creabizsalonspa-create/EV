@@ -12,6 +12,6 @@ class RiderAccessToken extends Model
 
     protected function casts(): array
     {
-        return ['expires_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime', 'provisioned_at' => 'immutable_datetime', 'provision_lease_until' => 'immutable_datetime'];
+        return ['source_authorization_id' => 'integer', 'expires_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime', 'provisioned_at' => 'immutable_datetime', 'provision_lease_until' => 'immutable_datetime'];
     }
 }
