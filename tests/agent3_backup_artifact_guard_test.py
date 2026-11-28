@@ -1,5 +1,5 @@
 """No-Docker backup integrity negative cases."""
-import importlib.util, io, tarfile, tempfile, unittest
+import hashlib, importlib.util, io, os, tarfile, tempfile, unittest
 from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -134,6 +134,30 @@ class ArchiveTests(unittest.TestCase):
                     self.assertEqual(guard.main(['check'] + args), 1)
             manifest.write_text(original)
             self.assertEqual(guard.main(['check'] + args), 0)
+
+    def test_open_archive_rejects_an_in_place_change_even_when_size_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / 'db.dump'
+            sample_db(dump)
+            info = dump.stat()
+            with self.assertRaisesRegex(guard.ArchiveError, 'Archive changed during reading'):
+                with guard.open_regular_archive(dump) as stream:
+                    self.assertEqual(stream.read(5), b'PGDMP')
+                    with dump.open('r+b') as writer:
+                        writer.seek(5)
+                        writer.write(b'K')
+                    os.utime(dump, ns=(info.st_atime_ns, info.st_mtime_ns))
+                    self.assertEqual(dump.stat().st_size, info.st_size)
+
+    def test_fingerprint_uses_the_exact_observed_length(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / 'db.dump'
+            expected = b'PGDMP' + bytes(1024 * 1024 + 7)
+            dump.write_bytes(expected)
+            self.assertEqual(guard.fingerprint(dump, b'PGDMP'), {
+                'sha256': hashlib.sha256(expected).hexdigest(),
+                'bytes': len(expected),
+            })
 
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
