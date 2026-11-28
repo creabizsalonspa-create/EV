@@ -127,19 +127,26 @@
     copy.type = 'button';
     const search = text('button', 'Search open-licensed locations', 'البحث في المواقع ذات البيانات المفتوحة');
     search.type = 'submit';
-    form.append(consentRow, copy, search);
+    const federatedSearch = text('button', 'Search nearby across published and licensed sources',
+        'البحث عن المواقع القريبة في المصادر المنشورة والمرخصة');
+    federatedSearch.type = 'submit';
+    form.append(consentRow, copy, search, federatedSearch,
+        text('p', 'Searching across sources requires sign-in and uses only coordinates, radius and optional country (AE, US or CA).',
+            'يتطلب البحث في جميع المصادر تسجيل الدخول، ويستخدم الإحداثيات والنطاق والدولة الاختيارية فقط (AE أو US أو CA).'));
     const state = document.createElement('p');
     state.setAttribute('role', 'status');
+    const publishedResults = document.createElement('div');
+    publishedResults.id = 'federated-published-results';
     const results = document.createElement('div');
     results.className = 'station-grid';
     root.append(
         text('h2', 'Open Charge Map — discovery only', 'خريطة الشحن المفتوحة — للاكتشاف فقط'),
         text('p', 'Open-licensed crowd reports. No live availability, reservations or charging controls. Each source retains its own license.',
             'تقارير مجتمعية ذات بيانات مفتوحة. لا توفر مباشر أو حجوزات أو تحكم بالشحن. يظهر الترخيص الخاص بكل مصدر.'),
-        form, state, results,
+        form, state, publishedResults, results,
     );
     anchor.after(root);
-    let enabled = false, generation = 0, current, lastResult = null;
+    let enabled = false, generation = 0, current, lastResult = null, lastFederated = null;
     function announce(en, arabic) {
         state.dataset.en = en;
         state.dataset.ar = arabic;
@@ -284,12 +291,60 @@
         // Publish markers only after the entire vetted list renders.
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: data.results }));
     }
+    function renderFederated(data) {
+        const page = data?.published;
+        const source = data?.licensed;
+        if (data?.evidence !== 'FEDERATED_GEOGRAPHIC_DISCOVERY_ONLY' ||
+            data.distance_basis !== 'great_circle' || data.live_status_verified !== false ||
+            data.complete_geographic_coverage !== false || data.combined_total !== null ||
+            !Array.isArray(page?.data) || page.data.length > 25 || page.per_page !== 25 ||
+            page.current_page !== 1 || !Number.isSafeInteger(page.last_page) || page.last_page < 1 ||
+            !Number.isSafeInteger(page.total) || page.total < page.data.length ||
+            !['observed', 'unavailable'].includes(source?.state) ||
+            (source.state === 'unavailable' && source.sample !== null)) throw Error('Invalid federated results');
+
+        const heading = text('h3', 'Published nearby locations', 'المواقع القريبة المنشورة');
+        const list = document.createElement('ul');
+        const seen = new Set();
+        for (const row of page.data) {
+            const station = row?.station;
+            const partner = row?.location;
+            const id = row?.kind === 'catalog' ? station?.id : row?.record_id;
+            if (!Number.isSafeInteger(id) || id < 1 || row.key !== row.kind + ':' + id ||
+                seen.has(row.key)) throw Error('Invalid published location');
+            seen.add(row.key);
+            if (row.kind === 'catalog' && typeof station?.name === 'string') {
+                list.append(text('li', 'Platform catalog · ' + station.name, 'كتالوج المنصة · ' + station.name));
+            } else if (row.kind === 'partner' && row.evidence === 'PARTNER_REPORTED_UNVERIFIED' &&
+                row.availability === 'unknown' && row.reservable === false && row.remote_control === false &&
+                partner && (typeof partner.name === 'string' || typeof partner.id === 'string')) {
+                const name = partner.name || partner.id;
+                list.append(text('li', 'Partner report · ' + name, 'تقرير الشريك · ' + name));
+            } else throw Error('Invalid published source');
+        }
+
+        if (source.state === 'observed') {
+            render(source.sample);
+            if (source.sample.results.length === 0) {
+                results.append(text('p', 'No licensed crowd reports matched this search.',
+                    'لم تطابق أي تقارير مجتمعية مرخصة هذا البحث.'));
+            }
+        } else {
+            announce('Licensed crowd reports are unavailable. Published nearby results are shown below.',
+                'تقارير المجتمع المرخصة غير متاحة. تظهر النتائج القريبة المنشورة أدناه.');
+        }
+        publishedResults.replaceChildren(heading, text('p',
+            `Showing ${page.data.length} of ${page.total} published results. Physical availability is unverified.`,
+            `عرض ${page.data.length} من ${page.total} نتيجة منشورة. التوفر الفعلي غير مؤكد.`), list);
+        lastFederated = data;
+    }
     const clear = () => {
         generation++;
         current?.abort();
         current = null;
-        search.disabled = false;
-        lastResult = null;
+        search.disabled = federatedSearch.disabled = false;
+        lastResult = lastFederated = null;
+        publishedResults.replaceChildren();
         results.replaceChildren();
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
         consent.checked = false;
@@ -310,12 +365,13 @@
     // happen to be visible afterward. Editing any search field invalidates
     // both the list and map immediately; no additional coordinates are sent.
     const invalidateOnEdit = event => {
-        if (event.target === consent || (!current && !lastResult)) return;
+        if (event.target === consent || (!current && !lastResult && !lastFederated)) return;
         generation++;
         current?.abort();
         current = null;
-        lastResult = null;
-        search.disabled = false;
+        lastResult = lastFederated = null;
+        search.disabled = federatedSearch.disabled = false;
+        publishedResults.replaceChildren();
         results.replaceChildren();
         window.dispatchEvent(new CustomEvent('open-charge-map-data', { detail: [] }));
         consent.checked = false;
@@ -334,29 +390,42 @@
         if (minPower !== null && (!Number.isFinite(minPower) || minPower < 1 || minPower > 1000)) return;
         const maxAge = maxSourceAge.value.trim() ? Number(maxSourceAge.value) : null;
         if (maxAge !== null && (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 168)) return;
+        const federated = e.submitter === federatedSearch;
+        const geographicQuery = {consent:true,latitude,longitude,radius_km:km,
+            ...(country.value.trim() ? {country:country.value.trim()} : {})};
+        const sourceFilters = {
+            ...(minPower !== null ? {min_reported_power_kw:minPower} : {}),
+            ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {}),
+            ...(operatorQuery.value.trim() ? {operator_contains:operatorQuery.value.trim()} : {}),
+            ...(addressQuery.value.trim() ? {address_contains:addressQuery.value.trim()} : {}),
+            ...(accessQuery.value.trim() ? {access_contains:accessQuery.value.trim()} : {}),
+            ...(membershipFilter.value ? {reported_membership_required:membershipFilter.value === 'true'} : {}),
+            ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {}),
+            ...(maxAge !== null ? {max_source_age_hours:maxAge} : {}),
+        };
+        if (federated && (Object.keys(sourceFilters).length ||
+            (geographicQuery.country && !['AE', 'US', 'CA'].includes(geographicQuery.country)))) {
+            consent.checked = false;
+            announce('Clear crowd-report filters and use AE, US or CA (or leave country blank). Then confirm consent.',
+                'امسح مرشحات تقارير المجتمع واستخدم AE أو US أو CA (أو اترك الدولة فارغة). ثم أكد الموافقة.');
+            return;
+        }
         const epoch = ++generation;
         current?.abort();
         current = new AbortController();
-        lastResult = null;
+        lastResult = lastFederated = null;
+        publishedResults.replaceChildren();
         results.replaceChildren();
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
-        search.disabled = true;
-        announce('Searching licensed sources…', 'يجري البحث في المصادر المرخصة…');
+        search.disabled = federatedSearch.disabled = true;
+        announce('Searching nearby sources…', 'يجري البحث في المصادر القريبة…');
         try {
-            const response = await fetch('/api/discovery/open-charge-map/search', {
+            const endpoint = federated ? '/api/discovery/federated-nearby' : '/api/discovery/open-charge-map/search';
+            const response = await fetch(endpoint, {
                 method: 'POST', credentials: 'same-origin', redirect: 'error', cache: 'no-store',
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
-                body: JSON.stringify({consent:true,latitude,longitude,radius_km:km,
-                    ...(country.value.trim() ? {country:country.value.trim()} : {}),
-                    ...(minPower !== null ? {min_reported_power_kw:minPower} : {}),
-                    ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {}),
-                    ...(operatorQuery.value.trim() ? {operator_contains:operatorQuery.value.trim()} : {}),
-                    ...(addressQuery.value.trim() ? {address_contains:addressQuery.value.trim()} : {}),
-                    ...(accessQuery.value.trim() ? {access_contains:accessQuery.value.trim()} : {}),
-                    ...(membershipFilter.value ? {reported_membership_required:membershipFilter.value === 'true'} : {}),
-                    ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {}),
-                    ...(maxAge !== null ? {max_source_age_hours:maxAge} : {})}),
+                body: JSON.stringify(federated ? geographicQuery : {...geographicQuery, ...sourceFilters}),
                 signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]),
             });
             if (epoch !== generation) return;
@@ -365,16 +434,22 @@
             // A logout/identity change can race with streamed JSON parsing:
             // never resurrect a revoked source after source generation changes.
             if (epoch !== generation) return;
-            render(responseBody);
+            if (federated) renderFederated(responseBody);
+            else render(responseBody);
         } catch (_) {
             if (epoch !== generation) return;
             results.replaceChildren();
             lastResult = null;
-            announce('Licensed source unavailable or invalid; manual station search is still available.',
-                'المصدر المرخص غير متاح أو غير صالح؛ يبقى البحث اليدوي متاحاً.');
+            if (federated) {
+                announce('Nearby search is unavailable. Sign in to search across sources, or use the published catalog.',
+                    'البحث القريب غير متاح. سجّل الدخول للبحث في جميع المصادر أو استخدم الكتالوج المنشور.');
+            } else {
+                announce('Licensed source unavailable or invalid; manual station search is still available.',
+                    'المصدر المرخص غير متاح أو غير صالح؛ يبقى البحث اليدوي متاحاً.');
+            }
         } finally {
             if (epoch === generation) {
-                search.disabled = false;
+                search.disabled = federatedSearch.disabled = false;
                 consent.checked = false;
                 current = null;
             }
@@ -384,7 +459,8 @@
     window.addEventListener('ev:locale', () => {
         // Refresh static distance/source annotations without issuing another
         // query or losing the original validation/attribution evidence.
-        if (lastResult) render(lastResult);
+        if (lastFederated) renderFederated(lastFederated);
+        else if (lastResult) render(lastResult);
         else if (state.dataset.en !== undefined)
             state.textContent = ar() ? state.dataset.ar : state.dataset.en;
     });
