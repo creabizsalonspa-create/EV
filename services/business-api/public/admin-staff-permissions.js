@@ -9,6 +9,8 @@ window.EvAdminStaffPermissions = (() => {
     let request = null;
     let status = null;
     let company = null;
+    let staff = null;
+    let hold = null;
     let message = null;
     let results = null;
     let page = 1;
@@ -33,7 +35,7 @@ window.EvAdminStaffPermissions = (() => {
         return generation === epoch && request !== null && !signal.aborted;
     }
     async function load(nextPage = 1) {
-        if (!request) return;
+        if (!request || !Number.isSafeInteger(nextPage) || nextPage < 1 || nextPage > 100000) return;
         currentRequest?.abort();
         const controller = new AbortController();
         currentRequest = controller;
@@ -43,6 +45,9 @@ window.EvAdminStaffPermissions = (() => {
         if (status.value) filters.set("status", status.value);
         const id = company.value.trim();
         if (id) filters.set("company_id", id);
+        const staffId = staff.value.trim();
+        if (staffId) filters.set("user_id", staffId);
+        if (hold.value) filters.set("admin_hold", hold.value);
         results.replaceChildren();
         message.textContent = "Loading permission grants / جاري التحميل…";
         try {
@@ -64,8 +69,11 @@ window.EvAdminStaffPermissions = (() => {
                     node("p", "Granted scopes: " +
                         (Array.isArray(grant.permissions) ? grant.permissions.join(", ") : "None"))
                 );
-                if (grant.status === "active" || grant.status === "invited") {
-                    const revoke = button("Emergency revoke / إلغاء الوصول", () => {
+                if ((["active", "invited"].includes(grant.status) && grant.admin_emergency_hold !== true) ||
+                    (grant.status === "revoked" && grant.admin_emergency_hold === false)) {
+                    const revoke = button(grant.status === "revoked"
+                        ? "Place Admin hold / فرض تعليق إداري"
+                        : "Emergency revoke / إلغاء الوصول", () => {
                         if (!active(epoch, controller.signal)) return;
                         const form = node("form");
                         form.setAttribute("aria-label", "Revoke permission grant " + staffId);
@@ -110,7 +118,7 @@ window.EvAdminStaffPermissions = (() => {
                     card.append(actionHost);
                 }
 
-                if (grant.admin_emergency_hold === true && grant.status === "revoked") {
+                if (grant.admin_emergency_hold === true) {
                     card.append(node("p", "Admin security hold active. The company owner cannot re-invite this person."));
                     const actions = node("div");
                     const release = button("Release Admin hold / رفع التعليق", () => {
@@ -222,9 +230,22 @@ window.EvAdminStaffPermissions = (() => {
         company.type = "number";
         company.min = 1;
         company.setAttribute("aria-label", "Company ID");
+        staff = node("input");
+        staff.type = "number";
+        staff.min = 1;
+        staff.setAttribute("aria-label", "Staff account ID");
+        hold = node("select");
+        hold.setAttribute("aria-label", "Administrator security hold");
+        for (const item of [["", "All holds / جميع الحالات"], ["yes", "Held / معلّق"], ["no", "Not held / غير معلّق"]]) {
+            const option = node("option", item[1]);
+            option.value = item[0];
+            hold.append(option);
+        }
         const submit = button("Search / بحث", () => {});
         submit.type = "submit";
-        filters.append(field("Status", status), field("Company ID (optional)", company), submit);
+        filters.append(field("Status", status), field("Company ID (optional)", company),
+            field("Staff account ID / معرف حساب الموظف", staff),
+            field("Administrator security hold / تعليق أمني إداري", hold), submit);
         filters.onsubmit = event => { event.preventDefault(); load(1); };
         message = node("p");
         message.setAttribute("role", "status");
