@@ -134,7 +134,8 @@ class PaymentRecovery
     {
         $ids = DB::table('payment_recovery_intents')->whereIn('status', ['executing', 'uncertain', 'needs_review'])->where(function ($q) {
             $q->whereNull('lease_until')->orWhere('lease_until', '<=', now());
-        })->orderBy('id')->limit($limit)->pluck('id');
+        })->orderByRaw('CASE WHEN last_local_scan_at IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('last_local_scan_at')->orderBy('id')->limit($limit)->pluck('id');
         foreach ($ids as $id) {
             DB::transaction(function () use ($id) {
                 $hint = DB::table('payment_recovery_intents')->find($id);
@@ -144,6 +145,8 @@ class PaymentRecovery
                 if (! in_array($intent->status, ['executing', 'uncertain', 'needs_review'], true) || ($intent->lease_until && $intent->lease_until > now()->toDateTimeString())) {
                     return;
                 }
+                DB::table('payment_recovery_intents')->where('id', $id)
+                    ->update(['last_local_scan_at' => now('UTC')->format('Y-m-d H:i:s.u')]);
                 $operations = $hint->scope === 'charging' ? 'gateway_operations' : 'subscription_gateway_operations';
                 $op = DB::table($operations)->where('checkout_id', $intent->checkout_id)->where('kind', $intent->kind);
                 if ($intent->kind === 'refund') {

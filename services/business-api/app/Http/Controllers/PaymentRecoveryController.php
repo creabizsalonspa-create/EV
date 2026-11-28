@@ -42,7 +42,10 @@ class PaymentRecoveryController extends Controller
     private function publicRow(object $row): array
     {
         $data = (array) $row;
-        unset($data['identity'],$data['fingerprint'],$data['lease'],$data['observation']);
+        unset(
+            $data['identity'], $data['fingerprint'], $data['lease'],
+            $data['observation'], $data['last_local_scan_at'], $data['last_provider_scan_at'],
+        );
 
         $data['minor_units'] = $row->scope === 'charging' ? DB::table('gateway_checkouts as c')->join('finance_invoices as i', 'i.id', '=', 'c.invoice_id')->where('c.id', $row->checkout_id)->value('i.minor_units') : DB::table('subscription_gateway_checkouts as c')->join('commercial_subscription_invoices as i', 'i.id', '=', 'c.invoice_id')->where('c.id', $row->checkout_id)->value('i.minor_units');
 

@@ -52,7 +52,7 @@ class PaymentRecoveryTest extends TestCase
         $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
     }
 
-    private function fixture(bool $captured = false): array
+    private function fixture(bool $captured = false, string $providerReference = 'pi_recovery'): array
     {
         $vendor = User::factory()->create(['role' => 'vendor']);
         $user = User::factory()->create();
@@ -61,7 +61,7 @@ class PaymentRecoveryTest extends TestCase
         $session = ChargingSession::create(['reservation_id' => $reservation->id, 'status' => 'stopped', 'energy_wh' => 1000, 'rate_minor_per_kwh' => 100, 'currency' => 'AED', 'total_minor' => 100, 'stopped_at' => now()]);
         $invoice = app(FinanceService::class)->issue($session, $user->id);
         $checkout = app(GatewayService::class)->checkout($invoice, $user->id, 100, 'recovery-fixture');
-        DB::table('gateway_checkouts')->where('id', $checkout->id)->update(['provider_reference' => 'pi_recovery', 'status' => $captured ? 'captured' : 'authorized', 'authorization_expires_at' => now()->addDays(3)]);
+        DB::table('gateway_checkouts')->where('id', $checkout->id)->update(['provider_reference' => $providerReference, 'status' => $captured ? 'captured' : 'authorized', 'authorization_expires_at' => now()->addDays(3)]);
         if ($captured) {
             app(FinanceService::class)->pay($invoice, $user->id, 100, 'explicit-recovery-test-fixture');
         }
@@ -186,6 +186,32 @@ class PaymentRecoveryTest extends TestCase
         $this->failure(fn () => $gateway->operate($checkout->id, $user->id, 'capture', 'another-key'), 409, 'retry window');
         $this->assertDatabaseCount('finance_payments', 0);
         Http::assertSentCount(1);
+    }
+
+    public function test_bounded_scheduled_recovery_reaches_newer_intents_after_a_failed_provider_read(): void
+    {
+        [$first, , $firstCheckout] = $this->fixture();
+        [$second, , $secondCheckout] = $this->fixture(providerReference: 'pi_recoverySecond');
+        Http::fake(['*' => Http::failedConnection()]);
+        $gateway = app(GatewayService::class);
+        $this->failure(fn () => $gateway->operate($firstCheckout->id, $first->id, 'capture', 'first'), 503);
+        $this->failure(fn () => $gateway->operate($secondCheckout->id, $second->id, 'capture', 'second'), 503);
+
+        $this->artisan('commercial:reconcile-payments', ['--limit' => 1, '--provider' => true])->assertFailed();
+        $this->assertDatabaseHas('payment_recovery_intents', ['checkout_id' => $firstCheckout->id, 'status' => 'needs_review']);
+        $this->assertDatabaseHas('payment_recovery_intents', ['checkout_id' => $secondCheckout->id, 'status' => 'uncertain']);
+        $this->travel(1)->minutes();
+        $this->artisan('commercial:reconcile-payments', ['--limit' => 1, '--provider' => true])->assertFailed();
+        $this->assertDatabaseHas('payment_recovery_intents', ['checkout_id' => $secondCheckout->id, 'status' => 'needs_review']);
+
+        $reads = Http::recorded(fn ($request) => $request->method() === 'GET')
+            ->map(fn ($entry) => parse_url($entry[0]->url(), PHP_URL_PATH))->values()->all();
+        $this->assertSame(['/v1/payment_intents/pi_recovery', '/v1/payment_intents/pi_recoverySecond'], $reads);
+        $this->assertCount(2, Http::recorded(fn ($request) => $request->method() === 'POST'));
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->actingAs($first)->getJson('/api/commercial/payment-recovery')->assertOk()
+            ->assertJsonMissingPath('data.0.last_local_scan_at')
+            ->assertJsonMissingPath('data.0.last_provider_scan_at');
     }
 
     public function test_authenticated_capture_webhook_completes_uncertain_recovery_only_with_committed_ledger(): void
