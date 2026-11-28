@@ -118,8 +118,16 @@ void main() {
       expect(find.textContaining(ar ? 'وحدات المصدر المهيأة' : 'Configured/negotiated source modules only'), findsOneWidget);
       expect(find.textContaining(ar ? 'قراءة الشريك نعم' : 'Partner read yes'), findsOneWidget);
       expect(find.textContaining(ar ? 'سياسة أوامر الاختبار: لا' : 'Sandbox command policy: no'), findsOneWidget);
-      expect(find.textContaining(ar ? 'مرسل رموز الاختبار جاهز للطلبات: نعم' : 'Sandbox token sender ready: yes'), findsOneWidget);
-      expect(find.textContaining(ar ? 'استقبال الطلبات جاهز نعم' : 'Receive requests ready yes'), findsOneWidget);
+      final senderReadiness = find.textContaining(ar
+          ? 'مرسل رموز الاختبار جاهز للطلبات: نعم'
+          : 'Sandbox token sender ready: yes');
+      await tester.scrollUntilVisible(senderReadiness, 160);
+      expect(senderReadiness, findsOneWidget);
+      final receiverReadiness = find.textContaining(ar
+          ? 'استقبال الطلبات جاهز نعم'
+          : 'Receive requests ready yes');
+      await tester.scrollUntilVisible(receiverReadiness, 160);
+      expect(receiverReadiness, findsOneWidget);
       expect(find.textContaining('SYNTHETIC-PEER-BOOTSTRAP'), findsNothing);
       expect(api.writes, 0);
     });

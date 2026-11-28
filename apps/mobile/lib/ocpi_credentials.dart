@@ -343,17 +343,10 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                   '${tr('Sandbox command policy', 'سياسة أوامر الاختبار')}: ${status!['capability_matrix']['sandbox_command_policy_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
                   '${tr('Sandbox reservation policy', 'سياسة الحجز التجريبي')}: ${status!['capability_matrix']['sandbox_reservation_policy_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
                 ),
-              if (status!['capability_matrix']['sandbox_token_sender_configured']
-                  is bool)
-                Text(
-                  '${tr('Sandbox token sender configured', 'مرسل رموز الاختبار مهيأ')}: ${status!['capability_matrix']['sandbox_token_sender_configured'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
-                  '${tr('Sandbox token sender ready', 'مرسل رموز الاختبار جاهز للطلبات')}: ${status!['capability_matrix']['sandbox_token_sender_request_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
-                ),
               for (final row in status!['capability_matrix']['modules'] as List)
                 Text(
                   '${row['module']}: ${tr('Partner read', 'قراءة الشريك')} ${row['partner_sender_negotiated'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
                   '${tr('Local receive', 'استقبال محلي')} ${row['local_receiver_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
-                  '${row['local_receiver_request_ready'] is bool ? '${tr('Receive requests ready', 'استقبال الطلبات جاهز')} ${row['local_receiver_request_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · ' : ''}'
                   '${tr('Local send', 'إرسال محلي')} ${row['local_sender_active'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
                   '${tr('Sandbox delivery', 'إرسال تجريبي')} ${row['sandbox_delivery_software_enabled'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
                 ),
@@ -418,6 +411,18 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                 ),
               ],
             ),
+          ],
+          if (status?['capability_matrix'] case final Map matrix) ...[
+            if (matrix['sandbox_token_sender_configured'] is bool)
+              Text(
+                '${tr('Sandbox token sender configured', 'مرسل رموز الاختبار مهيأ')}: ${matrix['sandbox_token_sender_configured'] == true ? tr('yes', 'نعم') : tr('no', 'لا')} · '
+                '${tr('Sandbox token sender ready', 'مرسل رموز الاختبار جاهز للطلبات')}: ${matrix['sandbox_token_sender_request_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
+              ),
+            for (final row in matrix['modules'] as List)
+              if (row['local_receiver_request_ready'] is bool)
+                Text(
+                  '${row['module']}: ${tr('Receive requests ready', 'استقبال الطلبات جاهز')} ${row['local_receiver_request_ready'] == true ? tr('yes', 'نعم') : tr('no', 'لا')}',
+                ),
           ],
         ],
       ),
