@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargingDashboardController;
 use App\Models\ChargerCommand;
 use App\Models\Charging\OperationalCase;
 use App\Models\ChargingSession;
@@ -12,9 +13,11 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargingDashboardTest extends TestCase
@@ -189,6 +192,59 @@ class ChargingDashboardTest extends TestCase
         $this->actingAs(User::factory()->create())->getJson('/api/charging-operations/dashboard')->assertForbidden();
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson('/api/charging-operations/dashboard?page=0')->assertUnprocessable();
         $this->getJson('/api/charging-operations/dashboard')->assertOk()->assertJsonPath('station_count', 0)->assertJsonPath('attention.total', 0);
+    }
+
+    public function test_reparented_or_changed_binding_never_exposes_foreign_session_attention(): void
+    {
+        Http::preventStrayRequests();
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $session = $this->link($owner, null);
+        $otherSession = $this->link($other, null);
+        $link = DB::table('csms_session_links')->where('charging_session_id', $session)->first();
+        $binding = DB::table('csms_bindings')->where('id', $link->binding_id);
+        $original = $binding->first();
+        $this->actingAs($owner);
+        $this->getJson('/api/charging-operations/dashboard')->assertOk()->assertJsonPath('attention.data.0.session_id', $session);
+        foreach (['identifier' => 'ev-test-changed', 'protocol' => '2.0.1'] as $field => $changed) {
+            $binding->update([$field => $changed]);
+            $this->getJson('/api/charging-operations/dashboard')->assertOk()
+                ->assertJsonPath('active_session_count', 0)->assertJsonPath('attention.total', 0);
+            $binding->update([$field => $original->{$field}]);
+        }
+        // Use a vacant destination station to avoid a unique-binding conflict.
+        $destination = Station::create([
+            'vendor_id' => $other->id, 'name' => 'Replacement station',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai',
+            'latitude' => 25, 'longitude' => 55, 'source' => 'simulator',
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        $binding->update(['station_id' => $destination->id]);
+        $this->getJson('/api/charging-operations/dashboard')->assertOk()->assertJsonPath('attention.total', 0);
+        $this->actingAs($other)->getJson('/api/charging-operations/dashboard')->assertOk()
+            ->assertJsonPath('attention.total', 1)->assertJsonPath('attention.data.0.session_id', $otherSession);
+        $binding->update(['station_id' => $original->station_id]);
+        $this->actingAs($owner)->getJson('/api/charging-operations/dashboard')->assertOk()->assertJsonPath('attention.data.0.session_id', $session);
+        Http::assertNothingSent();
+    }
+
+    public function test_dashboard_rechecks_captured_bearer_after_individual_revocation(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $this->link($owner, null);
+        $token = $owner->createToken('dashboard')->accessToken;
+        $snapshot = $owner->fresh()->withAccessToken($token);
+        $request = Request::create('/api/v1/charging-operations/dashboard');
+        $request->setUserResolver(fn () => $snapshot);
+        $controller = app(ChargingDashboardController::class);
+        $this->assertSame(200, $controller($request)->getStatusCode());
+        $token->delete();
+        try {
+            $controller($request);
+            $this->fail('A revoked bearer received dashboard records.');
+        } catch (HttpException $error) {
+            $this->assertSame(403, $error->getStatusCode());
+        }
     }
 
     public function test_native_bearer_scope_and_attention_pagination(): void
