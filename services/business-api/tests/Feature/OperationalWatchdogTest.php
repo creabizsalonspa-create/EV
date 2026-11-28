@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Operations\EmailHandoffHealth;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
 use App\Services\Operations\OperationalWatchdog;
@@ -161,6 +162,50 @@ class OperationalWatchdogTest extends TestCase
         $this->assertDatabaseHas('notification_email_outbox', ['id' => $id, 'state' => 'queued']);
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_email_health_counts_claims_and_outcomes_in_one_database_snapshot(): void
+    {
+        $cutoff = now()->subMinutes(15);
+        $fresh = $cutoff->copy()->addSecond();
+        $cases = [
+            ['outcome_unknown', $fresh, null],
+            ['queued', $cutoff, null],
+            ['queued', $fresh, null],
+            ['claimed', $cutoff, $cutoff],
+            ['claimed', $cutoff, null],
+            ['claimed', $cutoff, $fresh],
+            ['handed_off', $cutoff, $cutoff],
+        ];
+        foreach ($cases as [$state, $createdAt, $claimedAt]) {
+            $user = User::factory()->create();
+            DB::table('notification_email_outbox')->insert([
+                'id' => (string) Str::uuid(), 'user_id' => $user->id, 'after_notification_id' => 0,
+                'through_notification_id' => 1, 'consent_revision' => 1,
+                'recipient_hash' => hash('sha256', $user->email),
+                'configuration_hash' => str_repeat('d', 64),
+                'state' => $state, 'evidence' => 'SIMULATED_EMAIL_HANDOFF',
+                'claimed_at' => $claimedAt, 'created_at' => $createdAt, 'updated_at' => $createdAt,
+            ]);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $snapshot = app(EmailHandoffHealth::class)->snapshot();
+            $reads = collect(DB::getQueryLog())->filter(
+                fn (array $entry) => str_contains($entry['query'], 'notification_email_outbox'),
+            );
+            $this->assertCount(1, $reads);
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+        }
+
+        $this->assertSame('available', $snapshot['state']);
+        $this->assertSame(1, $snapshot['outcome_unknown']);
+        $this->assertSame(1, $snapshot['overdue_queued']);
+        $this->assertSame(2, $snapshot['stale_claimed']);
     }
 
     public function test_unknown_email_and_incident_store_are_not_treated_as_normal(): void
