@@ -323,7 +323,7 @@ class CorporateBilling
     }
 
     /** Corporate collection is complete only when every source invoice has its linked canonical payment. */
-    private function verifiedReceipt(object $statement, object $receipt): void
+    public function verifiedReceipt(object $statement, object $receipt): void
     {
         abort_unless((int) $receipt->actor_id === (int) $statement->payer_id
             && self::exactMinor($receipt->amount_minor) === self::exactMinor($statement->total_minor)

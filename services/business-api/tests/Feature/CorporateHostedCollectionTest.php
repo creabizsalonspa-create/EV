@@ -79,6 +79,28 @@ class CorporateHostedCollectionTest extends TestCase
         return $this->call('POST', '/api/corporate-payments/stripe-test/webhook', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_STRIPE_SIGNATURE' => $signature], $raw);
     }
 
+    public function test_captured_checkout_without_allocated_receipt_cannot_report_success(): void
+    {
+        $f = $this->f();
+        $h = $this->create($f);
+        // Synthetic inconsistent imported outcome. Do not change immutable
+        // checkout terms or financial postings to construct the fixture.
+        DB::table('corporate_hosted_checkouts')->where('id', $h['id'])->update(['status' => 'captured']);
+        DB::table('corporate_receipts')->insert([
+            'statement_id' => $f['statement']->id, 'actor_id' => $f['owner']->id,
+            'number' => 'SIM-HOSTED-UNALLOCATED', 'amount_minor' => $h['amount_minor'],
+            'request_key' => hash('sha256', 'corporate-hosted:'.$h['reference']),
+            'fingerprint' => $h['line_fingerprint'], 'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+        $before = DB::table('finance_journals')->count();
+        $this->getJson(self::URL.'/'.$h['id'])->assertConflict();
+        $this->postJson(self::URL.'/'.$h['id'].'/capture')->assertConflict();
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('corporate_receipt_payments', 0);
+        $this->assertDatabaseCount('finance_journals', $before);
+        Http::assertNothingSent();
+    }
+
     public function test_mock_collects_all_source_invoices_atomically_without_changing_owners_or_creating_gateway_checkouts(): void
     {
         $f = $this->f();
