@@ -844,6 +844,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Widget recordCard(Map<String, dynamic> row) {
     final id = row['id'];
+    final expiry = tab == 1
+        ? reservationExpiryText(row['expiry_outcome'], arabic: s.arabic)
+        : null;
     final title = tab == 1
         ? s.t('reservation', {'id': id, 'status': s.t(row['status'])})
         : tab == 2
@@ -875,6 +878,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               Text(
                 '${arrivalText(context, 'reported')} · ${reservationTime(context, row, 'checked_in_at')}',
               ),
+            if (expiry != null) Text(expiry),
             if (tab == 1 &&
                 account?.role == 'customer' &&
                 row['can_check_in'] == true)

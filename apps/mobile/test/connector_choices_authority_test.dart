@@ -41,6 +41,41 @@ void main(){
     expect(writes,1);
   });
   for(final arabic in [false,true]){
+    testWidgets('connector status announces the localized UTC observation ($arabic)', (tester) async {
+      final rows = [
+        {
+          ...option(11, 7),
+          'status_freshness': {
+            'state': 'recent', 'reported_status': 'Available',
+            'evidence': 'SIMULATED_SOURCE', 'physical_availability_verified': false,
+            'max_age_seconds': 300,
+            'observed_at': '2026-11-14T05:00:00Z',
+            'checked_at': '2026-11-14T05:04:00Z',
+            'valid_until': '2026-11-14T05:05:00Z',
+          },
+        },
+      ];
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(arabic ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: ConnectorChoicesView(
+          station: station(7), loader: (_) async => result(rows),
+          onReserve: (_) async {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final status = find.textContaining(arabic ? 'متاح بحسب المصدر' : 'Available');
+      expect(status, findsOneWidget);
+      expect(tester.widget<Text>(status).data, contains('UTC'));
+      expect(tester.widget<Text>(status).data, isNot(contains('2026-11-14T05:00:00Z')));
+      expect(find.ancestor(
+        of: status,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.liveRegion == true,
+        ),
+      ), findsOneWidget);
+    });
     testWidgets('foreground connector choice rejects old account and delayed page ($arabic)',(tester) async {
       final events=StreamController<int>.broadcast(sync:true);
       addTearDown(events.close);
