@@ -133,3 +133,30 @@ test('operator review rejects forged receipts and late callbacks after account c
     release({condition_key:'scheduler_stale',transition_revision:1,incident_state:'open',external_actions:false,acknowledged_at:'2026-11-15T12:05:00Z'});
     await late;await flush();assert.equal(f.root.children.length,0);assert.equal(calls.length,4);
 });
+
+
+test('current Admin may opt into own incident inbox notices with stale control fencing',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report(),calls=[];
+        d.alert_preferences={enabled:false,consent_current:false,scope:'current_admin_local_inbox',external_delivery_confirmed:false};
+        f.setActor({role:'admin'},async(...args)=>{
+            calls.push(args);
+            if(args[1]==='PUT'){
+                assert.equal(args[0],'admin/operational-health/alert-preference');
+                assert.equal(Object.keys(args[2]).join(','),'enabled');
+                d.alert_preferences.enabled=args[2].enabled;
+                d.alert_preferences.consent_current=args[2].enabled;
+                return d.alert_preferences;
+            }
+            return d;
+        });
+        click(f);await flush();
+        const action=nodes(f.root,'button')[1];await action.onclick();await flush();
+        assert.equal(calls.length,3);
+        assert(f.root.textContent.includes(ar?'تنبيهات الحوادث مفعلة':'Incident alerts enabled'));
+        await action.onclick();assert.equal(calls.length,3);
+        await nodes(f.root,'button')[1].onclick();await flush();
+        assert.equal(calls.length,5);
+        assert.equal(d.alert_preferences.enabled,false);
+    }
+});
