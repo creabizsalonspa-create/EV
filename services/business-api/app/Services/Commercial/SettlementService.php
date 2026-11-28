@@ -44,10 +44,21 @@ class SettlementService
         $historical = DB::table('finance_invoices')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units')
             ->merge(DB::table('commercial_adjustments')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units'))
             ->merge(DB::table('commercial_settlements')->where('vendor_id', $vendor)->where('currency', $currency)->pluck('minor_units'));
-        $units = $configured->merge($historical)->map(fn ($v) => (int) $v)->unique();
+        $units = $configured->merge($historical)->map(fn ($v) => self::exactMinor($v))->unique();
         abort_unless($configured->isNotEmpty() && $units->count() === 1 && $units->first() >= 0 && $units->first() <= 3, 409, 'Currency precision requires reconciliation.');
 
         return $units->first();
+    }
+
+    private static function requireInvoiceBounds(int $total, int $subtotal, int $vendor, int $commission, int $tax, int $paid, int $credited, int $refund, int $vendorRefund, int $commissionRefund, int $taxRefund): void
+    {
+        abort_unless(self::addMinor($vendor, $commission) === $subtotal
+            && self::addMinor($subtotal, $tax) === $total
+            && self::addMinor($paid, $credited) <= $total
+            && $refund <= $paid
+            && $vendorRefund <= $vendor && $commissionRefund <= $commission && $taxRefund <= $tax
+            && self::addMinor(self::addMinor($vendorRefund, $commissionRefund), $taxRefund) === $refund,
+            409, 'Settlement invoice amounts require reconciliation.');
     }
 
     public function balances(int $vendor, string $currency, int $holdDays = 0, bool $lock = false): array
@@ -66,12 +77,17 @@ class SettlementService
             $refunds = DB::table('finance_refunds')->where('invoice_id', $invoice->id);
             $refund = self::exactMinor((clone $refunds)->sum('amount_minor'));
             $vendorRefund = self::exactMinor((clone $refunds)->sum('vendor_minor'));
+            $commissionRefund = self::exactMinor((clone $refunds)->sum('commission_minor'));
+            $taxRefund = self::exactMinor((clone $refunds)->sum('tax_minor'));
+            $credited = self::exactMinor(DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->sum('amount_minor'));
             $reserved = self::exactMinor(DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', self::RESERVED)->sum('l.amount_minor'), true);
             $invoiceTotal = self::exactMinor($invoice->total_minor);
             $invoiceVendor = self::exactMinor($invoice->vendor_minor);
             $invoiceSubtotal = self::exactMinor($invoice->subtotal_minor);
             $invoiceCommission = self::exactMinor($invoice->commission_minor);
             $invoiceTax = self::exactMinor($invoice->tax_minor);
+            self::requireInvoiceBounds($invoiceTotal, $invoiceSubtotal, $invoiceVendor, $invoiceCommission, $invoiceTax,
+                $paid, $credited, $refund, $vendorRefund, $commissionRefund, $taxRefund);
             // Positive earnings require full capture and a completed holding period.
             // Refund debt after a prior settlement is carried forward immediately.
             $mature = Carbon::parse($invoice->created_at)->addDays($holdDays)->lte(now());
