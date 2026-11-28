@@ -14,13 +14,13 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function fixture(): array
+    private function fixture(string $connectionKey = 'contract-evidence-test'): array
     {
         Http::preventStrayRequests();
         $owner = User::factory()->create(['role' => 'vendor', 'account_status' => 'active']);
         $admin = User::factory()->create(['role' => 'admin', 'account_status' => 'active']);
         $provider = OcpiProvider::create(['owner_id' => $owner->id, 'name' => 'Synthetic review',
-            'connection_key' => 'contract-evidence-test', 'authorized' => false]);
+            'connection_key' => $connectionKey, 'authorized' => false]);
 
         return [$owner, $admin, $provider, '/api/ocpi/providers/'.$provider->id.'/contract-review'];
     }
@@ -132,9 +132,8 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
     public function test_negotiation_fails_closed_before_dispatch_and_after_review_changes(): void
     {
         foreach (['missing', 'expiry', 'replacement', 'policy-toggle', 'final-expiry', 'stable'] as $scenario) {
-            [$owner, $admin, $provider, $path] = $this->fixture();
-            // Unique connection key for each iteration.
-            $provider->forceFill(['connection_key' => 'negotiation-'.$scenario, 'authorized' => true])->save();
+            [$owner, $admin, $provider, $path] = $this->fixture('negotiation-'.$scenario);
+            $provider->forceFill(['authorized' => true])->save();
             config(['ocpi.contract_review_authorization_required' => true,
                 'ocpi.connections.negotiation-'.$scenario => [
                     'origin' => 'https://partner.example', 'authorization_token' => 'synthetic-token',
@@ -144,7 +143,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 $this->postJson($path, $this->review())->assertCreated();
             }
             $requests = 0;
-            Http::swap(new \Illuminate\Http\Client\Factory());
+            Http::swap(new \Illuminate\Http\Client\Factory);
             Http::preventStrayRequests();
             Http::fake(function ($request) use ($provider, $scenario, &$requests) {
                 $requests++;
@@ -158,6 +157,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                     } elseif ($scenario === 'policy-toggle') {
                         config(['ocpi.contract_review_authorization_required' => false]);
                     }
+
                     return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
                         'data' => [['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]]);
                 }
@@ -165,6 +165,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                     DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
                         ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
                 }
+
                 return Http::response(['status_code' => 1000, 'timestamp' => '2026-11-28T08:00:00Z',
                     'data' => ['version' => '2.2.1', 'endpoints' => [
                         ['identifier' => 'locations', 'role' => 'SENDER', 'url' => 'https://partner.example/locations'],
@@ -219,9 +220,11 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                     DB::table('ocpi_partner_contract_reviews')->where('provider_id', $provider->id)
                         ->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
                 }
+
                 return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
             }
             if (str_ends_with($request->url(), '/ocpi/2.2.1')) {
+
                 return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
                     ['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials'],
                 ]]));
@@ -296,6 +299,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 if ($expireDuringProof) {
                     $reviews->update(['valid_until' => now('UTC')->subDay()->toDateString()]);
                 }
+
                 return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
             }
             return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
