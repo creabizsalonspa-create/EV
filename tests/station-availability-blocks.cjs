@@ -6,7 +6,7 @@ class Element {
  get textContent(){return this._text+this.children.map(n=>n.textContent).join(' ');}
  append(...nodes){this.children.push(...nodes);} prepend(...nodes){this.children.unshift(...nodes);}
  replaceChildren(...nodes){this.children=nodes;this._text='';} setAttribute(){}
- querySelectorAll(tag){return find(this,n=>n.tag===tag);}
+ querySelectorAll(selector){const tags=selector.split(',').map(x=>x.trim());return find(this,n=>tags.includes(n.tag));}
 }
 function find(root,match){return [...(match(root)?[root]:[]),...root.children.flatMap(n=>find(n,match))];}
 function fixture(ar=false){const root=new Element('section'),window={},document={visibilityState:'visible',addEventListener:(name,fn)=>{window[name]=fn},documentElement:{lang:ar?'ar':'en'},getElementById:()=>root,createElement:tag=>new Element(tag)};
@@ -161,4 +161,55 @@ test('impossible receipt interval cannot expose cancellation',async()=>{
  ui.mount(ui.root,{stationId:7,current:()=>true,api:async()=>({station_id:7,data:[row]})});await tick();
  assert.equal(button(ui,'Cancel this block'),undefined);
  assert.match(ui.root.textContent,/Station blocks are unavailable/);
+});
+
+test('receipt precision and immutable revision reject altered policy intervals',async()=>{
+ const ui=fixture(),calls=[];
+ let publish=0;
+ ui.mount(ui.root,{stationId:7,current:()=>true,api:async(path,method,body)=>{
+  calls.push({path,method,body});
+  if(!method)return {station_id:7,data:[]};
+  publish++;
+  return {...body,station_id:7,id:'11111111-1111-4111-8111-111111111111',
+    revision:1,scope:'STATION_WIDE_OPERATOR_POLICY',cancelled:false,physical_availability_verified:false,
+    starts_at:publish===1?'2026-11-24T09:00:00.000001Z':'2026-11-24T13:00:00+04:00'};
+ }});
+ await tick();
+ let form=find(ui.root,n=>n.tag==='form')[0];
+ for(const name of ['starts_at','ends_at','reason_en','reason_ar'])input(form,name).value=({starts_at:'2026-11-24T09:00:00Z',ends_at:'2026-11-24T10:00:00Z'})[name]||name;
+ submit(form);await tick();
+ assert.ok(button(ui,'Retry same block request'));
+ assert.equal(calls.filter(c=>!c.method).length,1);
+ form=find(ui.root,n=>n.tag==='form')[0];submit(form);await tick();
+ assert.deepEqual(calls.filter(c=>c.method)[0].body,calls.filter(c=>c.method)[1].body);
+ assert.ok(button(ui,'Publish station block'));
+ for(const revision of [2,2147483647]){
+  const probe=fixture();
+  probe.mount(probe.root,{stationId:7,current:()=>true,api:async()=>({station_id:7,data:[{
+   station_id:7,id:'11111111-1111-4111-8111-111111111111',revision,scope:'STATION_WIDE_OPERATOR_POLICY',
+   physical_availability_verified:false,cancelled:false,starts_at:'2026-11-24T09:00:00Z',ends_at:'2026-11-24T10:00:00Z',
+   reason_en:'Scheduled',reason_ar:'مجدولة'}]})});
+  await tick();
+  assert.equal(button(probe,'Cancel this block'),undefined);
+  assert.match(probe.root.textContent,/Station blocks are unavailable/);
+ }
+});
+test('pending publication disables editable controls during source read without discarding request',async()=>{
+ const ui=fixture();let release,reads=0,writes=0;
+ ui.mount(ui.root,{stationId:7,current:()=>true,api:async(path,method)=>{
+  if(method){writes++;throw Error('uncertain');}
+  if(++reads===2)await new Promise(resolve=>release=resolve);
+  return {station_id:7,data:[]};
+ }});
+ await tick();
+ const form=find(ui.root,n=>n.tag==='form')[0];
+ for(const name of ['starts_at','ends_at','reason_en','reason_ar'])input(form,name).value=({starts_at:'2026-11-24T09:00:00Z',ends_at:'2026-11-24T10:00:00Z'})[name]||name;
+ submit(form);await tick();
+ button(ui,'Refresh station blocks').onclick();
+ assert.equal(typeof release,'function');
+ assert.ok(find(ui.root,n=>n.tag==='input'||n.tag==='button').every(n=>n.disabled===true));
+ release();await tick();
+ assert.ok(button(ui,'Retry same block request'));
+ assert.ok(find(ui.root,n=>n.tag==='input').every(n=>n.disabled===true));
+ assert.equal(writes,1);
 });

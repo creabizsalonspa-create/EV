@@ -1,9 +1,10 @@
 "use strict";
 window.EvStationBlocks = (() => {
     const text = (tag, en, ar) => { const node = document.createElement(tag); node.dataset.en = en; node.dataset.ar = ar; node.textContent = document.documentElement.lang === 'ar' ? ar : en; return node; };
-    // Blocks are policy intervals with explicit offsets, not physical telemetry.
+    // Policy publication and receipts have second precision. A nonzero
+    // fractional timestamp is not a valid canonical block instant.
     const instant = raw => typeof raw === 'string' &&
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(raw) &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.0{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(raw) &&
         raw === raw.trim() && window.EvStationTime?.displayStationTime(raw, 'UTC', 'en')
         ? Date.parse(raw) : NaN;
     const interval = row => Number.isFinite(instant(row.starts_at)) &&
@@ -28,7 +29,7 @@ window.EvStationBlocks = (() => {
             interval(row) &&
             typeof row.reason_en === 'string' &&
             typeof row.reason_ar === 'string' &&
-            Number.isSafeInteger(row.revision) && row.revision > 0 &&
+            row.revision === (cancelled ? 2 : 1) &&
             row.scope === 'STATION_WIDE_OPERATOR_POLICY' &&
             row.cancelled === cancelled &&
             row.physical_availability_verified === false;
@@ -51,7 +52,13 @@ window.EvStationBlocks = (() => {
                 'يمنع الحجب الحجوزات وبدء الشحن الجديدة. تبقى الحجوزات السابقة ويمكن إكمال الشحن الجاري. الأوقات بتوقيت UTC ولا ترسل أوامر فعلية للشاحن.'));
             const notice = text('p', '', ''); notice.setAttribute('role', 'status'); root.append(notice);
             async function act(task) {
-                if (busy || !current() || view !== renderVersion) return; busy = true; root.querySelectorAll('button').forEach(b => b.disabled = true);
+                if (busy || !current() || view !== renderVersion) return;
+                busy = true;
+                const disabled = new Map();
+                for (const control of root.querySelectorAll('button, input')) {
+                    disabled.set(control, control.disabled);
+                    control.disabled = true;
+                }
                 try { await task(); }
                 catch (error) {
                     if (current()) {
@@ -65,7 +72,13 @@ window.EvStationBlocks = (() => {
                             'لم يتأكد الإجراء. حدّث الحالة أو أعد محاولة الطلب نفسه.'));
                     }
                 }
-                finally { if (current()) { busy = false; root.querySelectorAll('button').forEach(b => b.disabled = false); } }
+                finally {
+                    if (current()) {
+                        busy = false;
+                        if (view === renderVersion)
+                            for (const [control, previous] of disabled) control.disabled = previous;
+                    }
+                }
             }
             const refresh = text('button', 'Refresh station blocks', 'تحديث فترات الحجب'); refresh.type = 'button'; refresh.onclick = () => act(read); root.append(refresh);
             for (const row of rows) {
