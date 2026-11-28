@@ -91,7 +91,7 @@ final class ChargerAvailabilityController extends Controller
             $authority = $source->authority(true);
             $station = $source->station($binding);
             $source->requireAuthority($authority, true);
-            $token = $source->token($authority);
+            $credential = $source->dispatchCredential($authority);
             $source->requireAuthority($authority, true);
             $watermark = $source->watermark($station);
             $source->requireAuthority($authority, true);
@@ -102,7 +102,7 @@ final class ChargerAvailabilityController extends Controller
                 'attempted_at' => now()->utc()->format('Y-m-d H:i:s.u'), 'updated_at' => now(),
             ]);
             abort_unless($prepared === 1, 409);
-            DB::transaction(function () use ($request, $company, $charger, $source, $binding, $operation, $token, $authority, &$attempt, &$state) {
+            DB::transaction(function () use ($request, $company, $charger, $source, $binding, $operation, $credential, $authority, &$attempt, &$state) {
                 $current = $this->locked($request, $company, $charger, $binding, true);
                 $source->requireAuthority($authority, true);
                 abort_unless(hash_equals($operation->source_generation, FaultMonitor::generation($current)), 409);
@@ -110,8 +110,12 @@ final class ChargerAvailabilityController extends Controller
                 abort_unless($payload === json_decode($operation->source_payload, true, flags: JSON_THROW_ON_ERROR), 409);
                 $row = DB::table(self::TABLE)->where('id', $operation->id)->lockForUpdate()->firstOrFail();
                 abort_unless($row->status === 'dispatching' && $row->attempted_at !== null && now()->subSeconds(25)->lt($row->created_at), 409);
-                $attempt = $row->attempted_at;
-                $state = $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
+                $state = $source->submit($current, function () use ($credential, $row, &$attempt): string {
+                    $token = $credential();
+                    $attempt = $row->attempted_at;
+
+                    return $token;
+                }, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
             });
         } catch (Throwable) {
             $state = $attempt === null ? 'not_dispatched' : 'outcome_unknown';

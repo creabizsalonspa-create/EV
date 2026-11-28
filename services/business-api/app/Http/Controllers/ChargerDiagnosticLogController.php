@@ -118,9 +118,11 @@ class ChargerDiagnosticLogController extends Controller
                 $stationId = $probe->station($b);
                 $source->requireAuthority($b, $authority);
                 abort_unless(empty($b->diagnostic_direct) || $stationId === $b->diagnostic_source_station_id, 409, 'Registered source station identity changed.');
-                $token = app(OperationsCredentials::class)->token($authority[0]);
+                $credential = app(OperationsCredentials::class)->tokenForDispatch($authority[0]);
                 $source->requireAuthority($b, $authority);
-                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $token, $authority, &$sent) {
+                abort_unless($probe->station($b) === $stationId, 409, 'Diagnostic source station changed before dispatch.');
+                $source->requireAuthority($b, $authority);
+                $state = DB::transaction(function () use ($r, $company, $charger, $b, $row, $source, $credential, $authority, &$sent) {
                     VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                     User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
                     $current = $this->scope($r, $company, $charger, true);
@@ -132,9 +134,13 @@ class ChargerDiagnosticLogController extends Controller
                     abort_unless($fresh->cancelled_at === null && now()->lt(CarbonImmutable::parse($fresh->expires_at)), 409);
                     app(DiagnosticAuthority::class)->uploadConsent($fresh, $r->user(), $current);
                     $payload = json_decode(Crypt::decryptString($fresh->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR);
-                    $sent = true;
 
-                    return $source->submit($current, $token, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
+                    return $source->submit($current, function () use ($credential, &$sent): string {
+                        $token = $credential();
+                        $sent = true;
+
+                        return $token;
+                    }, $payload, $authority) ? 'transport_submitted' : 'outcome_unknown';
                 }); // One attempt only: a network write must never be transaction-retried.
             } catch (Throwable) {
                 $state = $sent ? 'outcome_unknown' : 'not_dispatched';

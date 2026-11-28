@@ -50,11 +50,12 @@ class DiagnosticLogSource
         abort_unless($this->authority($binding) === $authority, 503, 'Diagnostic source authority changed.');
     }
 
-    public function submit(object $binding, string $token, array $payload, array $authority): bool
+    public function submit(object $binding, \Closure $credential, array $payload, array $authority): bool
     {
         $this->requireAuthority($binding, $authority);
         app(DiagnosticAuthority::class)->dispatchable($binding);
         $path = $binding->protocol === '1.6' ? 'reporting/getDiagnostics' : 'reporting/getLog';
+        $token = $credential();
         $r = Http::connectTimeout(3)->timeout(10)->withoutRedirecting()->withToken($token)->post($authority[0].'/ocpp/'.$binding->protocol.'/'.$path.'?'.http_build_query(['identifier' => $binding->identifier, 'tenantId' => 1, 'staleAfterSeconds' => 10]), $payload);
         $body = $r->json();
 
