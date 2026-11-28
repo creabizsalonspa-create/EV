@@ -66,7 +66,9 @@ final class OperationalIncidents
             $snapshot = $health->report();
             $conditions = $this->conditions($snapshot);
             $result = ['skipped' => false, 'opened' => 0, 'resolved' => 0, 'uncertain' => 0, 'external_actions' => false];
-            $now = now('UTC');
+            // Bind an explicit offset. The query grammar drops it when binding
+            // a DateTime, so a non-UTC PostgreSQL session shifts the observation.
+            $now = now('UTC')->toISOString();
 
             foreach (self::KEYS as $key) {
                 $present = $conditions[$key];
@@ -129,7 +131,7 @@ final class OperationalIncidents
         $record = DB::table('operational_incident_acknowledgements')->where($identity)->first();
         if (! $record) {
             $at = now('UTC');
-            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at]);
+            DB::table('operational_incident_acknowledgements')->insert($identity + ['acknowledged_at' => $at->toISOString()]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id, 'action' => 'operations.incident_acknowledged',
                 'subject' => $key.':'.$revision, 'created_at' => $at,
@@ -139,6 +141,55 @@ final class OperationalIncidents
 
         return $identity + ['acknowledged_at' => $record->acknowledged_at,
             'incident_state' => 'open', 'external_actions' => false];
+    }
+
+    /** Deployment-configured local review target; invalid configuration is unknown. */
+    private function reviewTarget(): ?int
+    {
+        $value = config('operational_health.review_due_minutes', '15');
+        if ((! is_int($value) && ! is_string($value))
+            || ! preg_match('/\A[1-9][0-9]{0,2}\z/', (string) $value)) {
+            return null;
+        }
+        $minutes = (int) $value;
+
+        return $minutes >= 5 && $minutes <= 120 ? $minutes : null;
+    }
+
+    private function reviewProjection(object $state, CarbonImmutable $now, ?int $target): array
+    {
+        $unknown = ['state' => 'unknown', 'age_seconds' => null];
+        if ($target === null || ! config('operational_health.enabled')) {
+            return $unknown;
+        }
+        try {
+            // Database timestamps may include a timezone or fractional seconds.
+            // Reject relative expressions and malformed or future chronology.
+            $parse = static function ($value): ?CarbonImmutable {
+                if (! is_string($value) || ! preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?\z/', $value)) {
+                    return null;
+                }
+
+                return CarbonImmutable::parse($value, 'UTC');
+            };
+            $opened = $parse($state->opened_at);
+            if (! $opened || $opened->gt($now)) {
+                return $unknown;
+            }
+            $age = $now->getTimestamp() - $opened->getTimestamp();
+            if ($state->acknowledged_at !== null) {
+                $reviewed = $parse($state->acknowledged_at);
+                if (! $reviewed || $reviewed->lt($opened) || $reviewed->gt($now)) {
+                    return $unknown;
+                }
+
+                return ['state' => 'acknowledged', 'age_seconds' => $age];
+            }
+
+            return ['state' => $age >= $target * 60 ? 'overdue' : 'pending', 'age_seconds' => $age];
+        } catch (Throwable) {
+            return $unknown;
+        }
     }
 
     /** Read-only, bounded and deliberately free of queue payloads or recipient data. */
@@ -165,6 +216,18 @@ final class OperationalIncidents
                         return $state;
                     });
 
+                $target = $this->reviewTarget();
+                $observedAt = CarbonImmutable::now('UTC');
+                $open = $states->where('state', 'open')->values()->map(function ($state) use ($target, $observedAt) {
+                    $state->review_escalation = $this->reviewProjection($state, $observedAt, $target);
+
+                    return $state;
+                });
+                // Overdue unreviewed occurrences are shown first. Unknown
+                // evidence never becomes an apparently healthy pending state.
+                $priority = ['overdue' => 0, 'unknown' => 1, 'pending' => 2, 'acknowledged' => 3];
+                $open = $open->sortBy(fn ($state) => $priority[$state->review_escalation['state']])->values();
+
                 return [
                     'store_readable' => true,
                     'monitoring_enabled' => (bool) config('operational_health.enabled'),
@@ -172,7 +235,9 @@ final class OperationalIncidents
                     'external_alert_delivery' => false,
                     'production_recovery_verified' => false,
                     'scanner' => $this->scannerSnapshot(),
-                    'open' => $states->where('state', 'open')->values()->all(),
+                    'review_policy' => ['target_minutes' => $target, 'scope' => 'local_operator_review_only',
+                        'observed_at' => $observedAt->toISOString(), 'external_actions' => false],
+                    'open' => $open->all(),
                     'resolved' => $states->where('state', 'resolved')->whereNotNull('resolved_at')->values()->all(),
                     'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
                         ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
@@ -182,6 +247,8 @@ final class OperationalIncidents
             return ['store_readable' => false, 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false, 'external_alert_delivery' => false,
                 'production_recovery_verified' => false, 'scanner' => $this->unknownScanner(),
+                'review_policy' => ['target_minutes' => null, 'scope' => 'local_operator_review_only',
+                    'observed_at' => null, 'external_actions' => false],
                 'open' => [], 'resolved' => [], 'recent_events' => []];
         }
     }
