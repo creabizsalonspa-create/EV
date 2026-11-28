@@ -1,4 +1,32 @@
 /* Non-monetary promotional points. No wallet, money transfer or tariff modification. */
+function verifyPartnerRewardPage(result, page, kind) {
+    const fail = () => { throw new Error("Invalid partner reward page"); };
+    if (!Number.isSafeInteger(page) || page < 1 || page > 100000 ||
+        !["offers", "claims"].includes(kind) || !Array.isArray(result?.data) ||
+        result.current_page !== page || result.per_page !== 25 ||
+        !Number.isSafeInteger(result.total) || result.total < 0 ||
+        result.last_page !== Math.max(1, Math.ceil(result.total / 25)) ||
+        result.data.length !== Math.min(25, Math.max(0, result.total - (page - 1) * 25))) fail();
+    let previous = Infinity;
+    const redemptions = new Set();
+    const positive = v => Number.isSafeInteger(v) && v > 0;
+    for (const row of result.data) {
+        if (!row || row.source !== "RETAIL_PARTNER_REWARD" ||
+            row.evidence !== "SANDBOX_MANUAL_NONCASH" || row.external_fulfillment_verified !== false ||
+            row.cash_value !== false || row.points_cost !== 0 || !positive(row.review_id)) fail();
+        const id = kind === "offers" ? row.review_id : row.id;
+        if (!positive(id) || id >= previous) fail();
+        previous = id;
+        if (kind === "claims") {
+            if (!positive(row.redemption_id) || redemptions.has(row.redemption_id) ||
+                typeof row.created_at !== "string" || !["pending", "fulfilled", "rejected"].includes(row.status)) fail();
+            redemptions.add(row.redemption_id);
+        } else if (!["name", "name_ar", "partner_name", "partner_name_ar", "description", "description_ar", "ends_at"]
+            .every(field => typeof row[field] === "string")) fail();
+    }
+    return result;
+}
+
 window.mountLoyalty = ({ container, api, ui, actor }) => {
     const owner = actor()?.id,
         role = actor()?.role,
@@ -1510,8 +1538,10 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             parent.append(line);
         }
         function receipt(row) {
-            if (!evidence(row) || !Number.isSafeInteger(row.id) ||
-                !Number.isSafeInteger(row.review_id) || !Object.hasOwn(states, row.status)) {
+            if (!evidence(row) || !Number.isSafeInteger(row.id) || row.id < 1 ||
+                !Number.isSafeInteger(row.review_id) || row.review_id < 1 ||
+                !Number.isSafeInteger(row.redemption_id) || row.redemption_id < 1 ||
+                typeof row.created_at !== "string" || !Object.hasOwn(states, row.status)) {
                 throw new Error("Invalid partner reward receipt");
             }
             const card = node("article");
@@ -1632,10 +1662,8 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 throw error;
             }
             if (!alive()) return;
-            if (!Array.isArray(result?.data) || result.current_page !== page ||
-                !Number.isSafeInteger(result.last_page) || result.last_page < 1) {
-                throw new Error("Invalid partner reward page");
-            }
+            // Validate the entire page before creating any actionable row.
+            verifyPartnerRewardPage(result, page, kind);
             if (!result.data.length) {
                 if (kind === "offers") label(rows, "No eligible partner rewards", "لا توجد مكافآت شركاء مؤهلة");
                 else label(rows, "No partner reward claims", "لا توجد مطالبات بمكافآت الشركاء");
@@ -1656,7 +1684,7 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
                 rows.append(card);
             }
             if (page > 1) button(rows, "Previous partner rewards", "مكافآت الشركاء السابقة", () => load(kind, page - 1));
-            if (page < result.last_page) button(rows, "Next partner rewards", "مكافآت الشركاء التالية", () => load(kind, page + 1));
+            if (page < result.last_page && page < 100000) button(rows, "Next partner rewards", "مكافآت الشركاء التالية", () => load(kind, page + 1));
         }
         panel.append(t("h4", "Partner rewards", "مكافآت الشركاء"));
         label(panel, "Sandbox rewards require manual fulfillment. External partner delivery is unverified.", "تتطلب المكافآت التجريبية تسليماً يدوياً. لم يتم التحقق من تسليم الشريك الخارجي.");
