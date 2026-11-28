@@ -992,3 +992,43 @@ test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   assert.equal(nodes(ui.mine,"pre").length,0);
   assert(!ui.mine.textContent.includes("not-visible@example.test"));
 });
+
+test("erasure preparation requires explicit two-reviewer workflow and never authorizes deletion", async()=>{
+  const ui=fixture(),calls=[];
+  let p={request_id:22,review_revision:"7",review_scope:"a".repeat(64),preparation_id:null,stage:"not_prepared",
+    disposition:"retain_pending_legal_and_external_review",proposed_by:null,confirmed_by:null,
+    execution_authorized:false,legal_retention_verified:false,automated_erasure_performed:false};
+  const api=async(path,method="GET",body)=>{
+    calls.push({path,method,body});
+    if(path.endsWith("/erasure-preparation")){
+      if(method==="POST"){
+        assert.equal(body.review_scope,p.review_scope);
+        assert.equal(body.review_revision,"7");
+        if(body.action==="propose")p={...p,stage:"awaiting_independent_review",preparation_id:"8",proposed_by:9};
+        else{assert.equal(body.preparation_id,"8");p={...p,stage:"assisted_review_prepared",confirmed_by:10};}
+      }
+      return p;
+    }
+    return page([{...record,status:"reviewing",details:"Retained account review",owner:{id:3,name:"Account"}}]);
+  };
+  const mount=async id=>{ui.setAdminActor({id,role:"admin"},api);await tick();
+    await nodes(ui.admin,"button").find(x=>x.textContent.startsWith("Load erasure preparation")).onclick();};
+  await mount(9);
+  let form=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]?.startsWith("Assisted erasure preparation"));
+  nodes(form,"input")[0].value="password";
+  nodes(form,"textarea")[0].value="Document retention for assisted review";
+  await form.onsubmit({preventDefault(){}});
+  assert.match(ui.admin.textContent,/Awaiting independent reviewer/);
+  assert(!nodes(ui.admin,"button").some(b=>b.textContent.startsWith("Independently confirm preparation")));
+  await mount(10);
+  form=nodes(ui.admin,"form").find(f=>f.attributes["aria-label"]?.startsWith("Assisted erasure preparation"));
+  nodes(form,"input")[0].value="password";
+  nodes(form,"textarea")[0].value="Independent retention review recorded";
+  await form.onsubmit({preventDefault(){}});
+  assert.match(ui.admin.textContent,/Assisted review prepared/);
+  assert.match(ui.admin.textContent,/No deletion is authorized/);
+  assert.equal(calls.filter(c=>c.method==="POST").length,2);
+  p.execution_authorized=true;
+  await mount(10);
+  assert.match(ui.admin.textContent,/Preparation unavailable/);
+});
