@@ -9,9 +9,11 @@ use App\Models\Station;
 use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\SessionBridge;
+use App\Services\Charging\SignedSessionEventPayload;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class CsmsSessionController extends Controller
 {
@@ -68,8 +70,10 @@ class CsmsSessionController extends Controller
                 401, 'Invalid CSMS event authentication.');
         };
         $authorize();
-        abort_if(strlen($r->getContent()) > 16384, 413);
-        $v = $r->validate(['event_id' => 'required|string|max:100', 'session_id' => 'required|integer', 'identifier' => ['required', 'string', 'regex:/^ev-test-[a-zA-Z0-9-]{1,80}$/'], 'protocol' => 'required|in:1.6,2.0.1', 'transaction_id' => 'required|string|max:36', 'type' => 'required|in:started,meter,ended', 'sequence' => 'required|integer|between:0,1000000000', 'meter_wh' => 'required|integer|between:0,9000000000000', 'occurred_at' => 'required|date', 'source_evse_number' => 'sometimes|integer|between:0,1000', 'source_connector_number' => 'sometimes|integer|between:1,100']);
+        // The HMAC covers only the body, never Laravel's merged query input
+        // or middleware-normalized strings. Validate the same signed bytes.
+        $payload = SignedSessionEventPayload::decode($r->getContent());
+        $v = Validator::make($payload, ['event_id' => 'required|string|max:100', 'session_id' => 'required|integer', 'identifier' => ['required', 'string', 'regex:/^ev-test-[a-zA-Z0-9-]{1,80}$/'], 'protocol' => 'required|in:1.6,2.0.1', 'transaction_id' => 'required|string|max:36', 'type' => 'required|in:started,meter,ended', 'sequence' => 'required|integer|between:0,1000000000', 'meter_wh' => 'required|integer|between:0,9000000000000', 'occurred_at' => 'required|date', 'source_evse_number' => 'sometimes|integer|between:0,1000', 'source_connector_number' => 'sometimes|integer|between:1,100'])->validate();
         try {
             return response()->json($bridge->ingest($v, $authorize));
         } catch (UniqueConstraintViolationException $e) {
