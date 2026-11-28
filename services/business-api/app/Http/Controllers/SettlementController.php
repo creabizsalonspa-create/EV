@@ -6,8 +6,11 @@ use App\Models\User;
 use App\Security\CurrentFinanceReader;
 use App\Services\Commercial\SettlementService;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class SettlementController extends Controller
 {
@@ -34,18 +37,75 @@ class SettlementController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
     }
 
-    public function index(Request $r)
+    private function history(Request $request): LengthAwarePaginator
     {
-        return DB::transaction(function () use ($r) {
-            $actor = app(CurrentFinanceReader::class)->requireCurrent($r);
-            abort_unless(in_array($actor->role, ['admin', 'vendor'], true), 403);
+        $actor = app(CurrentFinanceReader::class)->requireCurrent($request);
+        abort_unless(in_array($actor->role, ['admin', 'vendor'], true), 403);
+        $values = $request->validate([
+            'currency' => ['sometimes', 'regex:/\A[A-Z]{3}\z/'],
+            'state' => ['sometimes', Rule::in(['pending', 'approved', 'rejected', 'simulated_paid', 'provider_paid'])],
+            'from' => ['sometimes', 'date_format:Y-m-d'],
+            'to' => ['sometimes', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
+            'page' => ['sometimes', 'integer', 'between:1,10000'],
+            'per_page' => ['sometimes', 'integer', 'between:1,25'],
+        ]);
 
-            return response()->json(DB::table('commercial_settlements')
-                ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
-                ->orderByDesc('id')->paginate(25)
-                ->through(fn ($row) => $this->safe($row)))
-                ->header('Cache-Control', 'private, no-store');
-        }, 3);
+        return DB::table('commercial_settlements')
+            ->when($actor->role !== 'admin', fn ($q) => $q->where('vendor_id', $actor->id))
+            ->when(isset($values['currency']), fn ($q) => $q->where('currency', $values['currency']))
+            ->when(isset($values['state']), fn ($q) => $q->where('state', $values['state']))
+            ->when(isset($values['from']), fn ($q) => $q->where('created_at', '>=', $values['from'].' 00:00:00'))
+            ->when(isset($values['to']), fn ($q) => $q->where('created_at', '<', Carbon::parse($values['to'], 'UTC')->addDay()->startOfDay()))
+            ->orderByDesc('id')
+            ->paginate((int) ($values['per_page'] ?? 25), ['*'], 'page', (int) ($values['page'] ?? 1))
+            ->appends($values)
+            ->through(function ($row) {
+                $data = $this->safe($row);
+                $data['amount_minor'] = SettlementService::exactMinor($row->amount_minor);
+                $data['minor_units'] = SettlementService::exactMinor($row->minor_units);
+                abort_unless($data['minor_units'] <= 3, 409, 'Invalid settlement currency precision.');
+
+                return $data;
+            });
+    }
+
+    public function index(Request $request)
+    {
+        return DB::transaction(fn () => response()->json($this->history($request))
+            ->header('Cache-Control', 'private, no-store'), 3);
+    }
+
+    public function export(Request $request)
+    {
+        try {
+            $rows = DB::transaction(fn () => $this->history($request)->items(), 3);
+        } catch (ValidationException $error) {
+            return response()->json([
+                'message' => 'Invalid private settlement export filters.',
+                'errors' => $error->errors(),
+            ], 422)->header('Cache-Control', 'private, no-store');
+        }
+
+        return response()->streamDownload(static function () use ($rows): void {
+            $output = fopen('php://output', 'wb');
+            $fields = ['id', 'number', 'currency', 'minor_units', 'amount_minor', 'state', 'created_at', 'executed_at', 'evidence'];
+            fputcsv($output, $fields, ',', '"', '');
+            foreach ($rows as $row) {
+                $cells = array_map(static function (string $field) use ($row) {
+                    $value = $row[$field];
+
+                    return is_string($value) && preg_match('/^[\p{Z}\p{Cc}\p{Cf}]*[=+@-]/u', $value)
+                        ? "'".$value
+                        : $value;
+                }, $fields);
+                fputcsv($output, $cells, ',', '"', '');
+            }
+            fclose($output);
+        }, 'vendor-settlements-page.csv', [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function statement(Request $r, int $vendor, SettlementService $service)

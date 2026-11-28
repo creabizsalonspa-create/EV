@@ -676,6 +676,21 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       });
     }
 
+    const settlementHistory = rootAdmin.locator("[data-settlement-history]");
+    await settlementHistory.locator("[name=currency]").fill("AED");
+    await settlementHistory.locator("[name=state]").selectOption("simulated_paid");
+    await settlementHistory.getByRole("button", { name: "Filter settlements", exact: true }).click();
+    const settlementExport = settlementHistory.getByRole("link", { name: "Download settlement page CSV", exact: true });
+    await settlementHistory.locator('a[href="/api/commercial/settlements/export?currency=AED&state=simulated_paid"]').waitFor();
+    await settlementHistory.getByRole("heading", { name: settlement.number, exact: true }).waitFor();
+    const pendingSettlementCsv = admin.waitForEvent("download");
+    await settlementExport.click();
+    const settlementCsv = await pendingSettlementCsv;
+    assert.equal(settlementCsv.suggestedFilename(), "vendor-settlements-page.csv");
+    const exportedSettlementRows = fs.readFileSync(await settlementCsv.path(), "utf8");
+    assert(exportedSettlementRows.includes(settlement.number));
+    assert(!exportedSettlementRows.includes("request_key"));
+
     await customer.locator("#logout").click();
     await customer.waitForFunction(
       () => document.querySelector("#commercial-finance").hidden,
@@ -683,7 +698,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal(await root.textContent(), "");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, vendor invoice-cohort analytics, nonbinding next-cycle preview/zero due, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
+      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, vendor invoice-cohort analytics, nonbinding next-cycle preview/zero due, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, filtered settlement history and private CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
     );
   } finally {
     await browser.close();
