@@ -428,11 +428,11 @@ class LoyaltyController extends Controller
     public function partnerRewardClaims(Request $r, PartnerRewardGovernance $governance)
     {
         abort_unless($r->user()->role === 'customer', 403);
-        $claims = DB::table('partner_reward_claims as claim')
-            ->join('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
+        $values = $r->validate(['page' => 'sometimes|integer|between:1,100000']);
+        $claims = $this->partnerRewardReceiptQuery()
             ->where('claim.user_id', $r->user()->id)->orderByDesc('claim.id')
-            ->paginate(25, ['claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.created_at', 'redemption.status'])
-            ->through(fn ($claim) => (array) $claim + $governance->sandboxEvidence());
+            ->paginate(25, ['*'], 'page', (int) ($values['page'] ?? 1))
+            ->through(fn ($claim) => $this->validatedPartnerRewardReceipt($claim) + $governance->sandboxEvidence());
 
         return response()->json($claims)->header('Cache-Control', 'private, no-store');
     }
@@ -466,11 +466,46 @@ class LoyaltyController extends Controller
         ])->header('Cache-Control', 'private, no-store');
     }
 
-    private function partnerRewardReceipt(object $claim): array
+    private function partnerRewardReceiptQuery()
     {
+        return DB::table('partner_reward_claims as claim')
+            ->leftJoin('loyalty_redemptions as redemption', 'redemption.id', '=', 'claim.redemption_id')
+            ->leftJoin('partner_reward_reviews as review', 'review.id', '=', 'claim.review_id')
+            ->leftJoin('partner_reward_review_events as approval', 'approval.id', '=', 'claim.approval_event_id')
+            ->select([
+                'claim.id', 'claim.review_id', 'claim.redemption_id', 'claim.created_at', 'claim.user_id',
+                'redemption.user_id as redemption_user_id', 'redemption.reward_id', 'redemption.points_cost',
+                'redemption.status', 'review.reward_id as reviewed_reward_id',
+                'approval.review_id as approval_review_id', 'approval.decision as approval_decision',
+            ]);
+    }
+
+    private function validatedPartnerRewardReceipt(object $claim): array
+    {
+        // Historical approval remains valid evidence after revocation, but a
+        // contradictory linkage must never disclose another member's receipt.
+        abort_unless($claim->redemption_user_id !== null
+            && (int) $claim->user_id === (int) $claim->redemption_user_id
+            && $claim->reviewed_reward_id !== null
+            && (int) $claim->reviewed_reward_id === (int) $claim->reward_id
+            && $claim->points_cost !== null && (string) $claim->points_cost === '0'
+            && (int) $claim->approval_review_id === (int) $claim->review_id
+            && $claim->approval_decision === 'approve'
+            && in_array($claim->status, ['pending', 'fulfilled', 'rejected'], true),
+            409, 'Partner claim evidence is inconsistent.');
+
         return ['id' => (int) $claim->id, 'review_id' => (int) $claim->review_id,
             'redemption_id' => (int) $claim->redemption_id, 'created_at' => $claim->created_at,
-            'status' => DB::table('loyalty_redemptions')->where('id', $claim->redemption_id)->value('status')];
+            'status' => $claim->status];
+    }
+
+    private function partnerRewardReceipt(object $claim): array
+    {
+        $source = $this->partnerRewardReceiptQuery()->where('claim.id', $claim->id)
+            ->where('claim.user_id', $claim->user_id)->first();
+        abort_unless($source, 409, 'Partner claim evidence is inconsistent.');
+
+        return $this->validatedPartnerRewardReceipt($source);
     }
 
     public function show(Request $r, int $redemption)

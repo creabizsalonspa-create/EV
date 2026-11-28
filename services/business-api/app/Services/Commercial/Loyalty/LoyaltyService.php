@@ -479,8 +479,10 @@ class LoyaltyService
                 }
                 $activation->requirePointIsolation((int) $hint->user_id);
             }
-            User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
+            $member = User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();
             if ($partnerClaim && $action === 'fulfill' && $hint->status !== 'fulfilled') {
+                abort_unless($member->role === 'customer' && $member->account_status === 'active'
+                    && $member->email_verified_at !== null, 409, 'The partner reward member is no longer eligible for fulfillment.');
                 app(PartnerRewardGovernance::class)->lockEligibleSandboxReview((int) $partnerClaim->review_id, (int) $partnerClaim->approval_event_id);
             }
             $backing = DB::table('loyalty_referral_rewards as rr')->join('loyalty_referral_qualifications as q', 'q.id', '=', 'rr.qualification_id')
@@ -492,6 +494,18 @@ class LoyaltyService
             DB::table('finance_invoices')->whereIn('id', $invoiceIds)->orderBy('id')->lockForUpdate()->get();
             DB::table('loyalty_rewards')->where('id', $hint->reward_id)->lockForUpdate()->first();
             $row = DB::table('loyalty_redemptions')->where('id', $id)->lockForUpdate()->first();
+            if ($partnerClaim) {
+                // Historical approval is immutable and remains evidence for a
+                // valid release after revocation, not authority for new fulfillment.
+                $review = DB::table('partner_reward_reviews')->find($partnerClaim->review_id);
+                $approval = DB::table('partner_reward_review_events')->find($partnerClaim->approval_event_id);
+                abort_unless($row && $review && $approval
+                    && (int) $partnerClaim->user_id === (int) $row->user_id
+                    && (int) $review->reward_id === (int) $row->reward_id
+                    && $row->points_cost !== null && (string) $row->points_cost === '0'
+                    && (int) $approval->review_id === (int) $review->id
+                    && $approval->decision === 'approve', 409, 'Partner claim evidence is inconsistent.');
+            }
             $target = ['fulfill' => 'fulfilled', 'reject' => 'rejected'][$action] ?? null;
             abort_unless($target, 422);
             if ($row->status === $target) {
