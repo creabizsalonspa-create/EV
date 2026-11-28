@@ -4,6 +4,9 @@ return [
     'production_diagnostics_enabled' => env('CSMS_PRODUCTION_DIAGNOSTICS_ENABLED', false),
     'production_diagnostic_upload_origin' => env('CSMS_PRODUCTION_DIAGNOSTIC_UPLOAD_ORIGIN'),
     'upstream_registration_enabled' => env('CSMS_UPSTREAM_REGISTRATION_ENABLED', false),
+    // Read-only registered source testimony; independent of command adapters.
+    'registered_live_monitoring_enabled' => env('CSMS_REGISTERED_LIVE_MONITORING_ENABLED', false),
+    'registered_source_authority_epoch' => env('CSMS_REGISTERED_SOURCE_AUTHORITY_EPOCH'),
     'upstream_registration_allow_local_http' => env('CSMS_UPSTREAM_REGISTRATION_ALLOW_LOCAL_HTTP', false),
     // Explicit production service identity. No discovery/JWKS fetch or dev fallback.
     'operations_auth_mode' => env('CSMS_OPERATIONS_AUTH_MODE', 'development'),

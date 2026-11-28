@@ -91,6 +91,66 @@ class LiveDiagnosticsApi extends DiagnosticsApi {
   }
 }
 
+class RegisteredDiagnosticsApi extends FixtureApi {
+  bool active = true;
+  int requests = 0;
+  String protocol = '2.0.1';
+  String scenario = 'healthy';
+  Completer<dynamic>? deferred;
+
+  @override
+  bool Function() sessionFence() => () => active;
+
+  Map<String, dynamic> reply() {
+    final incomplete = scenario == 'incomplete';
+    final row = <String, dynamic>{
+      'mapping_id': scenario == 'forged_mapping' ? 9 : null,
+      'source_evse_number': protocol == '1.6' ? 0 : 1,
+      'source_connector_number': 2,
+      'operator_maintenance_blocked': null,
+      'state': incomplete ? 'unknown' : 'recent',
+      'reported_status': incomplete ? null : 'Available',
+      'error_code': incomplete ? null : 'NoError',
+      'source_event_at': '2026-11-23T05:59:00Z',
+      'physical_available': false,
+      'remote_control_authorized': false,
+    };
+    return {
+      'company_id': 1,
+      'charger_id': 2,
+      'protocol': protocol,
+      'source_online': true,
+      'source_topology_matches_local': false,
+      'source_topology_complete': !incomplete,
+      'local_mapping_verified': false,
+      'source_identity_rechecked': true,
+      'source_last_message_at': '2026-11-23T06:00:00Z',
+      'observed_at': '2026-11-23T06:00:00Z',
+      'evidence': scenario == 'wrong_evidence'
+          ? 'SIMULATED_CSMS_SOURCE'
+          : 'REGISTERED_DIRECT_SOURCE',
+      'physical_availability_verified': false,
+      'remote_control_authorized': false,
+      'commands_sent': false,
+      'connectors': [row, if (scenario == 'duplicate') Map.of(row)],
+    };
+  }
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(method, 'GET');
+    expect(path, 'vendor-ops/companies/1/chargers/2/live-connectors');
+    requests++;
+    if (deferred != null) return deferred!.future;
+    return reply();
+  }
+}
+
 class FaultDiagnosticsApi extends DiagnosticsApi {
   int acknowledgments = 0;
   bool acknowledged = false;
@@ -165,6 +225,78 @@ class DeferredDiagnosticsApi extends DiagnosticsApi {
 }
 
 void main() {
+  for (final protocol in ['1.6', '2.0.1']) {
+    testWidgets('registered $protocol inspection is explicit and read only',
+        (tester) async {
+      final api = RegisteredDiagnosticsApi()..protocol = protocol;
+      await tester.pumpWidget(MaterialApp(
+        home: ChargerDiagnosticsView(
+          api: api,
+          companyId: 1,
+          chargerId: 2,
+          registeredDirectProtocol: protocol,
+          onExpired: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requests, 0);
+      expect(find.text('Fault alerts'), findsNothing);
+      expect(find.text('Repair work orders'), findsNothing);
+      await tester.tap(find.byKey(const Key('read-live-connector-source')));
+      await tester.pumpAndSettle();
+      expect(api.requests, 1);
+      expect(find.text('Registered direct source snapshot'), findsOneWidget);
+      expect(find.text('Source topology reported; local mappings not verified'),
+          findsOneWidget);
+      expect(find.text('Recent CSMS report: Available'), findsOneWidget);
+      expect(find.text(protocol == '1.6' ? '0/2' : '1/2'), findsOneWidget);
+      for (final bad in ['forged_mapping', 'wrong_evidence', 'duplicate']) {
+        api.scenario = bad;
+        await tester.tap(find.byKey(const Key('read-live-connector-source')));
+        await tester.pumpAndSettle();
+        expect(find.text('Registered source unavailable; no control is authorized.'),
+            findsOneWidget);
+        expect(find.text('Recent CSMS report: Available'), findsNothing);
+      }
+      api.scenario = 'incomplete';
+      await tester.tap(find.byKey(const Key('read-live-connector-source')));
+      await tester.pumpAndSettle();
+      expect(find.text('Source topology incomplete; live status unknown'), findsOneWidget);
+      expect(find.text('Connector status unknown'), findsOneWidget);
+    });
+  }
+
+  testWidgets('registered source rejects response after background or logout',
+      (tester) async {
+    final api = RegisteredDiagnosticsApi();
+    await tester.pumpWidget(MaterialApp(
+      home: ChargerDiagnosticsView(
+        api: api,
+        companyId: 1,
+        chargerId: 2,
+        registeredDirectProtocol: '2.0.1',
+        onExpired: () {},
+      ),
+    ));
+    api.deferred = Completer<dynamic>();
+    await tester.tap(find.byKey(const Key('read-live-connector-source')));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    api.deferred!.complete(api.reply());
+    await tester.pumpAndSettle();
+    expect(find.text('Registered direct source snapshot'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    api.deferred = Completer<dynamic>();
+    await tester.tap(find.byKey(const Key('read-live-connector-source')));
+    await tester.pump();
+    api.active = false;
+    api.deferred!.complete(api.reply());
+    await tester.pump();
+    expect(find.text('Registered direct source snapshot'), findsNothing);
+    expect(api.requests, 2);
+  });
+
   testWidgets(
     'explicit native source inspection is read-only and leaves physical connector status unverified',
     (tester) async {
