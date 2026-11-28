@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -143,7 +146,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 $this->postJson($path, $this->review())->assertCreated();
             }
             $requests = 0;
-            Http::swap(new \Illuminate\Http\Client\Factory);
+            Http::swap(new Factory);
             Http::preventStrayRequests();
             Http::fake(function ($request) use ($provider, $scenario, &$requests) {
                 $requests++;
@@ -171,7 +174,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                         ['identifier' => 'locations', 'role' => 'SENDER', 'url' => 'https://partner.example/locations'],
                     ]]]);
             });
-            $client = app(\App\Services\Ocpi\PartnerClient::class);
+            $client = app(PartnerClient::class);
             if ($scenario === 'stable') {
                 $this->assertArrayHasKey('locations', $client->negotiate($provider->fresh()));
                 $this->assertSame(2, $requests);
@@ -180,7 +183,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 try {
                     $client->negotiate($provider->fresh());
                     $this->fail('Retired contractual evidence must not publish negotiated modules.');
-                } catch (\App\Services\Ocpi\OcpiException $error) {
+                } catch (OcpiException $error) {
                     $this->assertSame($scenario === 'missing' ? 0 : ($scenario === 'final-expiry' ? 2 : 1), $requests);
                     $this->assertNull($provider->fresh()->version);
                     $this->assertNull($provider->fresh()->endpoints);
@@ -224,11 +227,11 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
                 return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
             }
             if (str_ends_with($request->url(), '/ocpi/2.2.1')) {
-
                 return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
                     ['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials'],
                 ]]));
             }
+
             return Http::response($envelope($request->method() === 'DELETE' ? null : [
                 'token' => 'SYNTHETIC-PEER-TOKEN', 'url' => 'https://partner.example/ocpi/versions',
                 'roles' => [['role' => 'CPO', 'country_code' => 'NL', 'party_id' => 'ABC',
@@ -302,6 +305,7 @@ final class OcpiContractEvidenceLedgerTest extends TestCase
 
                 return Http::response($envelope([['version' => '2.2.1', 'url' => 'https://partner.example/ocpi/2.2.1']]));
             }
+
             return Http::response($envelope(['version' => '2.2.1', 'endpoints' => [
                 ['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => 'https://partner.example/ocpi/2.2.1/credentials'],
             ]]));
