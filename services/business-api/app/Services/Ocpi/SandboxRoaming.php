@@ -143,7 +143,7 @@ class SandboxRoaming
     {
         try {
             return $record->received_at?->lte(now()) === true;
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -271,7 +271,7 @@ class SandboxRoaming
 
             return $command->action === 'TOKEN_REVOKE' && ($payload['valid'] ?? null) === false
                 && hash_equals($command->intent_hash, hash('sha256', json_encode([$command->order_id, $command->action, $payload], JSON_THROW_ON_ERROR)));
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return false;
         }
     }
@@ -295,7 +295,7 @@ class SandboxRoaming
             $this->current($order);
             $source = $order->source_session_record_id ? OcpiRecord::find($order->source_session_record_id) : null;
             $canStop = $driver && $order->state === 'source_active' && $source && app(StoredSourceIntegrity::class)->consistent($source) && ($source->normalized['status'] ?? null) === 'ACTIVE' && $this->ownsSourceSession($order, $source) && ! $this->stopPending($order->id);
-        } catch (\Throwable) {
+        } catch (Throwable) {
         }
 
         $cost = null;

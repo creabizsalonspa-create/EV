@@ -132,15 +132,20 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
           if (configured is! bool ||
               ready is! bool ||
               (configured && matrix['peer_role'] != 'CPO') ||
-              (ready && (!configured || matrix['credentials_current'] != true))) {
+              (ready &&
+                  (!configured || matrix['credentials_current'] != true))) {
             throw const FormatException('Invalid sandbox token evidence');
           }
         }
         final seen = <String>{};
         for (final item in matrix['modules'] as List) {
           if (item is! Map ||
-              !['locations', 'tariffs', 'sessions', 'cdrs']
-                  .contains(item['module']) ||
+              ![
+                'locations',
+                'tariffs',
+                'sessions',
+                'cdrs',
+              ].contains(item['module']) ||
               !seen.add(item['module'] as String) ||
               [
                 'partner_sender_negotiated',
@@ -333,10 +338,12 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView>
                 ),
 
             if (status!['capability_matrix'] is Map) ...[
-              Text(tr(
-                'Configured/negotiated source modules only. No live roaming, charging or payment approval.',
-                'وحدات المصدر المهيأة أو المتفاوض عليها فقط، دون موافقة على التجوال أو الشحن أو الدفع الفعلي.',
-              )),
+              Text(
+                tr(
+                  'Configured/negotiated source modules only. No live roaming, charging or payment approval.',
+                  'وحدات المصدر المهيأة أو المتفاوض عليها فقط، دون موافقة على التجوال أو الشحن أو الدفع الفعلي.',
+                ),
+              ),
               if (status!['capability_matrix']['sandbox_command_policy_ready']
                   is bool)
                 Text(
