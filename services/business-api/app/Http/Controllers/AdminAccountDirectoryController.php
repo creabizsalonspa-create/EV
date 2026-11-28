@@ -42,9 +42,16 @@ class AdminAccountDirectoryController extends Controller
 
             if (isset($filters['q'])) {
                 $term = trim($filters['q']);
-                $query->where(function ($q) use ($term) {
-                    $q->where('name', 'like', '%'.$term.'%')
-                        ->orWhere('email', 'like', '%'.$term.'%');
+                abort_if($term === '', 422, 'Enter an account search term.');
+                $operator = match (DB::connection()->getDriverName()) {
+                    'pgsql' => 'ILIKE',
+                    'sqlite' => 'LIKE',
+                    default => throw new \LogicException('Unsupported Admin account directory database.'),
+                };
+                $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $term).'%';
+                $query->where(function ($q) use ($operator, $pattern) {
+                    $q->whereRaw("name $operator ? ESCAPE '!'", [$pattern])
+                        ->orWhereRaw("email $operator ? ESCAPE '!'", [$pattern]);
                 });
             }
 
@@ -218,6 +225,7 @@ class AdminAccountDirectoryController extends Controller
             AdminTransactionAuthority::requireCurrent(
                 $this->requireActiveAdmin($request)
             );
+            $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
             $history = DB::table('admin_account_moderations')
                 ->where('target_user_id', $target->id)
                 ->orderByDesc('id')
@@ -239,7 +247,7 @@ class AdminAccountDirectoryController extends Controller
                 'created_at' => now(),
             ]);
 
-            return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history->toArray() + ['target_user_id' => $target->id])->header('Cache-Control', 'no-store, private');
         });
     }
 }

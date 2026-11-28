@@ -50,7 +50,7 @@ function nodes(parent, tag) {
 }
 const data = {
   current_page: 1, last_page: 2, total: 30,
-  data: [{ id: 42, name: '<script>alert(1)</script>', email: 'private@example.test', role: 'vendor', email_verified: false,
+  data: [{ id: 42, name: '<script>alert(1)</script>', email: 'private@example.test', role: 'vendor', email_verified: false, account_status:'active',
     companies: [{ legal_name: '<b>Not markup</b>', country: 'AE', status: 'submitted' }] }],
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -85,7 +85,7 @@ test('stale pending Admin reply cannot render after logout', async () => {
 test('search and pagination are scoped to current admin identity and text-only', async () => {
   const ui = fixture();
   const paths = [];
-  ui.setActor({role: 'admin'}, async path => { paths.push(path); return data; });
+  ui.setActor({role: 'admin'}, async path => { paths.push(path); return {...data,current_page:Number(new URLSearchParams(path.split('?')[1]).get('page'))}; });
   await tick();
   assert.match(ui.root.textContent, /<script>alert\(1\)<\/script>/);
   assert.match(ui.root.textContent, /<b>Not markup<\/b>/);
@@ -152,7 +152,7 @@ test('Admin moderation history stays text-only and is cleared on signout', async
   const marker = '<img src=x onerror=alert(1)>';
   ui.setActor({role:'admin'}, async path => {
     if (path.endsWith('/moderations')) {
-      return {data:[{id:2, from_status:'active', to_status:'suspended',
+      return {target_user_id:42,current_page:1,last_page:1,data:[{id:2, from_status:'active', to_status:'suspended',
         reason:marker, created_at:'2026-11-07T12:00:00Z'}]};
     }
     return {current_page:1, last_page:1, total:1,
@@ -214,4 +214,80 @@ test('business directory combines owner lookup with one-company country and KYC 
   assert.equal(nodes(ui.root, 'script').length, 0);
   ui.setActor({role:'vendor'}, () => { throw Error('vendor must not query Admin accounts'); });
   assert.equal(ui.root.children.length, 0);
+});
+
+test('history pagination is bound to account, page and current directory controls',async()=>{
+  const ui=fixture(),calls=[];
+  let release;
+  ui.setActor({role:'admin'},async path=>{
+    calls.push(path);
+    if(path.endsWith('/moderations'))return {target_user_id:42,current_page:1,last_page:2,data:[{id:1,from_status:'active',to_status:'suspended',reason:'first page',created_at:'2026-11-07'}]};
+    if(path.endsWith('/moderations?page=2'))return new Promise(resolve=>{release=resolve;});
+    return {current_page:1,last_page:1,total:1,data:[{...data.data[0],account_status:'active'}]};
+  });
+  await tick();
+  await nodes(ui.root,'button').find(b=>b.textContent.includes('Review history')).onclick();
+  const oldAction=nodes(ui.root,'button').find(b=>b.textContent.includes('Suspend'));
+  const oldNext=nodes(ui.root,'button').find(b=>b.textContent.includes('Next history'));
+  oldNext.onclick();
+  nodes(ui.root,'form')[0].onsubmit({preventDefault(){}});
+  await tick();
+  oldAction.onclick();
+  assert.equal(nodes(ui.root,'textarea').length,0);
+  release({target_user_id:42,current_page:2,last_page:2,data:[{id:2,from_status:'suspended',to_status:'active',reason:'STALE PRIVATE REASON',created_at:'2026-11-08'}]});
+  await tick();
+  assert(!ui.root.textContent.includes('STALE PRIVATE REASON'));
+  oldNext.onclick();
+  assert.equal(calls.filter(p=>p.endsWith('/moderations?page=2')).length,1);
+});
+test('wrong history page fails closed without rendering private reason',async()=>{
+  const ui=fixture();
+  ui.setActor({role:'admin'},async path=>path.endsWith('/moderations')?
+    {target_user_id:42,current_page:2,last_page:2,data:[{id:1,from_status:'active',to_status:'suspended',reason:'WRONG PAGE PRIVATE',created_at:'2026-11-07'}]}:
+    {current_page:1,last_page:1,total:1,data:[{...data.data[0],account_status:'active'}]});
+  await tick();
+  await nodes(ui.root,'button').find(b=>b.textContent.includes('Review history')).onclick();
+  assert(!ui.root.textContent.includes('WRONG PAGE PRIVATE'));
+  assert(ui.root.textContent.includes('Private moderation history unavailable'));
+});
+
+test('uncertain moderation stays blocked after history success or error until fresh directory read', async()=>{
+  const ui=fixture(),calls=[];
+  let failHistory=false;
+  ui.setActor({role:'admin'},async(path,method='GET')=>{
+    calls.push({path,method});
+    if(method==='PATCH')return {id:999,account_status:'suspended'};
+    if(path.endsWith('/moderations')){
+      if(failHistory)throw Error('unavailable');
+      return {target_user_id:42,current_page:1,last_page:1,data:[]};
+    }
+    return {...data,last_page:1,total:1};
+  });
+  await tick();
+  const old=nodes(ui.root,'button').find(b=>b.textContent.includes('Suspend'));
+  old.onclick();
+  const form=nodes(ui.root,'form').find(f=>nodes(f,'textarea').length);
+  nodes(form,'textarea')[0].value='Verified security review of account';
+  await form.onsubmit({preventDefault(){}});
+  assert.match(ui.root.textContent,/outcome unconfirmed/);
+  const history=()=>nodes(ui.root,'button').find(b=>b.textContent.includes('Review history'));
+  await history().onclick();
+  assert(!nodes(ui.root,'button').some(b=>b.textContent.includes('Suspend')));
+  failHistory=true;await history().onclick();old.onclick();
+  assert.equal(nodes(ui.root,'textarea').length,0);
+  assert.equal(calls.filter(c=>c.method==='PATCH').length,1);
+  nodes(ui.root,'form')[0].onsubmit({preventDefault(){}});await tick();
+  assert(nodes(ui.root,'button').some(b=>b.textContent.includes('Suspend')));
+});
+test('foreign account history and duplicate event identities fail closed', async()=>{
+  const ui=fixture();let target=999;
+  ui.setActor({role:'admin'},async path=>path.endsWith('/moderations')?
+    {target_user_id:target,current_page:1,last_page:1,data:[{id:1,from_status:'active',to_status:'suspended',created_at:'2026-11-07',reason:'PRIVATE FOREIGN'},{id:1,from_status:'active',to_status:'suspended',created_at:'2026-11-07',reason:'PRIVATE DUPLICATE'}]}:data);
+  await tick();
+  for(const id of [999,42]){
+    target=id;await nodes(ui.root,'button').find(b=>b.textContent.includes('Review history')).onclick();
+    assert(!ui.root.textContent.includes('PRIVATE FOREIGN'));
+    assert(!ui.root.textContent.includes('PRIVATE DUPLICATE'));
+    assert.match(ui.root.textContent,/history unavailable/);
+  }
 });
