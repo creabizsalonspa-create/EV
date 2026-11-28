@@ -24,7 +24,13 @@ function harness(){
  };
  const window={EV_MESSAGES:{},addEventListener(){}},document={createElement:tag=>new Element(tag),documentElement:{lang:"en"}};
  const MutationObserver=class{observe(){} disconnect(){}};
- vm.runInNewContext(fs.readFileSync("services/business-api/public/loyalty.js","utf8"),{window,document,MutationObserver,AbortController,Intl,crypto:{randomUUID:()=>"fixed-id"}});
+ const context = vm.createContext({
+  window, document, MutationObserver, AbortController, Intl,
+  crypto: { randomUUID: () => "fixed-id" },
+ });
+ for (const script of ["station-time.js", "loyalty.js"]) {
+  vm.runInContext(fs.readFileSync("services/business-api/public/" + script, "utf8"), context);
+ }
  window.mountLoyalty({container:root,api,ui:(tag,en)=>{const x=new Element(tag);x.textContent=en;return x;},actor:()=>current});
  const buttons=()=>root.querySelectorAll("button"),find=label=>buttons().find(x=>x.textContent===label);
  return{root,buttons,find,calls,setNext:fn=>{next=fn;},setActor:value=>{current=value;}};
@@ -112,4 +118,23 @@ test("wrong-customer reward decision response fails closed without leaking event
  await h.find("Inspect reward decision history").onclick();
  assert.match(h.root.textContent,/Reward decisions unavailable/);
  assert.doesNotMatch(h.root.textContent,/Foreign account event/);
+});
+
+
+test("loyalty timestamps bind verified UTC values and localized fallbacks", async () => {
+ const h = harness();
+ await h.find("Open loyalty & rewards").onclick();
+ const data = [
+  { id: 1, kind: "earn", points: 10, created_at: "2026-10-28T01:30:00+04:00" },
+  { id: 2, kind: "earn", points: 20, created_at: "2026-02-30T00:00:00Z" },
+ ];
+ h.setNext(() => Promise.resolve({ data, current_page: 1, last_page: 1, total: data.length }));
+ await h.find("Points history").onclick();
+ const spans = h.root.querySelectorAll("span");
+ const sourceClock = spans.find((span) => span.dataset.en?.endsWith("(UTC)"));
+ assert.match(sourceClock?.textContent ?? "", /27 Oct 2026.*21:30.*\(UTC\)/);
+ assert.match(sourceClock.dataset.ar, /\(UTC\)$/);
+ const fallback = spans.find((span) => span.dataset.en === "Event time unavailable");
+ assert.equal(fallback?.dataset.ar, "وقت الحدث غير متاح");
+ assert.doesNotMatch(h.root.textContent, /2026-02-30|T01:30:00/);
 });

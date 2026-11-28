@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 61.99% |
-| tested | 61.99% |
-| merged | 61.99% |
+| coded | 62.89% |
+| tested | 62.89% |
+| merged | 62.89% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -30,7 +30,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 3.1 | Vendor onboarding/KYC/staff | 8 | 7/8 | 7/8 | 7/8 | 0/8 |
 | 3.2 | Vendor inventory/provisioning | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 3.3 | Vendor live operations and controls | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
-| 3.4 | Vendor calendar/blocks/tariffs | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
+| 3.4 | Vendor calendar/blocks/tariffs | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 3.5 | Vendor finance/settlements | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 3.6 | Vendor analytics/exports | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.7 | Vendor plans/marketing/ads | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
@@ -46,7 +46,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
 | 6.1 | Normalized catalog/freshness | 6 | 5/6 | 5/6 | 5/6 | 0/6 |
-| 6.2 | Licensed discovery providers | 4 | 3/4 | 3/4 | 3/4 | 0/4 |
+| 6.2 | Licensed discovery providers | 4 | 4/4 | 4/4 | 4/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 6.5 | Truthful partner availability/controls | 3 | 3/3 | 3/3 | 3/3 | 0/3 |
@@ -212,7 +212,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `3.4.3` [CTM] Exact simulator tariff publication web/native (evidence: main638).
 - `3.4.4` [CTM] Immutable tariff/commission snapshots (evidence: main638).
 - `3.4.5` [CTM] Operating calendars/schedules (evidence: operating_calendar).
-- `3.4.6` [—] Availability blocks and operational notices (evidence: none).
+- `3.4.6` [CTM] Availability blocks and operational notices (evidence: pr443-station-policy).
 - `3.4.7` [—] Dynamic-rate policies (evidence: none).
 - `3.4.8` [—] Full commercial tariff acceptance (evidence: none).
 
@@ -372,7 +372,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `6.2.1` [CTM] Licensed discovery-provider adapter (evidence: pr193).
 - `6.2.2` [CTM] Attribution/rate/cache policies (evidence: pr193).
 - `6.2.3` [CTM] Provider-specific frontend integration (evidence: pr197-licensed-frontend).
-- `6.2.4` [—] Coverage-quality monitoring (evidence: none).
+- `6.2.4` [CTM] Coverage-quality monitoring (evidence: pr408-coverage-quality).
 
 ### 6.3 Complete CPO/eMSP OCPI
 

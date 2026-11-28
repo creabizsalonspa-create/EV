@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use App\Services\Commercial\Payments\GatewayService;
 use App\Services\Commercial\SubscriptionGateway;
 use Illuminate\Database\QueryException;
@@ -65,6 +66,22 @@ class HostedCheckoutTest extends TestCase
         app(GatewayService::class)->operate($h['canonical_checkout_id'], $f['vendor']->id, 'refund', 'hosted-refund', 1050, null, 'Confirmed synthetic refund');
         $this->assertDatabaseCount('finance_refunds', 1);
         $this->getJson('/api/finance/invoices/'.$f['invoice']->id)->assertOk()->assertJsonPath('ledger_balanced', true)->assertJsonPath('net_collected_minor', 0);
+    }
+
+    public function test_native_hosted_events_keep_original_checkout_identity_and_owner_scope(): void
+    {
+        $f = $this->fixture();
+        $hosted = $this->create($f);
+        $id = $hosted['id'];
+        $this->postJson("/api/commercial/hosted-checkouts/$id/simulate", ['outcome' => 'authorized', 'consent' => true])->assertOk();
+
+        $url = "/api/v1/commercial/hosted-checkouts/$id/events?page=1";
+        $this->getJson($url)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.hosted_checkout_id', $id)
+            ->assertJsonPath('data.0.kind', 'mock_authorized');
+        $this->actingAs(User::factory()->create())->getJson($url)->assertNotFound();
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 
     public function test_subscription_checkout_uses_existing_invoice_receipt_and_enforces_held_payment_paths(): void

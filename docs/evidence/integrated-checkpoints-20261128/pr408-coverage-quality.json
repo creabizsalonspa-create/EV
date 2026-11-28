@@ -1,0 +1,82 @@
+{
+  "pr": 408,
+  "source_sha": "3f77e94e750464965421615bf03d4e6ba5f6cc2d",
+  "integrated_sha": "3b164f9a9a36a9c519719cba59a042e64b2cae05",
+  "atom_ids": [
+    "6.2.4"
+  ],
+  "scope": "Coverage-quality monitoring for the licensed discovery provider: existing consented per-query web/native quality samples, operator cold-fetch outcome aggregates and public benchmark coverage, plus hourly configuration/credential-scoped history, cache-only opt-in capture, bounded retention, missing versus measured-empty/unverified observations. The original 6.2.4 atom does not prescribe an additional Admin dashboard; the management surface for aggregate history is the authorized operator console. No live provider access, national coverage or SLA claim.",
+  "prior_evidence": [
+    "docs/evidence/integrated-checkpoints-20261121/pr193-verified.json",
+    "docs/evidence/integrated-checkpoints-20261123/pr197-licensed-frontend.json"
+  ],
+  "required_checks": [
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140274674763"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140274674934"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140274674988"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140274675047"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140274675130"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269754/job/140327065951"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269673/job/140274673429"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/45928269673/job/140274673703"
+    }
+  ],
+  "verification": {
+    "canonical_parent": "757fd942a37cf52ec8e7062980ae03247e64d7c2",
+    "audited_canonical": "8124a5b7c6cc9b59374088c8d7ad057bf9549266",
+    "verified_source_paths": [
+      "docs/LICENSED_DISCOVERY_COVERAGE_HISTORY.md",
+      "services/business-api/app/Console/Commands/InspectLicensedCoverageHistory.php",
+      "services/business-api/app/Services/Discovery/LicensedCoverageHistory.php",
+      "services/business-api/app/Services/Discovery/LicensedSourceCache.php",
+      "services/business-api/config/discovery.php",
+      "services/business-api/routes/console.php",
+      "services/business-api/tests/Feature/LicensedCoverageHistoryTest.php",
+      "services/business-api/tests/Feature/OpenChargeMapDiscoveryTest.php"
+    ],
+    "tested_paths_preserved": 8,
+    "laravel": "Full artisan test --compact step completed successfully in business-platform job 140274675047. No invented test totals.",
+    "acceptance": "Hourly deduplication, 168-hour retention, credential/configuration isolation, revoked terms, corrupt/missing/empty observations, bounded fields, no provider I/O and explicit scheduler opt-in verified by the feature tests. #322 residual cache/test files exactly incorporated in #408. Combined canonical push validation pending; fresh coverage-record PR must pass the repository generator check."
+  },
+  "production_accepted": false,
+  "acceptance_status": "VERIFIED_SOFTWARE_SCOPE"
+}

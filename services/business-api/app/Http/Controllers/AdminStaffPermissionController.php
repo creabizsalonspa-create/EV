@@ -33,10 +33,10 @@ class AdminStaffPermissionController extends Controller
                 $this->activeAdmin($request)
             );
             $input = $request->validate([
-                'company_id' => 'sometimes|integer|min:1',
-                'user_id' => 'sometimes|integer|min:1',
-                'admin_hold' => 'sometimes|in:yes,no',
+                'company_id' => 'sometimes|integer|min:1|max:9007199254740991',
+                'user_id' => 'sometimes|integer|min:1|max:9007199254740991',
                 'status' => 'sometimes|in:active,invited,revoked',
+                'hold' => 'sometimes|in:held,unheld',
                 'page' => 'sometimes|integer|min:1|max:100000',
             ]);
 
@@ -47,19 +47,16 @@ class AdminStaffPermissionController extends Controller
             if (isset($input['company_id'])) {
                 $query->where('company_id', $input['company_id']);
             }
-            if (isset($input['status'])) {
-                $query->where('status', $input['status']);
-            }
-
             if (isset($input['user_id'])) {
                 $query->where('user_id', $input['user_id']);
             }
-            if (isset($input['admin_hold'])) {
-                if ($input['admin_hold'] === 'yes') {
-                    $query->whereNotNull('admin_revoked_at');
-                } else {
-                    $query->whereNull('admin_revoked_at');
-                }
+            if (isset($input['status'])) {
+                $query->where('status', $input['status']);
+            }
+            if (($input['hold'] ?? null) === 'held') {
+                $query->whereNotNull('admin_revoked_at');
+            } elseif (($input['hold'] ?? null) === 'unheld') {
+                $query->whereNull('admin_revoked_at');
             }
 
             $page = $query->orderByDesc('id')->paginate(25)->appends($input);
@@ -108,7 +105,12 @@ class AdminStaffPermissionController extends Controller
                 'created_at' => now(),
             ]);
 
-            return response()->json($view)->header('Cache-Control', 'no-store, private');
+            return response()->json($view->toArray() + ['filters' => [
+                'company_id' => isset($input['company_id']) ? (int) $input['company_id'] : null,
+                'user_id' => isset($input['user_id']) ? (int) $input['user_id'] : null,
+                'status' => $input['status'] ?? null,
+                'hold' => $input['hold'] ?? null,
+            ]])->header('Cache-Control', 'no-store, private');
         });
     }
 
@@ -235,7 +237,7 @@ class AdminStaffPermissionController extends Controller
     public function revocations(Request $request, VendorCompanyStaff $membership)
     {
         return DB::transaction(function () use ($request, $membership) {
-            AdminTransactionAuthority::requireCurrent(
+            $actor = AdminTransactionAuthority::requireCurrent(
                 $this->activeAdmin($request)
             );
             // Confidential histories must reject malformed/unbounded paging
@@ -255,13 +257,15 @@ class AdminStaffPermissionController extends Controller
                 ]);
 
             DB::table('audit_events')->insert([
-                'actor_id' => $request->user()->id,
+                'actor_id' => $actor->id,
                 'action' => 'admin.private_history.staff_viewed',
                 'subject' => (string) $membership->id,
                 'created_at' => now(),
             ]);
 
-            return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history->toArray() + [
+                'membership_id' => $membership->id,
+            ])->header('Cache-Control', 'no-store, private');
         });
     }
 }

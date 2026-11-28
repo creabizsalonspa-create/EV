@@ -99,6 +99,28 @@ class RetailPartnerRewardGovernanceTest extends TestCase
         DB::table('partner_reward_claims')->where('id', $claim['id'])->delete();
     }
 
+    public function test_customer_claim_history_is_bounded_and_private(): void
+    {
+        [, $review] = $this->sandboxOffer();
+        $customer = User::factory()->create();
+        $base = '/api/commercial/partner-rewards';
+        $claim = $this->actingAs($customer)->postJson("$base/offers/$review/claim",
+            ['idempotency_key' => 'bounded-history'])->assertCreated()->json('claim');
+        $this->getJson("$base/claims?page=1")->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('per_page', 25)->assertJsonPath('data.0.id', $claim['id']);
+        $this->getJson("$base/claims?page=2")->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+        foreach (['0', '-1', '100001', '1.5', 'invalid'] as $invalid) {
+            $this->getJson("$base/claims?page=$invalid")->assertUnprocessable();
+        }
+        $this->getJson("$base/claims?page[]=1")->assertUnprocessable();
+        $this->actingAs(User::factory()->create())->getJson("$base/claims")->assertOk()
+            ->assertJsonPath('total', 0)->assertJsonCount(0, 'data');
+        $this->assertDatabaseCount('partner_reward_claims', 1);
+        $this->assertDatabaseCount('loyalty_ledger', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
     public function test_admin_claim_history_is_scoped_to_exact_review_and_preserves_historical_approval(): void
     {
         [$reviewer, $review, $path] = $this->sandboxOffer();

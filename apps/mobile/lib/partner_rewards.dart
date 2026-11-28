@@ -196,6 +196,36 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
     'عروض مكافآت الشركاء غير متاحة. لا يزال بإمكانك فتح سجل مطالباتك.',
   );
 
+  ApiPage<Map<String, dynamic>> parsePage(dynamic raw, int page, bool claims) {
+    if (page < 1 || page > 100000 || raw is! Map ||
+        raw['current_page'] is! int || raw['current_page'] != page ||
+        raw['per_page'] is! int || raw['per_page'] != 25 ||
+        raw['total'] is! int || raw['total'] < 0 ||
+        raw['total'] > 9007199254740991 || raw['last_page'] is! int ||
+        raw['data'] is! List) {
+      throw const FormatException('Invalid partner reward page');
+    }
+    final total = raw['total'] as int;
+    final last = total == 0 ? 1 : ((total - 1) ~/ 25) + 1;
+    final remaining = total - (page - 1) * 25;
+    final count = remaining < 0 ? 0 : (remaining > 25 ? 25 : remaining);
+    if (raw['last_page'] != last || (raw['data'] as List).length != count) {
+      throw const FormatException('Invalid partner reward page');
+    }
+    final parsed = ApiPage.fromJson(raw, claims ? parseClaim : parseOffer);
+    int previous = 9007199254740992;
+    final redemptions = <int>{};
+    for (final row in parsed.items) {
+      final id = row[claims ? 'id' : 'review_id'] as int;
+      if (id >= previous ||
+          (claims && !redemptions.add(row['redemption_id'] as int))) {
+        throw const FormatException('Invalid partner reward page');
+      }
+      previous = id;
+    }
+    return parsed;
+  }
+
   Future<void> loadOffers(int epoch, int page) async {
     setState(() => offers = null);
     final value = await widget.api.request(
@@ -203,7 +233,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
       query: {'page': '$page'},
     );
     if (!current(epoch)) return;
-    final parsed = ApiPage.fromJson(value, parseOffer);
+    final parsed = parsePage(value, page, false);
     setState(() => offers = parsed);
   }
 
@@ -218,7 +248,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
         query: {'page': '$page'},
       );
       if (!current(epoch)) return;
-      final parsed = ApiPage.fromJson(value, parseClaim);
+      final parsed = parsePage(value, page, true);
       setState(() => history = parsed);
     },
     failed: () => t(
@@ -392,7 +422,7 @@ class _PartnerRewardsState extends State<PartnerRewardsView>
           onPressed: busy ? null : () => select(page - 1),
           child: Text(t('Previous', 'السابق')),
         ),
-      if (page < last)
+      if (page < last && page < 100000)
         TextButton(
           onPressed: busy ? null : () => select(page + 1),
           child: Text(t('Next', 'التالي')),

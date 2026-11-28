@@ -20,6 +20,18 @@ void main(){
   for(final change in [{'version':2},{'no_show_fee_minor':500},{'cancellation_fee_minor':1},{'physical_occupancy_verified':true},{'automatic_stop':true}]){expect(supportedReservationTerms({...terms,...change}),isFalse);}
   expect(supportedReservationTerms(null),isFalse);
  });
+ test('reservation terms reject wrong wire types and contradictory price consent',(){
+  for(final field in ['version','slot_minutes','arrival_before_minutes','unused_expiry_minutes','no_show_fee_minor','cancellation_fee_minor']){
+   expect(supportedReservationTerms({...terms,field:(terms[field] as int).toDouble()}),isFalse,reason:field);
+   expect(supportedReservationTerms({...terms,field:null}),isFalse,reason:field);
+   expect(supportedReservationTerms({...terms,field:'${terms[field]}'}),isFalse,reason:field);
+  }
+  expect(supportedReservationTerms({...terms,'price_acceptance_required':true}),isTrue);
+  for(final bad in [false,null,1,'true']){
+   expect(supportedReservationTerms({...terms,'price_acceptance_required':bad}),isFalse);
+  }
+  expect(supportedReservationTerms(terms),isTrue,reason:'Legacy snapshot without new flag');
+ });
  test('connector and favorite projections preserve the selected server terms',(){
   final station=Station.fromJson({'id':7,'name':'Synthetic','connector_type':'CCS2','evidence':'SIMULATED','power_kw':50,'reservable':true,'reservation_terms':terms});
   final connector=Station.forConnector(station,{'id':9,'connector_type':'CCS2','max_power_kw':50,'reservable':true,'evse_number':1,'connector_number':1});

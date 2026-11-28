@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -154,22 +155,24 @@ class AdminStaffPermissionTest extends TestCase
         $this->getJson('/api/admin/permission-grants?page=100001')->assertUnprocessable();
     }
 
-    public function test_staff_account_and_security_hold_filters_match_the_same_membership(): void
+    public function test_staff_filter_intersects_company_status_and_hold_and_rejects_unsafe_ids(): void
     {
         [$admin, , $staff, $company, $member] = $this->fixture();
         [, , $otherStaff, $otherCompany, $otherMember] = $this->fixture();
         $this->actingAs($admin)->postJson('/api/admin/permission-grants/'.$member->id.'/revoke', $this->payload())->assertOk();
         $url = '/api/admin/permission-grants';
-        $this->getJson($url.'?admin_hold=yes&user_id='.$staff->id.'&company_id='.$company->id)
-            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $member->id);
-        $this->getJson($url.'?admin_hold=yes&user_id='.$otherStaff->id)->assertOk()->assertJsonPath('total', 0);
-        $this->getJson($url.'?admin_hold=no&user_id='.$otherStaff->id.'&company_id='.$otherCompany->id)
+        $this->getJson($url.'?hold=held&status=revoked&user_id='.$staff->id.'&company_id='.$company->id)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $member->id)
+            ->assertJsonPath('filters.user_id', $staff->id);
+        $this->getJson($url.'?hold=held&user_id='.$otherStaff->id)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'?hold=unheld&user_id='.$otherStaff->id.'&company_id='.$otherCompany->id)
             ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $otherMember->id);
-        $this->getJson($url.'?admin_hold=no&user_id='.$staff->id)->assertOk()->assertJsonPath('total', 0);
-        $this->getJson($url.'?admin_hold=yes&user_id='.$staff->id.'&company_id='.$otherCompany->id)
+        $this->getJson($url.'?hold=unheld&user_id='.$staff->id)->assertOk()->assertJsonPath('total', 0);
+        $this->getJson($url.'?hold=held&user_id='.$staff->id.'&company_id='.$otherCompany->id)
             ->assertOk()->assertJsonPath('total', 0);
-        $this->getJson($url.'?admin_hold=bad')->assertUnprocessable();
-        $this->getJson($url.'?user_id=0')->assertUnprocessable();
+        $this->getJson($url.'?user_id=0')->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->getJson($url.'?user_id=9007199254740992')->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->getJson($url.'?company_id=9007199254740992')->assertUnprocessable()->assertJsonValidationErrors('company_id');
         $this->assertDatabaseCount('admin_permission_revocations', 1);
     }
 
@@ -357,6 +360,60 @@ class AdminStaffPermissionTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private');
         $this->assertSame(1, DB::table('audit_events')
             ->where('action', 'admin.private_history.staff_viewed')->count());
+    }
+
+    public function test_hold_filter_intersects_company_and_status_even_for_legacy_active_rows(): void
+    {
+        [$admin, , , $company, $held] = $this->fixture();
+        [, , , , $unheld] = $this->fixture();
+        [, , , , $foreignHold] = $this->fixture('revoked');
+
+        $held->update(['admin_revoked_at' => now()]);
+        $foreignHold->update(['admin_revoked_at' => now()]);
+
+        $url = '/api/admin/permission-grants';
+        $this->actingAs($admin)->getJson($url.'?company_id='.$company->id.'&status=active&hold=held')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('filters.company_id', $company->id)
+            ->assertJsonPath('filters.status', 'active')
+            ->assertJsonPath('filters.hold', 'held')
+            ->assertJsonPath('data.0.id', $held->id)
+            ->assertJsonPath('data.0.admin_emergency_hold', true);
+        $this->getJson($url.'?hold=unheld')->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $unheld->id);
+        $this->getJson($url.'?hold=unexpected')->assertUnprocessable()->assertJsonValidationErrors('hold');
+    }
+
+    public function test_private_hold_history_page_is_bound_to_membership(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        [, , , , $foreign] = $this->fixture();
+
+        foreach (range(1, 26) as $version) {
+            DB::table('admin_permission_revocations')->insert([
+                'membership_id' => $membership->id,
+                'actor_user_id' => $admin->id,
+                'replaced_version' => $version,
+                'action' => $version % 2 === 0 ? 'released' : 'revoked',
+                'reason_encrypted' => Crypt::encryptString('Private evidence '.$version),
+                'created_at' => now(),
+            ]);
+        }
+        DB::table('admin_permission_revocations')->insert([
+            'membership_id' => $foreign->id,
+            'actor_user_id' => $admin->id,
+            'replaced_version' => 1,
+            'action' => 'revoked',
+            'reason_encrypted' => Crypt::encryptString('Only visible on the foreign grant'),
+            'created_at' => now(),
+        ]);
+
+        $this->actingAs($admin)
+            ->getJson('/api/admin/permission-grants/'.$membership->id.'/revocations?page=2')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('membership_id', $membership->id)
+            ->assertJsonPath('current_page', 2)->assertJsonPath('total', 26)
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.reason', 'Private evidence 1');
     }
 
     public function test_admin_staff_holds_and_releases_revalidate_fresh_identity_under_lock(): void
