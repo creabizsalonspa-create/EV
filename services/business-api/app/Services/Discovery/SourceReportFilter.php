@@ -71,6 +71,11 @@ final class SourceReportFilter
                 $q->where(fn ($match) => $match->where('o.status', 'Faulted')->orWhereRaw('COALESCE(o.error_code, ?) <> ?', ['NoError', 'NoError']));
             } else {
                 $q->where('o.status', $filters['recent_source_status'])->whereRaw('COALESCE(o.error_code, ?) = ?', ['NoError', 'NoError']);
+                // Match ConnectorFreshness: OCPP 1.6 Available requires an
+                // explicit fault-clear code; 2.0.1 has no mandatory errorCode.
+                if ($filters['recent_source_status'] === 'Available') {
+                    $q->where(fn ($match) => $match->where('b.protocol', '!=', '1.6')->orWhere('o.error_code', 'NoError'));
+                }
             }
             // A future/newer observation suppresses old claims; ID orders identical instants.
             $q->whereNotExists(function ($later) {

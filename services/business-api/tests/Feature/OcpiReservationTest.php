@@ -146,6 +146,32 @@ class OcpiReservationTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_malformed_or_future_cancel_callback_keeps_capacity_reserved(): void
+    {
+        $f = $this->setupReservation();
+        [$order] = $this->reserve($f);
+        $url = '/api/roaming/sandbox-orders/'.$order->id;
+        $this->postJson($url.'/cancel-reservation', ['request_key' => (string) Str::uuid(), 'consent' => true])->assertOk();
+        $this->partnerCallback($order, 'CANCEL_RESERVATION', 'ACCEPTED');
+        $this->freshAvailable($f);
+        $commands = DB::table('ocpi_roaming_commands');
+        $receipt = $commands->where('order_id', $order->id)->where('action', 'CANCEL_RESERVATION')->first();
+        foreach ([
+            ['callback_hash' => str_repeat('z', 64)],
+            ['callback_at' => now()->addMinute()],
+        ] as $invalid) {
+            DB::table('ocpi_roaming_commands')->where('id', $receipt->id)->update($invalid);
+            $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', false);
+            $this->assertNotNull(DB::table('ocpi_roaming_orders')->find($order->id)->active_target_key);
+            DB::table('ocpi_roaming_commands')->where('id', $receipt->id)->update([
+                'callback_hash' => $receipt->callback_hash,
+                'callback_at' => $receipt->callback_at,
+            ]);
+        }
+        $this->postJson($url.'/reconcile')->assertOk()->assertJsonPath('reservation_closed', true);
+        $this->assertCount(3, $this->writes);
+    }
+
     public function test_source_cancellation_notice_is_separate_immutable_evidence_and_does_not_stop_or_release_by_itself(): void
     {
         $f = $this->setupReservation();

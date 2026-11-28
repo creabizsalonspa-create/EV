@@ -32,6 +32,7 @@ final class ReservationRoaming
     public function supported(OcpiProvider $p): bool
     {
         try {
+            app(SandboxRoaming::class)->newWorkPolicy($p);
             $this->policy($p);
 
             return true;

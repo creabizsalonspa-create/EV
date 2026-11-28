@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
 import 'financial_operation_store.dart';
+import 'reservation_times.dart';
 import 'strings.dart';
 import 'loyalty_actions.dart';
 import 'noncash_capabilities.dart';
@@ -369,14 +370,17 @@ class _LoyaltyState extends State<LoyaltyView>
           title: Text(
             '${t(['earn', 'reversal', 'expiry', 'redemption', 'release'].contains(kind) ? kind as String : 'unknownKind')}: ${n(row['points'] as int)}',
           ),
-          subtitle: Text('${row['created_at'] ?? ''}'),
+          subtitle: Text(serverEventTime(context, row['created_at'])),
         ),
       );
     }
     return Card(
       child: ListTile(
         title: Text('#${n(row['id'] as int)} · ${status(row['status'])}'),
-        subtitle: Text('${t('cost')}: ${n(row['points_cost'] as int)}'),
+        subtitle: Text(
+          '${t('cost')}: ${n(row['points_cost'] as int)}\n'
+          '${serverEventTime(context, row['created_at'])}',
+        ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () {
           if (!scoped(api, fence)) return;
@@ -670,7 +674,9 @@ class _LoyaltyRequestState extends State<LoyaltyRequestView>
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Text('${row['created_at'] ?? ''}\n${row['reason']}'),
+                  child: Text(
+                    '${serverEventTime(c, row['created_at'])}\n${row['reason']}',
+                  ),
                 ),
               ),
           ],

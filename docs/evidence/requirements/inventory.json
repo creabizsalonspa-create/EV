@@ -184,6 +184,12 @@
       "test_result": "passed",
       "merge_sha": "3b164f9a9a36a9c519719cba59a042e64b2cae05",
       "evidence": "docs/evidence/integrated-checkpoints-20261128/pr408-coverage-quality.json"
+    },
+    "pr443-station-policy": {
+      "source_sha": "e0fae85967db73922269cf5db579a898c254df25",
+      "test_result": "passed",
+      "merge_sha": "a3eb37c1595bd37d05a7607fdb8a2961921a8633",
+      "evidence": "docs/evidence/integrated-checkpoints-20261128/pr443-station-policy.json"
     }
   },
   "production_acceptance": null,
@@ -1022,9 +1028,9 @@
     {
       "prd": "3.4",
       "requirement": "Vendor calendar/blocks/tariffs",
-      "implemented_code_scope": "Reservation views; company connector maintenance with linked booking/start/dispatch-claim gates; exact web/native simulated price/tax publication and admin commission retention; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit.",
-      "remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar",
+      "implemented_code_scope": "Reservation views; company connector maintenance with linked booking/start/dispatch-claim gates; exact web/native simulated price/tax publication and admin commission retention; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity; owner availability blocks and independent bilingual operational notices in customer and vendor workflows.",
+      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit. PR #443 passed eight exact-head Platform and Native checks, including real Laravel/Chromium station policy. The tested five paths match the merged source. See the 3.4.6 checkpoint.",
+      "remaining_scope": "Dynamic pricing and commercial tariff acceptance. Physical charger availability needs its own source evidence.",
       "atoms": [
         {
           "id": "3.4.1",
@@ -1064,9 +1070,9 @@
         {
           "id": "3.4.6",
           "software_atom": "Availability blocks and operational notices",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr443-station-policy",
+          "note": "Verified operator block lifecycle and bilingual standalone notices, including owner publication and clear, precise expiry, nonblocking booking and web/Flutter presentation."
         },
         {
           "id": "3.4.7",

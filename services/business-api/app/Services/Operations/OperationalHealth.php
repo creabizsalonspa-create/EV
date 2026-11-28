@@ -70,9 +70,18 @@ final class OperationalHealth
             $queueDatabase = DB::connection($config['connection'] ?? null);
 
             return $queueDatabase->transaction(function () use ($queueDatabase, $config, $connection, $now) {
-                $jobs = $queueDatabase->table($config['table'] ?? 'jobs')->where('queue', $this->queueName());
-                $ready = (clone $jobs)->whereNull('reserved_at')->where('available_at', '<=', $now->getTimestamp());
-                $created = (clone $ready)->min('created_at');
+                $timestamp = $now->getTimestamp();
+                $expired = $timestamp - ($config['retry_after'] ?? 60);
+                // Laravel's database worker may claim either a due job or a job
+                // whose prior reservation expired. Read the buckets together.
+                $ready = '(reserved_at IS NULL AND available_at <= ?) OR reserved_at <= ?';
+                $counts = $queueDatabase->table($config['table'] ?? 'jobs')->where('queue', $this->queueName())
+                    ->selectRaw("COUNT(CASE WHEN {$ready} THEN 1 END) AS ready", [$timestamp, $expired])
+                    ->selectRaw('COUNT(CASE WHEN reserved_at > ? THEN 1 END) AS reserved', [$expired])
+                    ->selectRaw('COUNT(CASE WHEN reserved_at IS NULL AND available_at > ? THEN 1 END) AS delayed', [$timestamp])
+                    ->selectRaw("MIN(CASE WHEN {$ready} THEN created_at END) AS oldest_ready", [$timestamp, $expired])
+                    ->first();
+                $created = $counts->oldest_ready;
                 $failed = null;
                 if (in_array(config('queue.failed.driver'), ['database', 'database-uuids'], true)) {
                     $failedDatabase = DB::connection(config('queue.failed.database'));
@@ -80,8 +89,8 @@ final class OperationalHealth
                         ->where('connection', $connection)->where('queue', $this->queueName())->count());
                 }
 
-                return ['state' => 'available', 'ready' => (clone $ready)->count(), 'reserved' => (clone $jobs)->whereNotNull('reserved_at')->count(),
-                    'delayed' => (clone $jobs)->whereNull('reserved_at')->where('available_at', '>', $now->getTimestamp())->count(), 'failed' => $failed,
+                return ['state' => 'available', 'ready' => (int) $counts->ready, 'reserved' => (int) $counts->reserved,
+                    'delayed' => (int) $counts->delayed, 'failed' => $failed,
                     'oldest_ready_age_seconds' => $created !== null && (int) $created <= $now->getTimestamp() ? $now->getTimestamp() - (int) $created : null];
             });
         } catch (\Throwable) {

@@ -36,6 +36,9 @@ window.EvPrechargePricing = (() => {
     }
     function valid(e) {
         if (!e || e.version !== 1 || e.evidence !== 'SIMULATED' || !/^[A-Z]{3}$/.test(e.currency) || !Number.isInteger(e.minor_units) || e.minor_units < 0 || e.minor_units > 3 || !Number.isInteger(e.energy_wh) || e.energy_wh < 1 || e.energy_wh > 1000000 || !Number.isInteger(e.tax_bps) || e.tax_bps < 0 || e.tax_bps > 10000 || e.external_fees_included !== false || e.automatic_stop !== false || e.final_total_depends_on_meter !== true || e.session_fee_minor !== '0' || e.idle_fee_minor !== '0') return false;
+        if (!Object.prototype.hasOwnProperty.call(e,'tariff_version_id') ||
+            (e.tariff_version_id !== null &&
+              (!Number.isSafeInteger(e.tariff_version_id) || e.tariff_version_id < 1))) return false;
         for (const key of ['rate_minor_per_kwh','subtotal_minor','tax_minor','total_minor']) if (typeof e[key] !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(e[key])) return false;
         const subtotal = (BigInt(e.energy_wh) * BigInt(e.rate_minor_per_kwh) + 500n) / 1000n;
         const tax = (subtotal * BigInt(e.tax_bps) + 5000n) / 10000n;
@@ -48,9 +51,12 @@ window.EvPrechargePricing = (() => {
     function text(e, ar) {
         if (!valid(e)) throw new Error('Unsupported pricing estimate');
         const money = x => `${e.currency} ${amount(x,e.minor_units)}`;
+        const version = e.tariff_version_id === null
+            ? (ar ? 'تعرفة المحاكاة الافتراضية' : 'Default simulator tariff')
+            : (ar ? 'إصدار التعرفة #' : 'Tariff version #') + e.tariff_version_id;
         return ar
-            ? `تقدير محاكاة للشحن: ${e.energy_wh} Wh\nالسعر لكل kWh: ${money(e.rate_minor_per_kwh)}\nالطاقة: ${money(e.subtotal_minor)}\nالضريبة: ${money(e.tax_minor)}\nالإجمالي التقديري: ${money(e.total_minor)}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${e.expires_at}\nقبول هذا السعر؟`
-            : `Simulated charging estimate: ${e.energy_wh} Wh\nRate per kWh: ${money(e.rate_minor_per_kwh)}\nEnergy: ${money(e.subtotal_minor)}\nTax: ${money(e.tax_minor)}\nEstimated total: ${money(e.total_minor)}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${e.expires_at}\nAccept this price?`;
+            ? `${version}\nتقدير محاكاة للشحن: ${e.energy_wh} Wh\nالسعر لكل kWh: ${money(e.rate_minor_per_kwh)}\nالطاقة: ${money(e.subtotal_minor)}\nالضريبة: ${money(e.tax_minor)}\nالإجمالي التقديري: ${money(e.total_minor)}\nرسوم الجلسة والخمول في المحاكاة: 0. لا تشمل رسوم المواقف أو الدخول الخارجية. يعتمد المبلغ النهائي على العداد الفعلي للجلسة؛ هذا ليس حداً للإنفاق ولا يوقف الشحن تلقائياً. لا يحدث دفع حقيقي.\nتنتهي صلاحية التأكيد: ${e.expires_at}\nقبول هذا السعر؟`
+            : `${version}\nSimulated charging estimate: ${e.energy_wh} Wh\nRate per kWh: ${money(e.rate_minor_per_kwh)}\nEnergy: ${money(e.subtotal_minor)}\nTax: ${money(e.tax_minor)}\nEstimated total: ${money(e.total_minor)}\nSimulator session/idle fees: 0. External parking/access fees are excluded. Final cost depends on the session meter; this is not a spending cap and does not automatically stop charging. No real payment occurs.\nConfirmation expires: ${e.expires_at}\nAccept this price?`;
     }
     async function review({api, reservationId, current, ar = false}) {
         if (!Number.isSafeInteger(reservationId) || reservationId < 1)
@@ -83,6 +89,10 @@ window.EvPrechargePricing = (() => {
         if (!current() || document.visibilityState !== 'visible') return false;
         if (!confirmedReceipt(receipt, reply.estimate))
             throw new Error('Price consent not confirmed. Check session history before retrying.');
+        // A valid acknowledgement can arrive after the quote expires. The
+        // recorded consent is not permission to start with an expired price.
+        if (Date.now() >= expiry)
+            throw new Error('Price confirmation expired. Review a fresh estimate.');
         return true;
     }
     return {valid, amount, text, review};

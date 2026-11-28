@@ -47,8 +47,16 @@ const { chromium } = require("playwright"),
       p.on("pageerror", (e) => errors.push(e.message));
       p.on("dialog", async (dialog) => {
         if (dialog.type() === 'prompt' && dialog.message().startsWith('Estimated energy in Wh')) await dialog.accept('10000');
-        else if (dialog.type() === 'confirm' && dialog.message().startsWith('Simulated charging estimate:')) {
-          assert.match(dialog.message(), /No real payment occurs/);
+        else if (dialog.type() === 'confirm' && dialog.message().includes('Simulated charging estimate:')) {
+          const message = dialog.message();
+          const lines = message.split('\n');
+          assert.match(lines[0], /^(?:Tariff version #[1-9][0-9]*|Default simulator tariff)$/);
+          assert.equal(lines[1], 'Simulated charging estimate: 10000 Wh');
+          assert.match(message, /Simulator session\/idle fees: 0\./);
+          assert.match(message, /External parking\/access fees are excluded\./);
+          assert.match(message, /not a spending cap and does not automatically stop charging/);
+          assert.match(message, /No real payment occurs\./);
+          assert.equal(lines.at(-1), 'Accept this price?');
           await dialog.accept();
         } // Other dialogs keep their operation-specific confirmation handlers.
       });
