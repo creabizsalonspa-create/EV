@@ -31,6 +31,11 @@ final class PrivacyErasurePreparationController extends Controller
         return [$actor, $identity];
     }
 
+    private function scope(array $identity): string
+    {
+        return hash_hmac('sha256', json_encode($identity, JSON_THROW_ON_ERROR), (string) config('app.key'));
+    }
+
     private function projection(array $identity): array
     {
         $plan = DB::table('privacy_erasure_preparations')->where($identity)->first();
@@ -39,6 +44,7 @@ final class PrivacyErasurePreparationController extends Controller
         return [
             'request_id' => (int) $identity['privacy_request_id'],
             'review_revision' => (string) $identity['review_revision'],
+            'review_scope' => $this->scope($identity),
             'preparation_id' => $plan ? (string) $plan->id : null,
             'stage' => $approval ? 'assisted_review_prepared' : ($plan ? 'awaiting_independent_review' : 'not_prepared'),
             'disposition' => 'retain_pending_legal_and_external_review',
@@ -70,6 +76,7 @@ final class PrivacyErasurePreparationController extends Controller
         $input = $request->validate([
             'action' => 'required|in:propose,confirm',
             'review_revision' => ['required', 'string', 'regex:/^[1-9][0-9]{0,17}$/D'],
+            'review_scope' => ['required', 'string', 'regex:/^[a-f0-9]{64}$/D'],
             'preparation_id' => ['nullable', 'string', 'regex:/^[1-9][0-9]{0,17}$/D'],
             'password' => 'required|string|max:128',
             'reason' => 'required|string|min:10|max:2000',
@@ -81,7 +88,8 @@ final class PrivacyErasurePreparationController extends Controller
             if (! Hash::check($input['password'], $actor->password)) {
                 throw ValidationException::withMessages(['password' => 'Current password is required.']);
             }
-            abort_unless((string) $identity['review_revision'] === $input['review_revision'], 409, 'Privacy review changed; refresh.');
+            abort_unless((string) $identity['review_revision'] === $input['review_revision']
+                && hash_equals($this->scope($identity), $input['review_scope']), 409, 'Privacy review changed; refresh.');
             $plan = DB::table('privacy_erasure_preparations')->where($identity)->lockForUpdate()->first();
             $action = $input['action'];
             if ($action === 'propose') {
