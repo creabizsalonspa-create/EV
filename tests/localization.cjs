@@ -262,8 +262,42 @@ const fs = require("node:fs"),
         assert(keyboard.outlineWidth >= 3 && keyboard.outlineStyle !== "none",
           width + "/" + language + " visible keyboard focus");
         assert.equal(keyboard.direction, language === "ar" ? "rtl" : "ltr");
+        // Navigate the horizontally scrollable workspace by keyboard in both
+        // directions. Each focused link must have a usable target and its
+        // entire focus ring must remain inside the scrollport.
+        const nav = page.locator(".workspace-nav");
+        const links = nav.locator("a:visible");
+        const linkCount = await links.count();
+        assert(linkCount >= 3);
+        await links.first().focus();
+        for (let index = 0; index < linkCount; index++) {
+          if (index) await page.keyboard.press("Tab");
+          const metrics = await links.nth(index).evaluate(node => {
+            const rect = node.getBoundingClientRect();
+            const port = node.closest("nav").getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const ring = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+            return {
+              focused: document.activeElement === node,
+              width: rect.width, height: rect.height,
+              ring: style.outlineStyle !== "none" && ring >= 3,
+              within: rect.left - ring >= port.left - 1 &&
+                rect.right + ring <= port.right + 1 &&
+                rect.top - ring >= port.top - 1 &&
+                rect.bottom + ring <= port.bottom + 1,
+            };
+          });
+          assert(metrics.focused && metrics.ring && metrics.within,
+            width + "/" + language + " navigation focus ring visible at link " + index);
+          assert(metrics.width >= 44 && metrics.height >= 44,
+            width + "/" + language + " navigation target size");
+        }
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await links.nth(linkCount - 2).evaluate(node =>
+          document.activeElement === node), true, "reverse keyboard navigation");
         const summary = page.locator("#account [data-second-factor-login] summary");
         await summary.focus();
+        assert((await summary.boundingBox()).height >= 44, "accessible disclosure target");
         await page.keyboard.press("Enter");
         assert.equal(await summary.evaluate(node => node.parentElement.open), true);
         await page.keyboard.press("Enter");

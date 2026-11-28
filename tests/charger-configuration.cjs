@@ -7,7 +7,8 @@ const { chromium } = require("playwright");
 const { randomBytes, randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
 const { BusinessClient } = require("./helpers/business-client.cjs");
-const { SimulatedCharger } = require("./helpers/csms-local.cjs");
+const { SimulatedCharger, graph } = require("./helpers/csms-local.cjs");
+const { waitForRetainedConfigurationRequest } = require("./helpers/diagnostic-source-ready.cjs");
 const { operatingSettings } = require("./helpers/operating-settings.cjs");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main() {
@@ -30,7 +31,15 @@ async function main() {
     });
     client.csrf = (await client.request("csrf")).token;
     const device = new SimulatedCharger(f.protocol, f.identity);
-    device.configurationHandler = operatingSettings(f.protocol);
+    const settings = operatingSettings(f.protocol), retired = [];
+    device.configurationHandler = async (payload, action) => {
+      const reply = settings(payload, action);
+      const sourceId = await waitForRetainedConfigurationRequest({
+        graph, identity: f.identity, protocol: f.protocol, payload,
+      }, [...retired]);
+      retired.push(sourceId);
+      return reply;
+    };
     try {
       await device.connect();
       await device.boot();
